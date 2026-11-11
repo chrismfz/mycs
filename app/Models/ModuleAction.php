@@ -121,7 +121,7 @@ class ModuleAction extends Model
 
     /**
      * A registered domain whose order staff cancelled (CancelOrder, sweep 8 S8-DOMAINS-1): with a refund that gave money
-     * back, or with no refund at all («Cancel Order», «Set as Fraud»); its text says which. The cancel does not undo the
+     * back, or with no refund at all («Cancel Order», «Set as Fraud»); its text does not say which. The cancel does not undo the
      * registration, the domain keeps its status. Staff decide by hand; closed only by them («Checked»). The name is kept
      * from the refund's case (the column is 16 characters).
      */

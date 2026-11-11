@@ -177,11 +177,10 @@
     επιβεβαίωσης προειδοποιεί, και το staff παίρνει ειδοποίηση «Left for staff» και εργασία «Check: registered domain,
     order cancelled» στα Pending Module Actions (`ModuleAction::DOMAIN_REFUNDED`, «check this»: δεν είναι αποτυχία,
     κλείνει μόνο με «Checked», **μία ανοιχτή ανά domain**, REV-793-7), που λέει ποιο domain να κρατήσει (και να χρεώσει)
-    ή να σβήσει στον registrar με το χέρι. **Μόνο το κείμενο αλλάζει:** μιλά για refund («the refund of order #N does not
-    undo the registration») μόνο αν γύρισαν πράγματι χρήματα του τιμολογίου της, με αυτό το κλικ ή νωρίτερα
-    (REV-793-R2-4)· αλλιώς (χωρίς refund, απλήρωτη παραγγελία, άρνηση ή αποτυχία του gateway) λέει «nothing was
-    refunded» (REV-793-6: ποτέ refund που δεν έγινε). Παραγγελία χωρίς domain, με domain pending (ακυρώνεται μαζί της)
-    ή τελικό: καμία εργασία (`Sweep8OpenCancelOrderDomainTest`).
+    ή να σβήσει στον registrar με το χέρι. **Ένα κείμενο για όλες**, που δεν λέει τίποτα για refund, ούτε ότι έγινε ούτε
+    ότι δεν έγινε (REV-793-6, REV-801-3: ένα refund σε πίστωση ή νωρίτερα δεν φαίνεται από εδώ): «order #N was
+    cancelled, and that does not undo the registration (check its invoice for what was refunded)». Παραγγελία χωρίς
+    domain, με domain pending (ακυρώνεται μαζί της) ή τελικό: καμία εργασία (`Sweep8OpenCancelOrderDomainTest`).
   - Ό,τι επιστράφηκε ήδη (από εδώ, ή από το dashboard του gateway με webhook) ή πάρθηκε με chargeback δεν επιστρέφεται
     ξανά (`refundable_amount`).
   - Gateway που δεν κάνει refund (ή αποτυχία): ειδοποίηση στο staff ανά πληρωμή, οι υπόλοιπες συνεχίζουν.

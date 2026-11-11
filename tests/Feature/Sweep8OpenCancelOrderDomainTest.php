@@ -31,7 +31,7 @@ use Tests\TestCase;
  * Open item of the sweep-8 reviews (#793): plain «Cancel Order» (and «Set as Fraud»: no refund) on an order with a domain
  * already registered left the domain Active and said nothing. Now it tells staff as «Cancel & Refund» does: a warning
  * before they confirm, a notice, and the same «check this» task (ModuleAction::DOMAIN_REFUNDED, one open per domain),
- * in words that claim no refund. The registrar is never called (Http::preventStrayRequests) and the domain keeps its status.
+ * in one text that claims nothing about refunds. The registrar is never called (Http::preventStrayRequests) and the domain keeps its status.
  */
 class Sweep8OpenCancelOrderDomainTest extends TestCase
 {
@@ -76,7 +76,7 @@ class Sweep8OpenCancelOrderDomainTest extends TestCase
 
     private function pay(Invoice $invoice): void
     {
-        (new RecordPaymentService)->handle($invoice->fresh(), null, (float) $invoice->fresh()->total, transactionId: 'bank-1');
+        (new RecordPaymentService)->handle($invoice->fresh(), null, (float) $invoice->fresh()->total, transactionId: 'bank-' . $invoice->id);
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
     }
 
@@ -86,7 +86,7 @@ class Sweep8OpenCancelOrderDomainTest extends TestCase
         return ModuleAction::query()->where('action', ModuleAction::DOMAIN_REFUNDED)->when($domain, fn ($query) => $query->where('domain_id', $domain->id))->orderBy('id')->get();
     }
 
-    public function test_cancel_order_of_a_registered_domain_opens_a_task_that_names_it_and_claims_no_refund(): void
+    public function test_cancel_order_of_a_registered_domain_opens_a_task_that_names_it(): void
     {
         [$order, $invoice] = $this->order();
         $domain = $this->domain($order, DomainStatus::Active);
@@ -99,8 +99,7 @@ class Sweep8OpenCancelOrderDomainTest extends TestCase
         $this->assertSame(ModuleAction::STATUS_OPEN, $task->status);
         $this->assertTrue($task->isCheck(), 'a task to look at, not a failure');
         $this->assertSame($left["domain #{$domain->id}"]->getMessage(), $task->last_error);
-        $this->assertStringContainsString("cancelled-order.test is already registered at the registrar: cancelling order #{$order->id} does not undo the registration (nothing was refunded)", (string) $task->last_error);
-        $this->assertStringNotContainsString('the refund of order', (string) $task->last_error);
+        $this->assertSame(self::text('cancelled-order.test', $order), (string) $task->last_error);
         $this->assertSame(DomainStatus::Active, $domain->fresh()->status, 'its status is not changed');
         $this->assertSame(Order::STATUS_CANCELLED, $order->fresh()->status);
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'nothing was refunded');
@@ -146,39 +145,37 @@ class Sweep8OpenCancelOrderDomainTest extends TestCase
     }
 
     /**
-     * «Cancel & Refund»: the refund's own words once money went back, as before; when none did (never paid) the same task,
-     * in the no-refund words (owner 2026-11-11: one rule for every cancel, only the text differs).
+     * One text for every cancel, whatever went back (owner 2026-11-11; REV-793-6, REV-801-3): it claims no refund and no
+     * absence of one. «Cancel & Refund» never paid, «Cancel & Refund» that refunded, «Cancel Order» after an earlier refund.
      */
-    public function test_cancel_and_refund_names_a_refund_only_when_money_went_back(): void
+    public function test_the_text_is_the_same_whatever_was_refunded(): void
     {
         [$unpaid] = $this->order();
         $never = $this->domain($unpaid, DomainStatus::Active, 'never-paid');
         $left = CancelOrder::handle($unpaid->fresh(), refund: 'manual');
         $this->assertSame(["domain #{$never->id}"], array_keys($left));
-        $this->assertStringContainsString('nothing was refunded', (string) $this->tasks($never)->sole()->last_error);
-        $this->assertStringNotContainsString('the refund of order', (string) $this->tasks($never)->sole()->last_error);
+        $this->assertSame(self::text('never-paid.test', $unpaid), (string) $this->tasks($never)->sole()->last_error);
 
         [$order, $invoice] = $this->order();
         $domain = $this->domain($order, DomainStatus::Active, 'paid-one');
         $this->pay($invoice);
         $left = CancelOrder::handle($order->fresh(), refund: 'manual');
-        $this->assertStringContainsString("paid-one.test is already registered at the registrar: the refund of order #{$order->id} does not undo the registration.", $left["domain #{$domain->id}"]->getMessage());
-        $this->assertStringNotContainsString('nothing was refunded', (string) $this->tasks($domain)->sole()->last_error);
-        $this->assertSame(Invoice::STATUS_REFUNDED, $invoice->fresh()->status);
+        $this->assertSame(self::text('paid-one.test', $order), $left["domain #{$domain->id}"]->getMessage());
+        $this->assertSame(Invoice::STATUS_REFUNDED, $invoice->fresh()->status, 'the refund staff asked for was made');
         $this->assertSame(DomainStatus::Active, $domain->fresh()->status);
+
+        [$earlier, $paid] = $this->order();
+        $kept = $this->domain($earlier, DomainStatus::Active, 'refunded-before');
+        $this->pay($paid);
+        ExtensionHelper::refundLocally($paid->transactions()->sole(), 10.00, notify: false);
+        CancelOrder::handle($earlier->fresh());
+        $this->assertSame(self::text('refunded-before.test', $earlier), (string) $this->tasks($kept)->sole()->last_error);
     }
 
-    /** Money that went back before the click (from the invoice's page): plain «Cancel Order» names the refund too. */
-    public function test_cancel_order_after_an_earlier_refund_names_the_refund(): void
+    private static function text(string $fqdn, Order $order): string
     {
-        [$order, $invoice] = $this->order();
-        $domain = $this->domain($order, DomainStatus::Active);
-        $this->pay($invoice);
-        ExtensionHelper::refundLocally($invoice->transactions()->sole(), 10.00, notify: false);
-
-        CancelOrder::handle($order->fresh());
-
-        $this->assertStringContainsString('the refund of order', (string) $this->tasks($domain)->sole()->last_error);
+        return "{$fqdn} is already registered at the registrar: order #{$order->id} was cancelled, and that does not undo the registration"
+            . ' (check its invoice for what was refunded). It stays active: keep it (and bill it), or delete it at the registrar, by hand.';
     }
 
     public function test_the_confirmation_warns_before_cancel_order_and_the_button_opens_the_task(): void

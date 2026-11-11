@@ -211,7 +211,7 @@ final class Charges
                     self::TAKEN_NOT_RECORDED => 'TAKEN, NOT RECORDED: the gateway took it but no payment of it was recorded since (check its webhooks); the invoice is held, never charged or paid again, until its payment is recorded',
                     // As SavedMethodCharge::unknownAttempt: its key is reused only while its gateway keeps it; the invoice is held either way.
                     self::UNKNOWN_OUTCOME => ($until = $attempt->started_at->copy()->addHours(SavedMethodCharge::keyReuseHours($method)))->isFuture()
-                        ? 'UNKNOWN OUTCOME: maybe taken; the invoice is held; a next charge of it to this method until ' . $until->format('Y-m-d H:i') . ' is sent again with the same key (no new money)'
+                        ? 'UNKNOWN OUTCOME: maybe taken; the invoice is held; a next charge of the same thing (this invoice alone, or this same group) to this method until ' . $until->format('Y-m-d H:i') . ' is sent again with the same key (no new money)'
                         : 'UNKNOWN OUTCOME, KEY EXPIRED: maybe taken; the invoice is held, never charged or paid again, until staff check the gateway and record its payment or mark it not taken («Resolve charge»)',
                     'awaiting_payment' => 'taken; its payment is not recorded yet (the gateway\'s webhook is expected within the hour)',
                     'awaiting_answer' => 'sent; no answer from the gateway yet',
