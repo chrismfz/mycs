@@ -10,6 +10,9 @@ namespace MyCS\TicketMail;
  * Anyone may send the HTML, so every step reads it once (sweep 8, S8-TICKETS-MAIL-1): no pattern here may start at
  * each of N places and read to the end from each (`<head>` ten thousand times with no `</head>` held the poller for
  * minutes). What has no end is looked for once, not once per opening.
+ *
+ * The text is what the patterns before gave for as long as they did not give up: on a body near 1 MB or more the first
+ * of them could reach pcre.backtrack_limit and leave the script or style body in the text; here it is always dropped.
  */
 final class HtmlToText
 {

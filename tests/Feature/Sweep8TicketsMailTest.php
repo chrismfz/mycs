@@ -83,7 +83,7 @@ class Sweep8TicketsMailTest extends TestCase
         $html = TicketText::html($message);
         $seconds = microtime(true) - $started;
 
-        $this->assertLessThanOrEqual(100, substr_count($html, '<blockquote'), 'blockquotes nested in one message');
+        $this->assertLessThanOrEqual(TicketText::MAX_NESTING, substr_count($html, '<blockquote'), 'blockquotes nested in one message');
         $this->assertLessThan(1.5, $seconds, 'TicketText::html() of a 30,000-character message');
     }
 }

@@ -69,7 +69,8 @@ class HtmlToTextTest extends TestCase
     {
         $pieces = ['<head>', '</head>', '<head ', '<script>', '</script >', '<style x="y">', '</style>', '<title>', '</TITLE>', '<!--', '-->', '--',
             '>', '<', '<li>', '<li ', '</li>', '<p>', '</p>', '</p ', '<br>', '<br />', '<div>', '</div>', '</td>', ' ', "\t", "\n", "\r\n", 'a', 'b',
-            '&amp;', '&nbsp;', '</blockquote>', '<HEAD>', '<Script', '"', "'", '/'];
+            '&amp;', '&nbsp;', '</blockquote>', '<HEAD>', '<Script', '"', "'", '/',
+            '<style title="a>b">', '<li data-x=\'>\'>'];
         $random = new Randomizer(new Mt19937(8));
 
         for ($i = 0; $i < 5_000; $i++) {
