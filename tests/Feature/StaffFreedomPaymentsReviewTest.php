@@ -15,7 +15,6 @@ use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\MoneyEvent;
 use App\Models\Role;
-use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Services\Ekdosi\EkdosiFeed;
@@ -152,15 +151,12 @@ class StaffFreedomPaymentsReviewTest extends TestCase
         ExtensionHelper::refundLocally($seven, 3.00, notify: false);
         (new RecordPaymentService)->deleteTransaction($three);
         $this->assertSame([Invoice::STATUS_UNPAID, 300, 400], $this->state(503), 'precondition');
-        // #502 came as service 32's open renewal with its period (2026-09-25 to 10-25, WhmcsLinePeriods), so #503 paid the
-        // month after it, which waits behind the unpaid one: the service was not renewed, and nothing runs unpaid.
-        $this->assertSame('2026-09-25', Service::query()->findOrFail(32)->expires_at->toDateString());
-        $this->assertMoneyClean([], 'before the undo');
+        $this->assertMoneyClean(['service_unbilled'], 'before the undo'); // service 32 keeps the month #503 gave it while #503 owes again
 
         (new UndoRefund)->handle($seven, $this->refund($seven)->id);
 
         $this->assertSame([Invoice::STATUS_UNPAID, 300, 700], $this->state(503), '7.00 of 10.00 is on it: it owes 3.00 and is not paid');
-        $this->assertMoneyClean(); // still owing 3.00, for a month service 32 was not given
+        $this->assertMoneyClean(['service_unbilled']); // still owing 3.00, service 32 still on the month it gave
     }
 
     /**

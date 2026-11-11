@@ -4,6 +4,7 @@ namespace App\Services\Import;
 
 use App\Models\Invoice;
 use App\Models\Service;
+use App\Services\Order\OrderPricing;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use PDO;
@@ -12,21 +13,24 @@ use Throwable;
 
 /**
  * The period of the two WHMCS lines every rule here asks about (owner 2026-11-11, sweep 8): a line imported from WHMCS
- * carries no period, and whoever asks «which period did this line pay?» has to guess. For each LIVE service (active or
- * suspended) on a recurring plan with a due date, from WHMCS's own `tblinvoiceitems.duedate` (the start of the period
- * the line bills):
+ * carries no period, and whoever asks «which period did this line pay?» has to guess. The rule is «write only where it
+ * is exact, name the rest». For each LIVE service (active or suspended) on a recurring plan with a due date, from
+ * WHMCS's own `tblinvoiceitems.duedate` (the start of the period the line bills):
  *  - its last paid line (the latest duedate among its lines on paid invoices) takes `duedate .. due date` and is marked
  *    applied as of the day its invoice was paid, only when one cycle on from the duedate IS the service's due date, by
  *    this app's own arithmetic (Service::periodEnd). A pro rata product's first order, its only paid line and due the day
- *    the service was made, takes `that day .. due date` (what the customer paid for);
- *  - its open renewal (the one line on an unpaid invoice due ON the service's due date) takes `due date .. one cycle
- *    on`, not applied.
- * Never the last paid line of an invoice that carries a discount line (WHMCS bills a client group's discount and a
- * promotion as a negative line of their own, so the Hosting line holds the amount before it): with its period the days
- * left would be worth that amount, more than was paid; without it they are worth the service's price, which holds the
- * discount (owner 2026-11-11). The open renewal is written all the same: its payment here gives it its period anyway.
- * Anything else stays as it came (no period, as before) and the service is named for staff. An addon imported as a
- * service of its own (WhmcsAddonImport, its «Addon» lines) goes by the same rule, without the pro rata case. Domains
+ *    the service was made, takes `that day .. due date` only when the due date is the end of the first period this app
+ *    gives that order (OrderPricing::firstPeriod);
+ *  - its open renewal (its ONLY unpaid line, due ON the service's due date) takes `due date .. one cycle on`, not applied.
+ * Never the paid line when WHMCS upgraded or downgraded the service inside its period (the line is not what those days
+ * were paid, REV-788-4). Never the open renewal when the service has another unpaid line (a payment of the later one
+ * must still take the first month not paid for, REV-788-3).
+ * A WHMCS discount line beside the line (a client group's, a promotion's: a negative line of its own) changes nothing
+ * here: the line gets its period all the same, with two known consequences the owner accepted (2026-11-11,
+ * docs/importer.md): the days left of that period are worth the line's amount before the discount, and a plan change
+ * rebuilds such an open renewal at the service's price beside its discount line.
+ * Anything else stays as it came (no period, as before) and the service is named for staff, by reason. An addon imported
+ * as a service of its own (WhmcsAddonImport, its «Addon» lines) goes by the same rule, without the pro rata case. Domains
  * have their own (WhmcsDomainImport).
  *
  * After the lines are in: the rows are read here, so only what was imported is ever written, and the open renewal's end
@@ -34,15 +38,27 @@ use Throwable;
  */
 final class WhmcsLinePeriods
 {
-    /** @var array<int, string> service => why a line of it got no period */
+    /** Why a line got no period, as the import says it (in this order). */
+    public const REASONS = [
+        'dates' => 'the last paid line is not one cycle (or a pro rata first period) before the due date',
+        'upgrade' => 'upgraded or downgraded in WHMCS inside the last paid period',
+        'no_due' => 'the last paid line has no due date',
+        'no_paid' => 'no paid line',
+        'unpaid' => 'more than one unpaid line: the open renewal is not written',
+    ];
+
+    /** @var array<string, array<int, string>> reason => service => the detail of it, if any */
     private array $named = [];
+
+    /** @var array<int, string|null> WHMCS service => the day of its latest completed upgrade or downgrade (null: no day kept) */
+    private array $upgraded = [];
 
     /** @var array{paid: int, prorata: int, open: int} */
     private array $counts = ['paid' => 0, 'prorata' => 0, 'open' => 0];
 
     public function __construct(private readonly PDO $whmcs) {}
 
-    /** @return array{counts: array{paid: int, prorata: int, open: int, services: int}, named: array<int, string>, notes: list<string>} */
+    /** @return array{counts: array{paid: int, prorata: int, open: int, services: int}, named: array<string, array<int, string>>, notes: list<string>} */
     public function run(): array
     {
         $services = Service::query()->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->whereNotNull('expires_at')
@@ -58,7 +74,7 @@ final class WhmcsLinePeriods
         }
         try {
             $due = $this->lineDueDates($ids);
-            $this->discounts();
+            $this->upgrades();
         } catch (PDOException $e) {
             // Not a WHMCS this importer knows (every one keeps the column): nothing written, and said.
             return ['notes' => ["The lines' due dates (tblinvoiceitems.duedate) could not be read: no invoice line was given its period ({$e->getMessage()})."]] + $none;
@@ -67,9 +83,15 @@ final class WhmcsLinePeriods
             $this->service($service, array_map(fn (object $line) => ['id' => (int) $line->id, 'invoice' => (int) $line->invoice_id, 'paid' => $line->status === Invoice::STATUS_PAID,
                 'at' => (string) ($line->paid_at ?? $line->created_at ?? now()->toDateTimeString()), 'due' => $due[(int) $line->id] ?? null], $lines[$id] ?? []));
         }
-        ksort($this->named);
+        $named = [];
+        foreach (array_keys(self::REASONS) as $reason) {
+            if (isset($this->named[$reason])) {
+                ksort($this->named[$reason]);
+                $named[$reason] = $this->named[$reason];
+            }
+        }
 
-        return ['counts' => $this->counts + ['services' => $services->count()], 'named' => $this->named, 'notes' => []];
+        return ['counts' => $this->counts + ['services' => $services->count()], 'named' => $named, 'notes' => []];
     }
 
     /**
@@ -116,79 +138,94 @@ final class WhmcsLinePeriods
         return $due;
     }
 
-    /** @var array<int, true> invoices with a client group's discount line (it names no service: relid 0) */
-    private array $groupDiscounted = [];
-
-    /** @var array<string, true> «invoice|WHMCS service» with a promotion's negative line */
-    private array $promoDiscounted = [];
-
-    /** WHMCS's discount lines: GroupDiscount (per invoice) and a negative PromoHosting (of its service). */
-    private function discounts(): void
+    /**
+     * WHMCS's own upgrades and downgrades of a package or its options, done: the latest day of each service's. A WHMCS
+     * without the table (a fixture) has none; one that keeps no day on them counts each as inside the period.
+     */
+    private function upgrades(): void
     {
-        $statement = $this->whmcs->query("SELECT invoiceid, type, relid FROM tblinvoiceitems WHERE type IN ('GroupDiscount', 'PromoHosting') AND amount < 0");
-        while (($row = $statement->fetch(PDO::FETCH_ASSOC)) !== false) {
-            if ($row['type'] === 'GroupDiscount') {
-                $this->groupDiscounted[(int) $row['invoiceid']] = true;
-            } else {
-                $this->promoDiscounted[(int) $row['invoiceid'] . '|' . (int) $row['relid']] = true;
+        $where = "WHERE status = 'Completed' AND type IN ('package', 'configoptions')";
+        try {
+            $rows = $this->whmcs->query("SELECT relid, date FROM tblupgrades {$where}")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException) {
+            try {
+                $rows = $this->whmcs->query("SELECT relid, NULL AS date FROM tblupgrades {$where}")->fetchAll(PDO::FETCH_ASSOC);
+            } catch (PDOException) {
+                return;
+            }
+        }
+        foreach ($rows as $row) {
+            $id = (int) $row['relid'];
+            $day = self::day($row['date']);
+            if (!array_key_exists($id, $this->upgraded)) {
+                $this->upgraded[$id] = $day;
+            } elseif ($this->upgraded[$id] !== null) {
+                $this->upgraded[$id] = $day === null ? null : max($day, $this->upgraded[$id]);
             }
         }
     }
 
-    /** The line's invoice bills a discount beside it: the line holds more than was paid for its period. */
-    private function discounted(Service $service, int $invoice): bool
+    /** Upgraded or downgraded in WHMCS on or after $from (the start of its last paid period), or on a day not kept. */
+    private function upgradedSince(Service $service, string $from): bool
     {
-        return isset($this->groupDiscounted[$invoice])
-            || ($service->whmcs_addon_id === null && isset($this->promoDiscounted[$invoice . '|' . (int) $service->id]));
+        if ($service->whmcs_addon_id !== null || !array_key_exists((int) $service->id, $this->upgraded)) {
+            return false;
+        }
+        $day = $this->upgraded[(int) $service->id];
+
+        return $day === null || $day >= $from;
+    }
+
+    private function name(string $reason, Service $service, string $detail = ''): void
+    {
+        $this->named[$reason][(int) $service->id] ??= $detail;
     }
 
     /** @param  array<int, array{id: int, invoice: int, paid: bool, at: string, due: string|null}>  $lines */
     private function service(Service $service, array $lines): void
     {
         $due = CarbonImmutable::parse($service->expires_at)->startOfDay();
-        $why = [];
 
         $paid = array_values(array_filter($lines, fn (array $line) => $line['paid']));
         // The latest period paid; of two lines for the same one, the later line.
         usort($paid, fn (array $a, array $b) => [$b['due'] ?? '', $b['id']] <=> [$a['due'] ?? '', $a['id']]);
         $last = $paid[0] ?? null;
         if ($last === null) {
-            $why[] = 'no paid line';
-        } elseif ($this->discounted($service, $last['invoice'])) {
-            $why[] = "its last paid line (#{$last['id']}) is on an invoice with a discount line (invoice #{$last['invoice']}): it holds the amount before the discount";
+            $this->name('no_paid', $service);
         } elseif ($last['due'] === null) {
-            $why[] = "its last paid line (#{$last['id']}) has no due date";
+            $this->name('no_due', $service, "line #{$last['id']}");
+        } elseif ($this->upgradedSince($service, $last['due'])) {
+            $this->name('upgrade', $service, "line #{$last['id']} due {$last['due']}");
         } else {
             $start = CarbonImmutable::parse($last['due'])->startOfDay();
             $end = $service->periodEnd($start);
-            $firstOrder = count($paid) === 1 && $service->created_at !== null && $start->toDateString() === CarbonImmutable::parse($service->created_at)->toDateString()
-                && $service->parent_service_id === null && $service->product?->proratesPlan($service->plan) === true && $start->lessThan($due);
+            // Its order's own line on a pro rata product: the first period this app gives an order of that day.
+            $first = count($paid) === 1 && $service->created_at !== null && $start->toDateString() === CarbonImmutable::parse($service->created_at)->toDateString()
+                && $service->parent_service_id === null && $service->product !== null && $service->plan !== null
+                ? OrderPricing::firstPeriod($service->product, $service->plan, $start) : null;
             if ($end !== null && $end->equalTo($due)) {
                 $this->write($last['id'], $start, $due, $last['at']);
                 $this->counts['paid']++;
-            } elseif ($firstOrder) {
+            } elseif ($first !== null && $first['end']->equalTo($due)) {
                 $this->write($last['id'], $start, $due, $last['at']);
                 $this->counts['prorata']++;
             } else {
-                $why[] = "its last paid line (#{$last['id']}) is due {$last['due']}, one cycle on is " . ($end?->toDateString() ?? 'unknown')
-                    . ", its due date {$due->toDateString()}";
+                $this->name('dates', $service, "line #{$last['id']} due {$last['due']}, one cycle on " . ($end?->toDateString() ?? 'unknown')
+                    . ($first !== null ? ", its first pro rata period to {$first['end']->toDateString()}" : '') . ", due date {$due->toDateString()}");
             }
         }
 
-        $open = array_values(array_filter($lines, fn (array $line) => !$line['paid'] && $line['due'] === $due->toDateString()));
-        if (count($open) === 1) {
+        $unpaid = array_values(array_filter($lines, fn (array $line) => !$line['paid']));
+        $open = array_values(array_filter($unpaid, fn (array $line) => $line['due'] === $due->toDateString()));
+        if ($open === []) {
+            return; // an unpaid line elsewhere stays as it is
+        }
+        if (count($unpaid) > 1) {
+            $this->name('unpaid', $service, count($unpaid) . ' unpaid lines');
+        } elseif (($end = $service->periodEnd($due)) !== null) {
             // After the paid line is written: a month-end day goes by the period before it, as the cron's will.
-            $end = $service->periodEnd($due);
-            if ($end !== null) {
-                $this->write($open[0]['id'], $due, $end);
-                $this->counts['open']++;
-            }
-        } elseif (count($open) > 1) {
-            $why[] = count($open) . " unpaid lines due on its due date {$due->toDateString()}";
-        }
-
-        if ($why !== []) {
-            $this->named[(int) $service->id] = implode('; ', $why);
+            $this->write($open[0]['id'], $due, $end);
+            $this->counts['open']++;
         }
     }
 

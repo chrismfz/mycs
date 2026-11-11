@@ -2538,9 +2538,14 @@ class ImportFromWhmcs extends Command
             $this->warn($note);
         }
         if ($result['named'] !== []) {
-            $this->warn(count($result['named']) . ' live service(s) whose last paid line or open renewal got no period (WHMCS\'s dates are not one cycle apart, a'
-                . ' discount line beside the paid line, or no paid line): left as before, their next payment or refund goes by the old guess. Look at each (cutover-runbook): '
-                . implode(', ', array_map(fn (int $id, string $why) => "#{$id} ({$why})", array_keys($result['named']), $result['named'])) . '.');
+            $services = count(array_unique(array_merge(...array_map('array_keys', array_values($result['named'])))));
+            $this->warn("{$services} live service(s) whose last paid line or open renewal got no period: left as before, their next payment or refund"
+                . ' goes by the old guess. By reason (cutover-runbook says which to look at):');
+            // One line a reason, with its count: a discount group's services are many, and expected.
+            foreach ($result['named'] as $reason => $ids) {
+                $this->warn('  ' . count($ids) . ' ' . WhmcsLinePeriods::REASONS[$reason] . ': '
+                    . implode(', ', array_map(fn (int $id, string $detail) => "#{$id}" . ($detail === '' ? '' : " ({$detail})"), array_keys($ids), $ids)) . '.');
+            }
         }
     }
 
