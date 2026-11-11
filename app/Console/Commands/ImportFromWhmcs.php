@@ -36,6 +36,7 @@ use App\Services\Import\WhmcsDomainImport;
 use App\Services\Import\WhmcsEkdosiContactImport;
 use App\Services\Import\WhmcsEmailHistoryImport;
 use App\Services\Import\WhmcsKnowledgebaseImport;
+use App\Services\Import\WhmcsLinePeriods;
 use App\Services\Import\WhmcsMassPay;
 use App\Services\Import\WhmcsMoneyJournal;
 use App\Services\Import\WhmcsNoteImport;
@@ -2509,6 +2510,7 @@ class ImportFromWhmcs extends Command
         foreach ($this->domains?->lineNotes() ?? [] as $note) {
             $this->warn($note);
         }
+        $this->giveLinePeriods();
         if ($this->orphanLines > 0) {
             $this->warn("{$this->orphanLines} invoice line(s) of invoices deleted in WHMCS, or not imported: not imported.");
         }
@@ -2519,6 +2521,26 @@ class ImportFromWhmcs extends Command
                 . ' automatically: paying it here does not apply the upgrade. Settle or cancel each in WHMCS before the final dump'
                 . ' (cutover-runbook, ADV-A1-1): ' . implode(', ', array_map(fn (array $u) => "invoice #{$u['invoice']} service #{$u['service']}"
                 . " WHMCS upgrade #{$u['upgrade']} ({$u['type']})", $this->unpaidUpgrades)) . '.');
+        }
+    }
+
+    /**
+     * The last paid line and the open renewal of each live service take their period from WHMCS's own due dates
+     * (WhmcsLinePeriods, owner 2026-11-11); the services where they do not add up are named for staff (cutover-runbook).
+     */
+    private function giveLinePeriods(): void
+    {
+        $result = (new WhmcsLinePeriods($this->pdo))->run();
+        $c = $result['counts'];
+        $this->info("Line periods: of {$c['services']} live recurring service(s) and addon(s), {$c['paid']} last paid line(s) with their period by WHMCS's due date"
+            . " and {$c['prorata']} pro rata first order(s), applied; {$c['open']} open renewal(s) with theirs.");
+        foreach ($result['notes'] as $note) {
+            $this->warn($note);
+        }
+        if ($result['named'] !== []) {
+            $this->warn(count($result['named']) . ' live service(s) whose last paid line or open renewal got no period (WHMCS\'s dates are not one cycle apart, or'
+                . ' no paid line): left as before, their next payment or refund goes by the old guess. Look at each (cutover-runbook): '
+                . implode(', ', array_map(fn (int $id, string $why) => "#{$id} ({$why})", array_keys($result['named']), $result['named'])) . '.');
         }
     }
 
