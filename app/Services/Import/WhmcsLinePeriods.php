@@ -25,10 +25,11 @@ use Throwable;
  * Never the paid line when WHMCS upgraded or downgraded the service since the line was billed (its invoice's date: the
  * line is not what those days were paid, REV-788-4, REV-788-R2-1), nor one on an invoice that comes to 0.00 or holds no
  * money (a 100% promotion, closed as paid with no payment: its days were paid nothing, REV-788-R2-2). Never the open renewal when the service has another unpaid line (a payment of the later one
- * must still take the first month not paid for, REV-788-3). Never either line when its invoice is another customer's (the
- * service moved to this one in WHMCS and the invoice stayed with the first: the billing would read the period as billed
- * and never ask the service's own customer for it, S9-IMPORT-PERIODS-1); no older line of the right customer takes its
- * place.
+ * must still take the first month not paid for, REV-788-3), nor when an unpaid line of the service is on another
+ * customer's invoice (the service moved to this one in WHMCS and the invoice stayed with the first: the billing would read
+ * the period as billed and never ask the service's own customer for it, S9-IMPORT-PERIODS-1). The last paid line keeps
+ * its period whoever's invoice it is on: those days were paid, and a refund of it must not give up the next period
+ * (REV-804-2).
  * A WHMCS discount line beside the line (a client group's, a promotion's: a negative line of its own) changes nothing
  * here: the line gets its period all the same, with two known consequences the owner accepted (2026-11-11,
  * docs/importer.md): the days left of that period are worth the line's amount before the discount, and a plan change
@@ -220,11 +221,9 @@ final class WhmcsLinePeriods
         return $day === null || $day >= $from;
     }
 
-    /** Once a reason; a second line of the service for the same one (the paid and the open, both another customer's) is added to its detail. */
     private function name(string $reason, Service $service, string $detail = ''): void
     {
-        $said = $this->named[$reason][(int) $service->id] ?? null;
-        $this->named[$reason][(int) $service->id] = $said === null ? $detail : "{$said}, {$detail}";
+        $this->named[$reason][(int) $service->id] ??= $detail;
     }
 
     /** @param  array<int, array{id: int, invoice: int, paid: bool, at: string, billed: string|null, due: string|null, other: bool}>  $lines */
@@ -238,9 +237,6 @@ final class WhmcsLinePeriods
         $last = $paid[0] ?? null;
         if ($last === null) {
             $this->name('no_paid', $service);
-        } elseif ($last['other']) {
-            // The latest paid line is the first customer's: not written, and no older line is taken for it.
-            $this->name('other_client', $service, "line #{$last['id']} of invoice #{$last['invoice']}");
         } elseif ($last['due'] === null) {
             $this->name('no_due', $service, "line #{$last['id']}");
         } elseif (isset($this->moneyless[$last['invoice']])) {
@@ -271,10 +267,12 @@ final class WhmcsLinePeriods
         if ($open === []) {
             return; // an unpaid line elsewhere stays as it is
         }
-        if (count($unpaid) > 1) {
+        $others = array_filter($unpaid, fn (array $line) => $line['other']);
+        if ($others !== []) {
+            // Before the count: two unpaid lines left with the first customer are that customer's, not two renewals to sort (REV-804-5).
+            $this->name('other_client', $service, implode(', ', array_map(fn (array $line) => "line #{$line['id']} of invoice #{$line['invoice']}", $others)));
+        } elseif (count($unpaid) > 1) {
             $this->name('unpaid', $service, count($unpaid) . ' unpaid lines');
-        } elseif ($open[0]['other']) {
-            $this->name('other_client', $service, "line #{$open[0]['id']} of invoice #{$open[0]['invoice']}");
         } elseif (($end = $service->periodEnd($due)) !== null) {
             // After the paid line is written: a month-end day goes by the period before it, as the cron's will.
             $this->write($open[0]['id'], $due, $end);

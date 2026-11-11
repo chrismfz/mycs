@@ -16,9 +16,9 @@ use Tests\Concerns\ImportedWhmcsInvoices;
 use Tests\TestCase;
 
 /**
- * The fix of S9-IMPORT-PERIODS-1 (Sweep9ImportPeriodsTest): a line on an invoice of a customer other than the service's
- * gets no period from the importer, paid or open, and the service is named under a reason of its own. Nothing older
- * takes the line's place. Invented rows, no network.
+ * The fix of S9-IMPORT-PERIODS-1 (Sweep9ImportPeriodsTest): an open renewal on an invoice of a customer other than the
+ * service's gets no period from the importer, and the service is named under a reason of its own. The last paid line
+ * keeps its period whoever's invoice it is on (review of #804, REV-804-2). Invented rows, no network.
  */
 class Sweep9ImportOtherClientTest extends TestCase
 {
@@ -120,7 +120,7 @@ class Sweep9ImportOtherClientTest extends TestCase
         $this->assertSame(['2026-12-01'], $this->openOf($this->owner, 31), 'once');
     }
 
-    public function test_a_last_paid_line_on_another_customers_invoice_gets_no_period_and_no_older_line_takes_its_place(): void
+    public function test_a_last_paid_line_on_another_customers_invoice_keeps_its_period_as_before(): void
     {
         // Paid by the first customer to 2026-12-01 (#480); before it, a month the service's own customer paid (#440).
         $this->whmcsService(31, '2026-12-01');
@@ -133,19 +133,19 @@ class Sweep9ImportOtherClientTest extends TestCase
         $this->importWhmcs();
         $said = $this->importSaid();
 
-        $this->assertSame([null, null, null], $this->line(480), "the last paid line on the first customer's invoice: no period, not applied");
-        $this->assertSame([null, null, null], $this->line(440), 'the older line of the right customer does not take its place');
+        $this->assertSame(['2026-11-01', '2026-12-01', '2026-10-27 10:00:00'], $this->line(480), "the last paid line on the first customer's invoice: its period, as on main");
+        $this->assertSame([null, null, null], $this->line(440), 'an older paid line stays as it came');
         $this->assertSame(['2026-11-05', '2026-12-05', '2026-10-30 10:00:00'], $this->line(481));
-        $this->assertSame(1, substr_count($said, "1 a line on another customer's invoice: #31 (line #{$this->lineId(480)} of invoice #480)."), $said);
-        $this->assertSame(1, substr_count($said, 'another customer'));
+        $this->assertStringNotContainsString('another customer', $said);
+        $this->assertStringNotContainsString('got no period', $said);
         $this->assertSame('2026-12-01', Service::query()->findOrFail(31)->expires_at->toDateString(), 'no due date moved');
 
-        // Left to the old behaviour: the cron bills the period from the due date to the service's customer.
+        // The cron bills the period from the due date to the service's customer.
         $this->cronOn('2026-11-25');
         $this->assertSame(['2026-12-01'], $this->openOf($this->owner, 31));
     }
 
-    public function test_both_lines_on_another_customers_invoices_name_the_service_once(): void
+    public function test_both_lines_on_another_customers_invoices_name_the_service_once_for_the_open_one(): void
     {
         $this->whmcsService(31, '2026-12-01');
         $this->whmcsInvoice(480, 'Paid', [31 => 10.0], due: '2026-11-01', date: '2026-10-25');
@@ -155,9 +155,9 @@ class Sweep9ImportOtherClientTest extends TestCase
         $this->importWhmcs();
         $said = $this->importSaid();
 
-        $this->assertSame([null, null, null], $this->line(480));
+        $this->assertSame(['2026-11-01', '2026-12-01', '2026-10-27 10:00:00'], $this->line(480), 'the paid line: its period, as on main');
         $this->assertSame([null, null, null], $this->line(530));
-        $this->assertSame(1, substr_count($said, "1 a line on another customer's invoice: #31 (line #{$this->lineId(480)} of invoice #480, line #{$this->lineId(530)} of invoice #530)."), $said);
+        $this->assertSame(1, substr_count($said, "1 a line on another customer's invoice: #31 (line #{$this->lineId(530)} of invoice #530)."), $said);
         $this->assertSame(1, substr_count($said, 'another customer'));
         $this->assertStringContainsString('1 live service(s) whose', $said);
     }
@@ -218,8 +218,8 @@ class Sweep9ImportOtherClientTest extends TestCase
 
         // The step alone, on what it wrote already.
         $again = (new WhmcsLinePeriods($this->whmcs))->run();
-        $this->assertSame(['paid' => 1, 'prorata' => 0, 'open' => 0, 'services' => 2], $again['counts']);
-        $this->assertSame(['other_client' => [31 => "line #{$this->lineId(530)} of invoice #530", 32 => "line #{$this->lineId(481)} of invoice #481"]], $again['named']);
+        $this->assertSame(['paid' => 2, 'prorata' => 0, 'open' => 0, 'services' => 2], $again['counts']);
+        $this->assertSame(['other_client' => [31 => "line #{$this->lineId(530)} of invoice #530"]], $again['named']);
         $this->assertSame($lines, $this->table('invoice_items'));
 
         // The whole import again from nothing, as the command runs it: row for row what the first gave, said the same.
