@@ -326,17 +326,90 @@ class CentovaCast extends Server implements ReadsServiceUsage
     /** The account kept on the service: its name and where it streams (shown to the customer). */
     private function made(Service $service, string $username, array $account): bool
     {
-        foreach (['port' => 'Centova port', 'servertype' => 'Centova server type', 'sourcetype' => 'Centova AutoDJ type'] as $key => $name) {
-            $value = trim((string) (is_scalar($account[$key] ?? null) ? $account[$key] : ''));
-            if ($value !== '') {
-                $service->properties()->updateOrCreate(['key' => "centova_{$key}"], ['name' => $name, 'value' => $value]);
-            }
-        }
+        self::keep($service, $account);
         $service->properties()->updateOrCreate(['key' => 'centova_username'], ['name' => 'Centova account', 'value' => $username]);
         $service->properties()->where('key', self::PENDING)->delete();
         $service->forceFill(['username' => $username])->save();
 
         return true;
+    }
+
+    /** Its port, server type and AutoDJ type as Centova answered them (`apptypes` is the AutoDJ's name since Centova 3; `sourcetype` before). */
+    private static function keep(Service $service, array $account): void
+    {
+        $account['sourcetype'] = self::text($account['apptypes'] ?? null) ?: ($account['sourcetype'] ?? null);
+        foreach (['port' => 'Centova port', 'servertype' => 'Centova server type', 'sourcetype' => 'Centova AutoDJ type'] as $key => $name) {
+            $value = self::text($account[$key] ?? null);
+            if ($value !== '') {
+                $service->properties()->updateOrCreate(['key' => "centova_{$key}"], ['name' => $name, 'value' => $value]);
+            }
+        }
+    }
+
+    private static function text(mixed $value): string
+    {
+        return trim((string) (is_scalar($value) ? $value : ''));
+    }
+
+    /**
+     * The account as Centova has it now (owner 2026-11-11: read when it is shown, never kept: the source password is right
+     * even after the customer changed it in the panel), or [] when it cannot be read or is not this service's alone. What
+     * the service keeps of it (port, types) is set right on the way: an import's blank or mistyped one.
+     *
+     * @return array<string, mixed>
+     */
+    private function live(Service $service, array $properties): array
+    {
+        $username = self::username($service, $properties);
+        if ($username === null || self::claimants($service, $username, [self::USERNAME]) !== []) {
+            return [];
+        }
+        try {
+            $account = $this->api(8)->server($username, 'getaccount')['account'] ?? null;
+        } catch (Exception $e) {
+            report($e); // the page and the mail go without it
+
+            return [];
+        }
+        if (!is_array($account) || ($account['username'] ?? null) !== $username) {
+            return [];
+        }
+        self::keep($service, $account);
+
+        return $account;
+    }
+
+    /**
+     * Where the station streams and what its encoder signs in with, from Centova now, else what the service keeps (never
+     * a source password then).
+     *
+     * @return array{host: string, port: string, servertype: string, autodj: string, source_password: string}
+     */
+    private function details(Service $service, array $properties): array
+    {
+        $account = $this->live($service, $properties);
+        $autodj = self::text($account['apptypes'] ?? null) ?: self::text($account['sourcetype'] ?? null);
+
+        return [
+            'host' => (string) parse_url((string) $this->config('host'), PHP_URL_HOST),
+            'port' => self::text($account['port'] ?? null) ?: self::text($properties['centova_port'] ?? null),
+            'servertype' => self::text($account['servertype'] ?? null) ?: self::text($properties['centova_servertype'] ?? null),
+            'autodj' => $autodj ?: self::text($properties['centova_sourcetype'] ?? null),
+            'source_password' => self::text($account['sourcepassword'] ?? null),
+        ];
+    }
+
+    /**
+     * For the welcome mail's product snippet (WHMCS's «Streaming Port», «Source Password»): `{{ centova_host }}`,
+     * `{{ centova_port }}`, `{{ centova_source_password }}` (a secret's name: never in the email log).
+     *
+     * @return array<string, string>
+     */
+    public function welcomeData(Service $service, $settings, $properties): array
+    {
+        $details = $this->details($service, $properties);
+
+        return array_filter(['centova_host' => $details['host'], 'centova_port' => $details['port'], 'centova_source_password' => $details['source_password']]);
     }
 
     /**
@@ -460,13 +533,20 @@ class CentovaCast extends Server implements ReadsServiceUsage
         if ($username === null) {
             return [];
         }
-        $host = (string) parse_url((string) $this->config('host'), PHP_URL_HOST);
+        $details = $this->details($service, $properties);
         $fields = [['label' => __('services.centova.username'), 'type' => 'text', 'text' => $username]];
-        if ($host !== '' && filled($properties['centova_port'] ?? null)) {
-            $fields[] = ['label' => __('services.centova.server'), 'type' => 'text', 'text' => "{$host}:{$properties['centova_port']}"];
+        if ($details['host'] !== '' && $details['port'] !== '') {
+            $fields[] = ['label' => __('services.centova.server'), 'type' => 'text', 'text' => "{$details['host']}:{$details['port']}"];
         }
-        if (filled($properties['centova_servertype'] ?? null)) {
-            $fields[] = ['label' => __('services.centova.servertype'), 'type' => 'text', 'text' => (string) $properties['centova_servertype']];
+        if ($details['servertype'] !== '') {
+            $fields[] = ['label' => __('services.centova.servertype'), 'type' => 'text', 'text' => $details['servertype']];
+        }
+        if ($details['autodj'] !== '') {
+            $fields[] = ['label' => __('services.centova.autodj'), 'type' => 'text', 'text' => $details['autodj']];
+        }
+        if ($details['source_password'] !== '') {
+            // The encoder's password: only for a login that manages the service.
+            $fields[] = ['label' => __('services.centova.source_password'), 'type' => 'text', 'text' => $details['source_password'], 'manage' => true];
         }
 
         return array_merge([

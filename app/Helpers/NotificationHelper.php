@@ -685,6 +685,8 @@ class NotificationHelper
         // Where it lives, as WHMCS's welcome mails said ({$service_server_hostname}, {$service_server_ip},
         // {$service_dedicated_ip}, {$service_assigned_ips}): a hosting panel's address, a machine's own IPs.
         $data += self::welcomeServer($service);
+        // Its module's own (Centova: the stream's port and source password, read from the panel now). Never lost for it.
+        $data += rescue(fn () => ExtensionHelper::welcomeData($service), [], true);
         self::toAccount($client, 'new_server_created', $data, mailOnly: $resend, gated: !$resend && !$byStaff);
     }
 

@@ -431,8 +431,11 @@ disabled ή locked στον server. Αν τον είχε κλείσει το sta
 - **Υπηρεσία:**
   - IP («IP Address», «IP», «ipaddress», το «Dedicated IP» ενός addon) → `dedicated_ip`, αν η υπηρεσία δεν έχει ήδη.
   - Centova (`username`, `port`, `servertype`, `sourcetype`) → τα properties που διαβάζει το module. Το `transferlimit`
-    είναι του plan. Το `sourcepassword` **δεν** περνά: το Centova έχει δικό του, η MyCS φτιάχνει νέο όταν δημιουργεί
-    λογαριασμό, και μπαίνει σε λίστα.
+    είναι του plan. Το `sourcepassword` **δεν** περνά και δεν αποθηκεύεται πουθενά: το module τον διαβάζει από το
+    Centova τη στιγμή που τον δείχνει (`provisioning.md` → Centova Cast). Ένα `port` που δεν είναι αριθμός ή ένας τύπος
+    που δεν είναι τύπος (IceCast/ShoutCast/ShoutCast2· liquidsoap/icescc/ices/sctrans/sctrans2) δεν περνά και μπαίνει σε
+    λίστα, χωρίς την τιμή: στο myip ένα `servertype` είχε κάτι άλλο (2026-11-11) και θα το έβλεπε ο πελάτης ως «Τύπο
+    διακομιστή». Η σελίδα της υπηρεσίας το παίρνει σωστό από το Centova.
   - Τα πεδία ενός προϊόντος licensing τα φέρνει το import του licensing.
   - Ό,τι άλλο έχει τιμή (π.χ. OS/location ενός VPS, instance id) → στις σημειώσεις της υπηρεσίας για το staff.
   - Ένας κωδικός δεν περνά ποτέ πουθενά. Ο κανόνας είναι επίτηδες ευρύς, γιατί κάθε γύρος review έβρισκε ένα ακόμη όνομα:
@@ -766,6 +769,9 @@ nixpal 70 → 78 δικαιώματα του MyCS (21 χωρίς αντίστο�
   παίρνει snippet στο «service activated» (`{{ product_info }}`). Δεν υπάρχει γενικός μετατροπέας Smarty (απόφαση ιδιοκτήτη): το
   email της MyCS λέει ήδη πελάτη, προϊόν, τρόπο πληρωμής, ποσό, κύκλο και επόμενη λήξη, άρα κρατιούνται μόνο οι **άλλες**
   γραμμές (οδηγία, link) και το «License Key: {$service_domain}» προϊόντος άδειας ως `{{ service.license.license_key }}`.
+  Προϊόν Centova (2026-11-11): οι γραμμές «Streaming Port» και «Source Password» (`{$service_custom_field_port}`,
+  `{$service_custom_field_sourcepassword}`) μένουν με τα `{{ centova_port }}` και `{{ centova_source_password }}` του module,
+  η καθεμιά μέσα σε `{% if %}`· η γραμμή του username είναι ήδη του email· «IP Address» και «Bandwidth» δεν έρχονται.
   Γραμμή με άλλη μεταβλητή Smarty δεν έρχεται και λέγεται· snippet που υπάρχει εδώ μένει. Nixpal: τα 6 προϊόντα ZoneCloud (template
   84) παίρνουν «License key» και «Refer to https://zonecloud.io/ …». Το «ZoneCloud Controller» (87) δεν συνδέεται με προϊόν.
   Τα stock templates (hosting κ.λπ.) δεν έρχονται: τα καλύπτει το γενικό email. Αυτό λέει πια και πού ζει η υπηρεσία,

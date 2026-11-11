@@ -3,7 +3,10 @@
 namespace Tests\Feature;
 
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
 use App\Livewire\Services\Show;
+use App\Mail\Mail as MyCSMail;
+use App\Models\EmailLog;
 use App\Models\Server;
 use App\Models\Service;
 use App\Models\User;
@@ -11,6 +14,7 @@ use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -343,6 +347,85 @@ class CentovaCastExtensionTest extends TestCase
         // Its form into a new tab (owner 2026-10-26).
         $page->assertSee(route('services.panel-login', $this->service), false)->assertSee('target="_blank"', false);
         $this->post(route('services.panel-login', $this->service), ['function' => 'getLoginUrl'])->assertRedirect(self::API . '/login/index.php');
+    }
+
+    /** The station as Centova has it now: its encoder's password, its port and its types (owner 2026-11-11). */
+    private function live(): void
+    {
+        $this->made();
+        $this->accounts['radio'] += ['port' => '9300', 'servertype' => 'ShoutCast2', 'apptypes' => 'liquidsoap', 'sourcepassword' => 'Src-Pass-9'];
+    }
+
+    public function test_the_page_reads_the_source_password_and_the_types_from_centova_now(): void
+    {
+        $this->live();
+        // An import's mistyped type: set right by what Centova says.
+        $this->service->properties()->create(['key' => 'centova_servertype', 'name' => 'Centova server type', 'value' => 'x9Kq']);
+        $this->actingAs($this->owner)->withSession($this->loginUser($this->owner, [CurrentClient::SESSION_KEY => $this->service->client_id]));
+
+        Livewire::test(Show::class, ['service' => $this->service])
+            ->assertSee('stream.test:9300')->assertSee('ShoutCast2')->assertSee('liquidsoap')->assertSee('Src-Pass-9')->assertDontSee('x9Kq');
+
+        $kept = $this->service->properties()->pluck('value', 'key')->all();
+        $this->assertSame(['9300', 'ShoutCast2', 'liquidsoap'], [$kept['centova_port'], $kept['centova_servertype'], $kept['centova_sourcetype']]);
+        $this->assertNotContains('Src-Pass-9', $kept, 'read when shown, never kept');
+    }
+
+    public function test_a_login_that_only_views_the_service_does_not_see_the_source_password(): void
+    {
+        $this->live();
+        $this->actingAs($this->owner)->withSession($this->loginUser($this->owner, [CurrentClient::SESSION_KEY => $this->service->client_id]));
+        Gate::before(fn ($user, string $ability) => $ability === 'update' ? false : null);
+
+        Livewire::test(Show::class, ['service' => $this->service])->assertSee('stream.test:9300')->assertDontSee('Src-Pass-9');
+    }
+
+    public function test_a_centova_that_does_not_answer_leaves_the_page_with_what_the_service_keeps(): void
+    {
+        $this->live();
+        $this->down = true;
+        $this->actingAs($this->owner)->withSession($this->loginUser($this->owner, [CurrentClient::SESSION_KEY => $this->service->client_id]));
+
+        Livewire::test(Show::class, ['service' => $this->service])
+            ->assertSee('stream.test:9250')->assertSee(route('services.panel-login', $this->service), false)->assertDontSee('Src-Pass-9');
+    }
+
+    public function test_a_name_another_service_here_has_is_never_read(): void
+    {
+        $this->live();
+        Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id,
+            'server_id' => $this->server->id, 'status' => 'active', 'username' => 'Radio ', 'currency_code' => 'USD', 'price' => 10]);
+
+        $fields = array_column(ExtensionHelper::getActions($this->service->fresh()), 'text');
+
+        $this->assertNotContains('Src-Pass-9', $fields);
+        $this->assertSame([], $this->sent('server.getaccount'));
+    }
+
+    public function test_the_welcome_mail_carries_the_port_and_the_source_password_and_the_log_does_not(): void
+    {
+        $this->live();
+        config(['settings.mail_disable' => false]);
+        $this->service->forceFill(['username' => 'radio', 'password' => 'Old-Pass-123'])->save();
+        $this->service->product->forceFill(['email_template' => "{% if centova_port %}\nStreaming Port: {{ centova_port }}\n{% endif %}\n\n"
+            . "{% if centova_source_password %}\nSource Password: {{ centova_source_password }}\n{% endif %}\n\nServer: {{ centova_host }}"])->save();
+
+        NotificationHelper::serverCreatedNotification($this->service->client, $this->service->fresh());
+
+        $mail = Mail::queued(MyCSMail::class)->sole();
+        $this->assertStringContainsString('Streaming Port: 9300', $mail->renderedHtml);
+        $this->assertStringContainsString('Source Password: Src-Pass-9', $mail->renderedHtml);
+        $this->assertStringContainsString('Server: stream.test', $mail->renderedHtml);
+        $log = (string) EmailLog::query()->sole()->body;
+        $this->assertStringContainsString('Streaming Port: 9300', $log);
+        $this->assertStringNotContainsString('Src-Pass-9', $log);
+
+        // Centova down: the mail still goes, with the port the service keeps and no «Source Password» line.
+        $this->down = true;
+        NotificationHelper::serverCreatedNotification($this->service->client, $this->service->fresh(), resend: true);
+        $again = Mail::queued(MyCSMail::class)->last();
+        $this->assertStringContainsString('Streaming Port: 9300', $again->renderedHtml);
+        $this->assertStringNotContainsString('Source Password', $again->renderedHtml);
     }
 
     public function test_html_entities_in_an_answer_are_read_as_their_characters(): void

@@ -40,7 +40,7 @@ tests) **διαβάζει μόνο δεδομένα**: δεν καλεί συν�
 |---|---|
 | `new_invoice_created`, `invoice_paid`, `invoice_payment_failed` | `invoice`, `items`, `total`, `subtotal`, `tax` (κενά χωρίς ΦΠΑ, Δ1), `has_subscription` |
 | `new_order_created` | `order`, `items` (υπηρεσίες), `total` |
-| `new_server_created`, `server_suspended`, `server_terminated` | `service`· στο πρώτο και `product_info` (το snippet του προϊόντος, ήδη σε HTML) |
+| `new_server_created`, `server_suspended`, `server_terminated` | `service`· στο πρώτο και `product_info` (το snippet του προϊόντος, ήδη σε HTML), `service_password`, `service_server`/`server_hostname`/`server_ip`/`service_ips`, και ό,τι δίνει το module της υπηρεσίας (βλ. παρακάτω) |
 | `new_ticket_message` | `ticketMessage`, `message_html` (το μήνυμα σε ασφαλές HTML) |
 | `email_verification`, `password_reset` | `url` |
 | `service_cancellation_received` | `cancellation`, `service` |
@@ -49,7 +49,20 @@ tests) **διαβάζει μόνο δεδομένα**: δεν καλεί συν�
 | `new_login_detected` | `ip`, `device`, `time` |
 | `mail_header` / `mail_footer` | `app.*`, `mail_css` (στο header, με `\|raw`) |
 
+## Τιμές ενός module στο welcome email
+Ένα server module μπορεί να δώσει δικές του τιμές στο `new_server_created` (και στο snippet του προϊόντος) με μια μέθοδο
+`welcomeData(Service $service, $settings, $properties): array` (`ExtensionHelper::welcomeData`). Αν αποτύχει, το email
+φεύγει χωρίς αυτές. Ένα κλειδί με όνομα μυστικού (`…password…`) δεν γράφεται στο email log.
+
+| Module | Τιμές |
+|---|---|
+| CentovaCast | `centova_host`, `centova_port`, `centova_source_password` (διαβάζονται από το Centova τη στιγμή της αποστολής· αν δεν απαντά, μένει το port που κρατά η υπηρεσία και ο κωδικός πηγής λείπει) |
+
+Γράφονται μέσα σε `{% if centova_source_password %} … {% endif %}`, ώστε να μη μένει μισή γραμμή. Ο importer αντιστοιχίζει
+μόνο αυτές τις δύο γραμμές του Smarty του WHMCS (`importer.md` → Welcome email προϊόντος).
+
 ## Μετάβαση
 Η migration `2026_10_11_000000_templates_without_blade` αντικαθιστά κάθε πεδίο που είναι ακόμα σε Blade με τη νέα
 προεπιλογή του και κρατά ό,τι είναι ήδη στη νέα σύνταξη. Ό,τι είχε αλλαχτεί σε Blade (ή snippet προϊόντος σε Blade)
-γράφεται στο log για να ξαναγραφτεί. Στο WHMCS τα templates είναι Smarty: ο importer **δεν** τα μεταφέρει αυτόματα.
+γράφεται στο log για να ξαναγραφτεί. Στο WHMCS τα templates είναι Smarty: ο importer **δεν** τα μεταφέρει αυτόματα
+(εξαίρεση: το welcome email ενός προϊόντος ως snippet, `importer.md`).

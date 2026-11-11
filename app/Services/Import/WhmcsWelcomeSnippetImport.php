@@ -14,13 +14,18 @@ use PDOException;
  * MyCS's own email already says who the customer is, the product, the payment method, the amount, the cycle and the next due
  * date, and ends with the signature; so what is kept of a WHMCS template is only its other lines (an instruction, a link),
  * and «License Key: {$service_domain}» of a licensing product (WHMCS keeps the key in the service's domain) as the key of the
- * license. A line with any other Smarty variable is dropped and said. A product that has a snippet here keeps it.
+ * license. A Centova product's «Streaming Port» and «Source Password» lines (its module's custom fields) are kept with the
+ * module's own values, read from Centova when the mail goes (owner 2026-11-11). A line with any other Smarty variable is
+ * dropped and said. A product that has a snippet here keeps it.
  */
 final class WhmcsWelcomeSnippetImport
 {
     /** Said by the email already. */
     private const STANDARD = ['client_name', 'service_product_name', 'service_payment_method', 'service_recurring_amount', 'service_billing_cycle',
         'service_next_due_date', 'service_first_payment_amount', 'service_username', 'service_password', 'service_dedicated_ip', 'signature'];
+
+    /** Centova's custom fields the module has a value for (CentovaCast::welcomeData); its username is the email's own. */
+    private const CENTOVA = ['service_custom_field_port' => 'centova_port', 'service_custom_field_sourcepassword' => 'centova_source_password'];
 
     /** @var array<string, int> */
     private array $counts = ['products' => 0, 'snippets' => 0, 'skipped' => 0];
@@ -49,8 +54,8 @@ final class WhmcsWelcomeSnippetImport
 
                 continue;
             }
-            $licensing = $this->isLicensing((int) $product->id);
-            $snippet = $this->snippet((string) $row['message'], $licensing, "Product #{$row['id']} «{$row['name']}» (template «{$row['template_name']}»)");
+            $module = $this->module((int) $product->id);
+            $snippet = $this->snippet((string) $row['message'], $module, "Product #{$row['id']} «{$row['name']}» (template «{$row['template_name']}»)");
             if ($snippet === '') {
                 $this->counts['skipped']++;
 
@@ -63,15 +68,16 @@ final class WhmcsWelcomeSnippetImport
         return ['counts' => $this->counts, 'notes' => $this->notes];
     }
 
-    /** A product sold through the nixpal licensing server: its service's «domain» in WHMCS is the license key. */
-    private function isLicensing(int $productId): bool
+    /** The product's module here (NixpalLicensing: its service's «domain» in WHMCS is the license key; CentovaCast). */
+    private function module(int $productId): string
     {
-        return DB::table('products')->join('extensions', 'extensions.id', '=', 'products.server_id')
-            ->where('products.id', $productId)->where('extensions.extension', 'NixpalLicensing')->exists();
+        return (string) DB::table('products')->join('extensions', 'extensions.id', '=', 'products.server_id')
+            ->where('products.id', $productId)->value('extensions.extension');
     }
 
-    private function snippet(string $message, bool $licensing, string $label): string
+    private function snippet(string $message, string $module, string $label): string
     {
+        $licensing = $module === 'NixpalLicensing';
         $text = (string) preg_replace('~</p>|<br\s*/?>|</div>|</li>~i', "\n", $message);
         // Tags go twice: a tag written as an entity («&lt;img …&gt;») is a tag once the entities are decoded (ADV-564-6). What
         // is left of «<» and «>» is text: escaped, so Markdown shows it and never renders it.
@@ -97,6 +103,17 @@ final class WhmcsWelcomeSnippetImport
             }
             if ($names === ['service_domain'] && $licensing && preg_match('/^license key\s*:/i', $line) === 1) {
                 $kept[] = '**License key:** `{{ service.license.license_key }}`';
+
+                continue;
+            }
+            if ($module === 'CentovaCast' && $names === ['service_custom_field_username']) {
+                continue; // the email's own «Username»
+            }
+            if ($module === 'CentovaCast' && count($names) === 1 && isset(self::CENTOVA[$names[0]])) {
+                // Shown only when Centova answered: a tag alone on its line leaves no line behind.
+                $value = self::CENTOVA[$names[0]];
+                $text = str_replace(['<', '>', '{', '}'], ['&lt;', '&gt;', '&#123;', '&#125;'], (string) preg_replace('/\{\$[a-z0-9_]+\}/i', "\u{1}", $line));
+                $kept[] = "{% if {$value} %}\n" . str_replace("\u{1}", "{{ {$value} }}", $text) . "\n{% endif %}";
 
                 continue;
             }
