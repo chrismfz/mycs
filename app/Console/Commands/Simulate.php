@@ -50,7 +50,7 @@ class Simulate extends Command
     private const GATEWAY = 'MycsSimPay';
 
     /** Servers with no API: their actions are a staff task, which is what the cron makes of them, and what the forecast must show. */
-    private const REAL_SERVERS = ['OfflineVm', 'OfflineDedicated', 'OfflineSsl', 'NixpalLicensing'];
+    private const REAL_SERVERS = ['OfflineVm', 'OfflineDedicated', 'OfflineSsl', 'NixpalLicensing', 'Redfish'];
 
     protected $description = 'Run the cron day by day on a copy of an import, with servers, gateways, registrars and mail replaced; list what it would do';
 

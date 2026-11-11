@@ -72,7 +72,7 @@ tests) **διαβάζει μόνο δεδομένα**: δεν καλεί συν�
 | `panel_url`, `webmail_url`, `whm_url` | cPanel, ngm | `welcomeData` του module (πίνακας παραπάνω) |
 | `server_hostname`, `server_ip` | cPanel, DirectAdmin | ο server της υπηρεσίας· με το hostname μπαίνουν και οι γραμμές FTP (μόνο όταν το email έχει username) και `mail.<domain>`. Το hostname μόνο ως **όνομα**: server ορισμένος με διεύθυνση IP (συχνά του LAN) δεν δίνει hostname ούτε links (`NotificationHelper::hostName`)· η IP μόνο αν είναι δημόσια. |
 | `nameservers` | cPanel, DirectAdmin, ngm | οι ρυθμίσεις «Default Nameserver 1–5» (Ordering): όλοι οι servers του myip είχαν τους ίδιους στο WHMCS, άρα **δεν** υπάρχει πεδίο ανά server. Κενές = το μπλοκ λείπει. |
-| `ssh_host` | Proxmox, Offline Dedicated, Offline VM | η πρώτη IP της υπηρεσίας (`ssh root@…`, port 22). Για μηχάνημα Windows το staff αλλάζει το template ή το snippet του προϊόντος. |
+| `ssh_host` | Proxmox, Offline Dedicated, Offline VM, Redfish | η πρώτη IP της υπηρεσίας (`ssh root@…`, port 22). Για μηχάνημα Windows το staff αλλάζει το template ή το snippet του προϊόντος. |
 | `service_ips` | όλα | dedicated και assigned IPs |
 
 Τα ίδια `server_hostname`, `server_ip`, `nameservers` φαίνονται και στη σελίδα της υπηρεσίας του πελάτη
