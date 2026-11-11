@@ -10,11 +10,13 @@ use App\Jobs\Server\TerminateJob;
 use App\Models\Domain;
 use App\Models\DomainRegistrarLog;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Service;
 use App\Services\Invoice\CancelOpenInvoices;
+use App\Services\Invoice\RecordPaymentService;
 use App\Services\ServiceUpgrade\CancelPendingUpgrades;
 use App\Support\AfterCommit;
 use Illuminate\Support\Collection;
@@ -33,11 +35,12 @@ use Throwable;
  * something else is left to staff, as anything the invoices' own rules leave open.
  *
  * Two cases a refund leaves to staff (sweep 8, owner 2026-11-11, KISS):
- * - The order's invoice was split (#780) and a part still bills the order: «Cancel & Refund» is refused whole, before
- *   anything is cancelled (splitParts). Staff refund each invoice and cancel by hand; no refund over many invoices here.
+ * - A line of the order's first billing lives on another invoice (its invoice was split, #780; the part may have been
+ *   split again or merged elsewhere): «Cancel & Refund» is refused whole, before anything is cancelled (movedParts).
+ *   Staff refund each invoice and cancel by hand; no refund over many invoices here.
  * - A domain of the order is registered already (registeredDomains): the refund goes ahead and does not undo the
- *   registration. The registrar is never called and the domain keeps its status: staff are told, with a notice and a
- *   «check this» task (ModuleAction::DOMAIN_REFUNDED) that names the domain.
+ *   registration. The registrar is never called and the domain keeps its status: once money did go back, staff are told,
+ *   with a notice and a «check this» task (ModuleAction::DOMAIN_REFUNDED, one open per domain) that names the domain.
  *
  * Only its items still its customer's: one moved to another customer since (MoveToClient) is that customer's now, never
  * cancelled with the first one's order (adversarial R2-1 of #357).
@@ -58,7 +61,7 @@ final class CancelOrder
         if ($refund !== null && !in_array($refund, self::REFUND_METHODS, true)) {
             throw new \InvalidArgumentException("Unknown refund method {$refund}");
         }
-        if ($refund !== null && ($parts = self::splitParts($order)) !== []) {
+        if ($refund !== null && ($parts = self::movedParts($order)) !== []) {
             throw new DisplayException("Not cancelled, nothing refunded: invoice #{$order->invoice_id} of this order was split, and #" . implode(', #', $parts)
                 . ' ' . (count($parts) === 1 ? 'bills' : 'bill') . ' a part of it. «Cancel & Refund» refunds one invoice only: refund each invoice from its page and cancel the services by hand («Cancel Order»).');
         }
@@ -97,8 +100,12 @@ final class CancelOrder
         if ($refund !== null && $kept !== []) {
             $left['refund'] = new DisplayException('Not refunded: a domain of this order was sent to its registrar. Refund by hand what is due.');
         } elseif ($refund !== null) {
-            $left += self::refund($order, $refund);
-            $left += self::tellOfRegisteredDomains($order);
+            $refunded = 0;
+            $left += self::refund($order, $refund, $refunded);
+            // Only once money went back (REV-793-6): nothing refunded (never paid, refused, the gateway failed), nothing to tell.
+            if ($refunded > 0) {
+                $left += self::tellOfRegisteredDomains($order);
+            }
         }
         foreach ($services as $service) {
             $left += CancelOpenInvoices::handle($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $reason, $service);
@@ -114,23 +121,27 @@ final class CancelOrder
     }
 
     /**
-     * The invoices split off the order's own invoice that still bill something of the order (a service or a domain of
-     * it), not cancelled: with one, «Cancel & Refund» is refused.
+     * The other invoices that hold a line of the order's first billing, neither cancelled nor refunded in full: with
+     * one, «Cancel & Refund» is refused. One rule about where the lines are (REV-793-2/-3/-4), whatever moved them: a
+     * split, a split of a split, a part merged into another invoice (split and merge move the line rows themselves).
+     * The first billing of a service or a domain of the order is its oldest line (the one its order wrote, one each);
+     * its renewals are later lines and never refuse. An order never split has them all on its own invoice.
      *
      * @return list<int>
      */
-    public static function splitParts(Order $order): array
+    public static function movedParts(Order $order): array
     {
         if ($order->invoice_id === null) {
             return [];
         }
-        $services = Service::query()->where('order_id', $order->id)->select('id');
-        $domains = Domain::query()->where('order_id', $order->id)->select('id');
+        $first = [];
+        foreach ([Service::class => Service::query(), Domain::class => Domain::query()] as $type => $query) {
+            $first = [...$first, ...InvoiceItem::query()->where('reference_type', $type)->whereIn('reference_id', $query->where('order_id', $order->id)->select('id'))
+                ->selectRaw('MIN(id) as id')->groupBy('reference_id')->pluck('id')->all()];
+        }
 
-        return Invoice::query()->where('split_from_id', $order->invoice_id)->where('status', '!=', Invoice::STATUS_CANCELLED)
-            ->whereHas('items', fn ($line) => $line->where(fn ($ours) => $ours
-                ->where(fn ($q) => $q->where('reference_type', Service::class)->whereIn('reference_id', $services))
-                ->orWhere(fn ($q) => $q->where('reference_type', Domain::class)->whereIn('reference_id', $domains))))
+        return Invoice::query()->whereKeyNot($order->invoice_id)->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED])
+            ->whereHas('items', fn ($line) => $line->whereIn('invoice_items.id', $first ?: [0]))
             ->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
@@ -148,8 +159,9 @@ final class CancelOrder
     }
 
     /**
-     * After a refund: each registered domain told to staff, as a notice and as a «check this» task that stays until they
-     * close it. Nothing is done at the registrar and the domain keeps its status.
+     * After a refund that gave money back: each registered domain told to staff, as a notice and as a «check this» task
+     * that stays until they close it (one open per domain, REV-793-7). Nothing is done at the registrar and the domain
+     * keeps its status.
      *
      * @return array<string, Throwable>
      */
@@ -159,8 +171,10 @@ final class CancelOrder
         foreach (self::registeredDomains($order) as $domain) {
             $message = "{$domain->fqdn} is already registered at the registrar: the refund of order #{$order->id} does not undo the registration."
                 . " It stays {$domain->status->value}: keep it (and bill it), or delete it at the registrar, by hand.";
-            ModuleAction::query()->create(['domain_id' => $domain->id, 'action' => ModuleAction::DOMAIN_REFUNDED, 'status' => ModuleAction::STATUS_OPEN,
-                'attempts' => 0, 'last_attempt_at' => now(), 'given_up_at' => now(), 'last_error' => $message]);
+            if (!ModuleAction::query()->open()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_REFUNDED)->exists()) {
+                ModuleAction::query()->create(['domain_id' => $domain->id, 'action' => ModuleAction::DOMAIN_REFUNDED, 'status' => ModuleAction::STATUS_OPEN,
+                    'attempts' => 0, 'last_attempt_at' => now(), 'given_up_at' => now(), 'last_error' => $message]);
+            }
             $left["domain #{$domain->id}"] = new DisplayException($message);
         }
 
@@ -208,8 +222,11 @@ final class CancelOrder
         });
     }
 
-    /** @return array<string, Throwable> */
-    private static function refund(Order $order, string $method): array
+    /**
+     * @param  int  $refunded  what went back, in cents (added to)
+     * @return array<string, Throwable>
+     */
+    private static function refund(Order $order, string $method, int &$refunded = 0): array
     {
         $invoice = $order->invoice_id === null ? null : Invoice::query()->find($order->invoice_id);
         if ($invoice === null) {
@@ -233,6 +250,7 @@ final class CancelOrder
             }
             try {
                 self::refundOne($payment, $amount, $method);
+                $refunded += RecordPaymentService::toCents($amount);
             } catch (Throwable $e) {
                 report($e);
                 $left["refund #{$invoice->id}/{$payment->id}"] = new DisplayException("Payment {$payment->id} of invoice #{$invoice->id} was not refunded: {$e->getMessage()}");

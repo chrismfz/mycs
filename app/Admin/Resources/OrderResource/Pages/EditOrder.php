@@ -96,10 +96,10 @@ class EditOrder extends EditRecord
                 }
                 // What a refund leaves to staff (sweep 8): said before they confirm.
                 $registered = CancelOrder::registeredDomains($record)->pluck('fqdn')->implode(', ');
-                $split = CancelOrder::splitParts($record);
+                $split = CancelOrder::movedParts($record);
 
                 return 'Its services are cancelled and their open invoices with them. The payments of the order\'s own invoice go back (renewals and upgrades paid later stay: refund them from their invoice). What was refunded already, or taken back by a chargeback, is not given twice. A gateway that cannot refund is left to you, with a notice.'
-                    . ($registered === '' ? '' : " Warning: {$registered} already registered at the registrar: the refund does not undo the registration. The domain stays as it is, and a task asks you to deal with it by hand.")
+                    . ($registered === '' ? '' : " Warning: {$registered} already registered at the registrar: the refund does not undo the registration. The domain stays as it is, and once money goes back a task asks you to deal with it by hand.")
                     . ($split === [] ? '' : ' Warning: its invoice was split (#' . implode(', #', $split) . '): this will be refused. Refund each invoice from its page and cancel the services with «Cancel Order».');
             })
             ->schema(array_filter([

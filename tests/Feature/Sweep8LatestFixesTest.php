@@ -180,6 +180,21 @@ class Sweep8LatestFixesTest extends TestCase
         $this->assertSame(['cancelled', 'cancelled'], Service::query()->whereKey($services)->orderBy('id')->pluck('status')->all());
     }
 
+    /** A renewal of the same service on a later invoice is not a part of the order's first billing: no refusal (REV-793-2/-3 rule). */
+    public function test_cancel_and_refund_is_not_refused_for_a_renewal_invoice_of_the_same_service(): void
+    {
+        [$order, $own, $services] = $this->twoServiceOrder();
+        (new RecordPaymentService)->handle($own->fresh(), null, (float) $own->fresh()->total, transactionId: 'bank-1');
+        $renewal = Invoice::factory()->create(['client_id' => $order->client_id, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $renewal->items()->create(['description' => 'Renewal', 'quantity' => 1, 'price' => '10.00', 'reference_type' => Service::class, 'reference_id' => $services[0]]);
+        $this->assertSame([], CancelOrder::movedParts($order->fresh()));
+
+        CancelOrder::handle($order->fresh(), refund: 'manual');
+
+        $this->assertSame(Invoice::STATUS_REFUNDED, $own->fresh()->status);
+        $this->assertSame(['cancelled', 'cancelled'], Service::query()->whereKey($services)->orderBy('id')->pluck('status')->all());
+    }
+
     /** @return array{0: Order, 1: Invoice, 2: list<int>} */
     private function twoServiceOrder(): array
     {

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AdjustmentNoteStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
@@ -11,6 +12,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Invoice\StaffLineEdit;
+use App\Services\Invoice\UndoRefund;
 use App\Services\Money\MoneyCheck;
 use App\Services\Money\UnbilledServices;
 use App\Services\ServiceUpgrade\ChangeCycle;
@@ -18,6 +20,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -159,6 +162,24 @@ class Sweep8StaffFreedomTest extends TestCase
 
         ExtensionHelper::refundLocally($invoice->transactions()->sole(), 6.00, notify: false); // the rest of it
         $this->assertSame([Invoice::STATUS_REFUNDED, 0], [$invoice->fresh()->status, RecordPaymentService::toCents($invoice->fresh()->total)]);
+    }
+
+    /** REV-793-1, the notes written before a note named its refund: still found by the refund's exact amount, and undone. */
+    public function test_s8_1_undo_still_finds_a_refund_note_written_before_notes_named_their_refund(): void
+    {
+        $invoice = $this->renewalPaidHere();
+        $payment = $invoice->transactions()->sole();
+        ExtensionHelper::refundLocally($payment, 4.00, notify: false);
+        $note = $invoice->adjustmentNotes()->where('is_refund', true)->sole();
+        $refund = UndoRefund::refunds($payment->fresh())->sole();
+        $this->assertStringEndsWith(UndoRefund::noteKey((int) $refund->id), (string) $note->description);
+        DB::table('adjustment_notes')->where('id', $note->id)->update(['description' => str_replace(UndoRefund::noteKey((int) $refund->id), '', (string) $note->description)]);
+
+        (new UndoRefund)->handle($payment->fresh(), $refund->id);
+
+        $fresh = $invoice->fresh();
+        $this->assertSame(AdjustmentNoteStatus::Voided, $note->fresh()->status);
+        $this->assertSame([Invoice::STATUS_PAID, 1000, 0], [$fresh->status, RecordPaymentService::toCents($fresh->total), RecordPaymentService::toCents($fresh->remaining)]);
     }
 
     /**
