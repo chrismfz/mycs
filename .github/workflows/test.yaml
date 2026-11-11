@@ -119,7 +119,7 @@ jobs:
         # and every MariaDB job died here before a single test), the client of the service container itself is used:
         # same version as the server, reached with docker exec, nothing to download.
         run: |
-          if ! { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends mariadb-client; }; then
+          if true; then  # TEMPORARY: force the fallback once to prove it; reverted in the next commit
             echo "::warning::apt could not install mariadb-client: using the service container's own client"
             # Under both names: the framework's schema loader calls one or the other, depending on its version.
             printf '#!/bin/sh\nexec docker exec -i %s mariadb "$@"\n' "${{ job.services.mariadb.id }}" | sudo tee /usr/local/bin/mariadb /usr/local/bin/mysql > /dev/null
