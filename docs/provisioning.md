@@ -333,7 +333,7 @@ WHMCS module μας (`modules/servers/ngm` στο rigel), πάνω στο ίδι
 
 ## Μηχανήματα με BMC: Redfish (υπεύθυνος, 2026-11-11)
 
-Πρώτο βήμα του «extension Redfish» του ROADMAP: **μόνο ανάγνωση**, για να δοκιμαστεί σε ένα Supermicro.
+Το «extension Redfish» του ROADMAP: ανάγνωση (σύνοψη και εξαρτήματα) και, με δικό τους λογαριασμό, λίγες ενέργειες του staff.
 
 - **Ένα μηχάνημα = ένας server** (Servers → Create server, module «Redfish»). Δεν υπάρχει ξεχωριστό «inventory».
   - **Δοσμένο σε πελάτη:** η υπηρεσία που έχει αυτόν τον server (`services.server_id`), όπως σε κάθε module.
@@ -347,8 +347,8 @@ WHMCS module μας (`modules/servers/ngm` στο rigel), πάνω στο ίδι
 - **Ρυθμίσεις του server:** διεύθυνση του BMC (`https://…`, στο management δίκτυο), IP και «Self-signed» όπως στα
   panels (`PanelConnection`: μόνο https, self-signed μόνο προς γνωστή IP, ποτέ redirect), username, κωδικός
   (κρυπτογραφημένος), «Location» (ελεύθερο κείμενο).
-- **Λογαριασμός στο BMC: μόνο ανάγνωση.** Το MyCS κάνει μόνο GET· δεν χρειάζεται και δεν πρέπει να έχει Operator ή
-  Administrator όσο δεν υπάρχουν ενέργειες. Το BMC δεν βγαίνει ποτέ δημόσια.
+- **Λογαριασμός ανάγνωσης στο BMC: read-only.** Οι αναγνώσεις κάνουν μόνο GET και δεν πρέπει να έχουν Operator ή
+  Administrator· οι ενέργειες έχουν δικό τους λογαριασμό (παρακάτω). Το BMC δεν βγαίνει ποτέ δημόσια.
 - **Τι διαβάζει** (`packages/redfish`, `RedfishClient::machine()`, 3–5 αιτήματα): κατασκευαστή, μοντέλο, serial, SKU,
   asset tag, hostname, BIOS, επεξεργαστές, μνήμη, **power state**, **health** (το χειρότερο από system και chassis: εκεί
   φαίνονται ανεμιστήρες και τροφοδοτικά) και **watt**: την τωρινή κατανάλωση (`Chassis/…/Power` → το πρώτο
@@ -375,8 +375,22 @@ WHMCS module μας (`modules/servers/ngm` στο rigel), πάνω στο ίδι
   - Τιμές-γέμισμα του firmware («To be filled by O.E.M.», «Default string», «N/A») δεν δείχνονται. Το μοντέλο του
     επεξεργαστή είναι του ίδιου του CPU, όχι η «οικογένεια» της σύνοψης.
   - Δικαιώματα: των servers (`admin.servers.viewAny` για να δει, `admin.servers.update` για «Read now»).
+- **Ενέργειες του staff στο μηχάνημα** (υπεύθυνος, 2026-11-11: «τα απλά πρώτα»), στη σελίδα του στο Utilities → Machines:
+  - **Power:** on, shut down, restart, force off, force restart, power cycle (`ComputerSystem.Reset`).
+  - **Locate light** (UID) on / off, **boot μία φορά** από PXE, BIOS setup, δίσκο ή CD (και ακύρωσή του), **restart του
+    BMC** (το μηχάνημα συνεχίζει να τρέχει).
+  - **Δεύτερος λογαριασμός BMC, «Actions»** (ρόλος Operator), στις ρυθμίσεις του server. Χρησιμοποιείται **μόνο** όταν
+    το staff πατήσει κουμπί· η ωριαία ανάγνωση και το «Hardware» δουλεύουν πάντα με τον read-only. Χωρίς αυτόν δεν
+    προσφέρεται καμία ενέργεια. Στον κώδικα: ο client που διαβάζει δεν μπορεί να στείλει αλλαγή (`ActionTransport`).
+  - Κάθε ενέργεια **ρωτά πρώτα** και λέει ποιος έχει το μηχάνημα. Όσες διακόπτουν ό,τι τρέχει (όλες του power εκτός από
+    το «on») ζητούν να πληκτρολογηθεί το όνομα του μηχανήματος: ένα «δικό μας» μηχάνημα μπορεί να είναι παραγωγή.
+  - Γράφεται στο **audit του server** (`extension_action`: ποιος, τι, και «not done: …» αν το BMC αρνήθηκε).
+  - Ό,τι το BMC λέει ότι δεν προσφέρει (π.χ. PowerCycle, boot από CD) απορρίπτεται πριν σταλεί οτιδήποτε.
+  - Το power **δεν περιμένει** το αποτέλεσμα: το BMC το δέχεται και η κατάσταση φαίνεται στο επόμενο «Read now». Μετά
+    από locate / boot once η σύνοψη ξαναδιαβάζεται, και η σελίδα δείχνει «Locate light: on», «Next boot once: Pxe».
+  - Δικαίωμα: `admin.servers.update`. **Τίποτα προς τον πελάτη**, και **κανένα αυτόματο** (το suspend μένει εργασία).
 - **Ενέργειες υπηρεσίας** (create, suspend, unsuspend, terminate, αλλαγή πακέτου): εργασίες του staff στα Pending Module
-  Actions, όπως στο Offline Dedicated (`OfflineMachineServer`). Το module δεν αγγίζει το μηχάνημα.
+  Actions, όπως στο Offline Dedicated (`OfflineMachineServer`). Το module δεν αγγίζει το μηχάνημα για αυτές (ούτε το suspend σβήνει κάτι).
 - **Στην υπηρεσία** μένουν δύο πεδία, «Operating system» και «Notes», με τα ίδια κλειδιά του Offline Dedicated: μια
   υπηρεσία που αλλάζει server από «Manual (offline)» σε Redfish κρατά ό,τι είχε γράψει το staff (και τα υπόλοιπα
   `machine_*` μένουν στη βάση, απλώς δεν φαίνονται).
@@ -385,7 +399,7 @@ WHMCS module μας (`modules/servers/ngm` στο rigel), πάνω στο ίδι
 - **Ό,τι λέει ένα BMC είναι ξένο κείμενο:** κόβεται στους 200 χαρακτήρες, χωρίς control characters, και δείχνεται πάντα
   escaped. Ένα link του BMC ακολουθείται μόνο ως path κάτω από `/redfish/v1/` του ίδιου BMC.
 - **Δεν έγιναν** (επόμενα βήματα του ROADMAP, το καθένα με απόφαση): event log του BMC, κάρτες δικτύου, κατάσταση RAID
-  (volumes), εργασία ή mail όταν κάτι δεν είναι OK, κατανάλωση σε βάθος χρόνου, power on/off, suspend από θύρα ή BMC, console, ο,τιδήποτε προς τον πελάτη.
+  (volumes), εργασία ή mail όταν κάτι δεν είναι OK, κατανάλωση σε βάθος χρόνου, virtual media, λογαριασμός BMC πελάτη, suspend από θύρα ή BMC, console, ο,τιδήποτε προς τον πελάτη.
 - **Δοκιμή σε πραγματικό BMC:** η σύνοψη διαβάστηκε από ένα Supermicro (2026-11-11, από τον υπεύθυνο)· τα εξαρτήματα
   όχι ακόμα, και iDRAC καθόλου. Τα tests απαντούν με ψεύτικο BMC (`Http::preventStrayRequests`). Τα
   παλιά firmware (Supermicro X10, iDRAC 7/8) έχουν ελλιπές Redfish: το «Test Connection» λέει τι λείπει.

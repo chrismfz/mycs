@@ -55,6 +55,12 @@
             @if ($machine !== null)
                 <x-filament::badge :color="$machine->isOn() === null ? 'gray' : ($machine->isOn() ? 'success' : 'danger')">Power: {{ $machine->powerState ?? 'not said' }}</x-filament::badge>
                 <x-filament::badge :color="$color($machine->health)">Health: {{ $machine->health ?? 'not said' }}</x-filament::badge>
+                @if ($machine->locating === true)
+                    <x-filament::badge color="info">Locate light: on</x-filament::badge>
+                @endif
+                @if ($machine->bootOnce !== null)
+                    <x-filament::badge color="warning">Next boot once: {{ $machine->bootOnce }}</x-filament::badge>
+                @endif
                 @if ($machine->systems > 1)
                     <x-filament::badge color="warning">{{ $machine->systems }} systems behind this BMC: the first is shown</x-filament::badge>
                 @endif
@@ -123,5 +129,6 @@
             @endif
         </div>
     @endforeach
-    <p class="text-xs {{ $muted }}">The last read only is kept: history, graphs and alerts are the monitoring's.</p>
+    <p class="text-xs {{ $muted }}">The last read only is kept: history, graphs and alerts are the monitoring's.
+        @if (!$actions) Power, locate light and boot once are offered once the server has an actions' account (Server settings). @endif</p>
 </div>
