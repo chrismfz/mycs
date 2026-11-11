@@ -70,19 +70,45 @@ final class SavedMethodCharge
      * finished), still within its gateway's key window: sent again with its key, not a new charge. Only a charge of the
      * same thing: of the invoice alone ($groupId null), or of that Mass Pay group. The gateway keeps a key for the request
      * it first came with, so an invoice's own charge resent as a group's of the same total (or the other way round) is
-     * answered with an error and settles nothing (sweep-8 reviews, #791). The other one is not this charge's to resend: it
-     * holds the invoice (unresolved), and charge() refuses.
+     * answered with an error and settles nothing (sweep-8 reviews, #791). The other one is not this charge's to resend:
+     * charge() refuses while it is there.
      */
     public static function unknownAttempt(int $invoiceId, int $agreementId, ?int $groupId = null): ?ChargeAttempt
     {
-        $attempt = self::current(ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
-            ->where('payment_group_id', $groupId)
+        return self::resendable(self::unknownAttempts($invoiceId, $agreementId), $groupId);
+    }
+
+    /**
+     * Every charge of unknown outcome to this method of this invoice, whatever it was for (the invoice alone, or a Mass
+     * Pay group) and however old, newest first.
+     *
+     * @return Collection<int, ChargeAttempt>
+     */
+    private static function unknownAttempts(int $invoiceId, int $agreementId): Collection
+    {
+        return self::current(ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
             ->where(fn ($query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
                 ->orWhere(fn ($stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)
                     ->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
-            ->latest('id'))->first();
+            ->latest('id'))->get();
+    }
+
+    /**
+     * Of these, the one a charge of the same thing sends again with its key: the newest for $groupId (null: the invoice
+     * alone), while its gateway still keeps the key.
+     *
+     * @param  Collection<int, ChargeAttempt>  $unknown
+     */
+    private static function resendable(Collection $unknown, ?int $groupId): ?ChargeAttempt
+    {
+        $attempt = $unknown->first(fn (ChargeAttempt $attempt) => self::sameThing($attempt, $groupId));
 
         return $attempt !== null && $attempt->started_at->greaterThan(now()->subHours(self::keyReuseHours($attempt->billingAgreement))) ? $attempt : null;
+    }
+
+    private static function sameThing(ChargeAttempt $attempt, ?int $groupId): bool
+    {
+        return (int) $attempt->payment_group_id === (int) $groupId;
     }
 
     /**
@@ -215,8 +241,16 @@ final class SavedMethodCharge
             }
             // An earlier charge of the same amount to the same method whose outcome is unknown (a timeout, a 5xx): sent again
             // with its key, so the gateway answers with that charge instead of taking the money twice (adversarial ADV-3).
-            // Of the same thing only: the invoice alone, or this group. An unknown charge of the other kind is another charge.
-            $unknown = self::unknownAttempt($locked->id, $agreement->id, $group?->id);
+            // A charge of unknown outcome for another thing (the invoice alone while this is a group's charge, a group's
+            // while this is the invoice's own, another group's) may have paid this invoice: refused here, whatever the
+            // hold below reads (it leaves out an attempt it takes for recorded: REV-801-1), and however old it is. Past
+            // its key window a new key for the same money is exactly the danger, so this stands until staff resolve it.
+            $unknowns = self::unknownAttempts($locked->id, $agreement->id);
+            if ($unknowns->contains(fn (ChargeAttempt $other) => !self::sameThing($other, $group?->id))) {
+                throw new DisplayException(__('A payment for this invoice is already on its way.'));
+            }
+            // Of the same thing: sent again with its key while the gateway keeps it.
+            $unknown = self::resendable($unknowns, $group?->id);
             if ($unknown !== null && RecordPaymentService::toCents($unknown->amount) !== $amount) {
                 $unknown = null; // another amount is another charge: held below until its outcome is known
             }

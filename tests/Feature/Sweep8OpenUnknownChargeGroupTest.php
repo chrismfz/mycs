@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Actions\ResolveCharge;
+use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
 use App\Exceptions\DisplayException;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
@@ -9,9 +11,12 @@ use App\Models\Client;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\PaymentGroup;
+use App\Models\Role;
+use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\MassPay;
 use App\Services\Payment\SavedMethodCharge;
+use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
@@ -146,6 +151,36 @@ class Sweep8OpenUnknownChargeGroupTest extends TestCase
         $this->assertSame([ChargeAttempt::STATUS_UNKNOWN, $ofGroup->key, $group->id], [$ofGroup->fresh()->status, $ofGroup->fresh()->key, $ofGroup->fresh()->payment_group_id]);
         $this->assertTrue(SavedMethodCharge::onItsWay($a->fresh()));
         $this->assertTrue(SavedMethodCharge::onItsWay($b->fresh()));
+    }
+
+    /**
+     * REV-801-1: the refusal does not lean on the hold, which leaves out an unknown attempt it takes for recorded (a payment
+     * of at least its amount on the invoice earlier the same day), nor on the key's window: a group's unknown charge
+     * refuses the lead's own charge the next day too. After staff «Resolve charge» it (not taken), the new charge goes out.
+     */
+    public function test_another_things_unknown_charge_refuses_past_the_key_window_until_staff_resolve_it(): void
+    {
+        $a = $this->invoice('6.00', '2026-11-09');
+        $b = $this->invoice('4.00', '2026-11-10');
+        $group = (new MassPay)->open($this->client, [$a->id, $b->id]);
+        $ofGroup = $this->charge($a, $group);
+        $this->assertSame(ChargeAttempt::STATUS_UNKNOWN, $ofGroup->status);
+
+        $this->mode = 'ok';
+        Carbon::setTestNow('2026-11-12 10:00:00'); // past Stripe's 23 hours
+        $this->assertNull($this->charge($a));
+        $this->assertCount(1, $this->sent);
+
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $a->getRouteKey()])
+            ->callAction('resolveCharge', ['attempt' => (string) $ofGroup->id, 'outcome' => ResolveCharge::NOT_TAKEN])->assertHasNoActionErrors();
+        $this->assertSame(ChargeAttempt::STATUS_FAILED, $ofGroup->fresh()->status);
+
+        $own = $this->charge($a);
+        $this->assertSame([ChargeAttempt::STATUS_SUCCEEDED, null, '6.00'], [$own->status, $own->payment_group_id, $own->amount]);
+        $this->assertCount(2, $this->sent);
+        $this->assertNotSame($ofGroup->key, $this->sent[1]['key'], 'a new charge, with its own key');
     }
 
     /** (c) The same thing again is still resent with its key: an invoice's own charge, and a group's charge. */
