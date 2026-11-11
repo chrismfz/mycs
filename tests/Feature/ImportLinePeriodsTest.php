@@ -24,6 +24,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\ImportedWhmcsInvoices;
 use Tests\TestCase;
 
@@ -404,14 +405,12 @@ class ImportLinePeriodsTest extends TestCase
     }
 
     /**
-     * Not covered (the design writes at most two lines per service): an OLDER paid line stays without its period, and a
-     * full refund of its invoice still gives up the service's NEXT period (S8-CRON-BILLING-2's guess, on another invoice).
+     * An OLDER paid line comes without its period (the importer writes two lines). Its invoice refunded in full gives up
+     * nothing: its service has a live line with a period, so this one is the past, not the period to come
+     * (InvoiceObserver::givePeriodsUp, owner 2026-11-11; before, it gave up the NEXT period: S8-CRON-BILLING-2 on another invoice).
      */
     public function test_a_full_refund_of_an_older_paid_invoice_does_not_give_up_the_next_period(): void
     {
-        $this->markTestIncomplete('Not covered by the design of 2026-11-11 (at most two lines per service): an older paid line comes without its period, and '
-            . 'InvoiceObserver::givePeriodsUp gives it the next period (2026-10-10) as given up; the renewal is not billed. For the owner: cut it or tell staff.');
-
         $this->whmcsService(31, '2026-10-10');
         $this->whmcsInvoice(400, 'Paid', [31 => 10.0], due: '2026-08-10', date: '2026-08-01');
         $this->whmcsInvoice(480, 'Paid', [31 => 10.0], due: '2026-09-10');
@@ -422,32 +421,168 @@ class ImportLinePeriodsTest extends TestCase
         ExtensionHelper::refundLocally(InvoiceTransaction::query()->where('invoice_id', 400)->sole(), 10.00, notify: false);
 
         $line = InvoiceItem::query()->where('invoice_id', 400)->sole();
-        $this->assertFalse($line->forgone_at !== null && $line->period_start?->toDateString() === '2026-10-10', 'the period after the one it paid is not given up');
+        $this->assertSame(Invoice::STATUS_REFUNDED, Invoice::query()->findOrFail(400)->status);
+        $this->assertSame([null, null, null], [$line->period_start, $line->period_end, $line->forgone_at], 'no period given, none given up');
+        $this->assertSame([], (new UnbilledServices)->find());
         $this->cronOn('2026-10-03');
         $this->assertCount(1, $this->open(31), 'the renewal from 2026-10-10 is billed');
+        $this->assertStringEndsWith(' 2026-10-10', $this->open(31)[0]);
+    }
+
+    /** The control: a service the import named has no period line at all, and goes on as before (the next period is given up). */
+    public function test_a_full_refund_on_a_service_left_without_periods_is_as_before(): void
+    {
+        $this->whmcsService(31, '2026-10-15'); // moved by hand: no match
+        $this->whmcsInvoice(480, 'Paid', [31 => 10.0], due: '2026-09-10');
+        $this->importWhmcs();
+        $this->settings();
+        $this->importedWithoutPeriod(480);
+
+        ExtensionHelper::refundLocally(InvoiceTransaction::query()->where('invoice_id', 480)->sole(), 10.00, notify: false);
+
+        $line = InvoiceItem::query()->where('invoice_id', 480)->sole();
+        $this->assertSame(['2026-10-15', '2026-11-15'], [$line->period_start?->toDateString(), $line->period_end?->toDateString()]);
+        $this->assertNotNull($line->forgone_at, 'unchanged: the old guess, which the runbook tells staff of');
     }
 
     /**
-     * A consequence, not covered: WHMCS bills a client group's discount (and a promotion) as a negative line of its own, so
-     * the Hosting line holds the amount before it (10.00 with −1.00 beside it, 9.00 paid). With its period on the line,
-     * ChangeCycle::unused reads what the LINE paid (PaidForPeriod): 20 of 30 days of 10.00 = 6.67, where 6.00 was paid for
-     * them (and where the same service gave 6.00 before, priced at its own 9.00).
+     * An UNPAID line with no period, off the due date (an invoice made ahead for the month after the open renewal's), on a
+     * service with periods, cancelled: nothing is given up, whichever way staff cancel it, since nothing here says which
+     * period it billed. The cron goes on billing what is due at its time, so the service is never left suspended with
+     * nothing to pay; a period staff meant to give up shows up as an invoice they can cancel.
      */
-    public function test_the_days_left_of_a_period_paid_with_a_discount_line_are_worth_what_was_paid(): void
+    #[DataProvider('cancellations')]
+    public function test_an_unpaid_line_with_no_period_cancelled_on_a_service_with_periods_gives_up_nothing(?bool $keep): void
     {
-        $this->markTestIncomplete('A consequence of the period on the line, for the owner: the days left of a period WHMCS billed with a GroupDiscount or '
-            . 'PromoHosting line beside it are worth the amount before the discount (6.67, not 6.00) on a cycle change «now» or a downgrade. No billing rule was changed for it.');
+        $this->whmcsService(31, '2026-10-10');
+        $this->whmcsInvoice(480, 'Paid', [31 => 10.0], due: '2026-09-10');
+        $this->whmcsInvoice(530, 'Unpaid', [31 => 10.0], due: '2026-11-10');
+        $this->importWhmcs();
+        $this->settings();
+        $invoice = $this->importedWithoutPeriod(530);
 
-        $this->whmcsService(31, '2026-10-10', 9.0);
-        $this->whmcs->exec("INSERT INTO tblinvoices VALUES (480, {$this->whmcsClientId}, '', '2026-09-01', '2026-09-10', '2026-09-03 10:00:00', 'Paid', 9, 0, 0)");
-        foreach ([['Hosting', 10], ['GroupDiscount', -1]] as [$type, $amount]) {
+        Carbon::setTestNow('2026-10-05 10:00:00'); // inside the invoice days of the period from 10-10
+        $invoice->keep_periods_billable = $keep;
+        $invoice->update(['status' => Invoice::STATUS_CANCELLED, 'cancellation_reason' => 'not wanted']);
+
+        $line = InvoiceItem::query()->where('invoice_id', 530)->sole();
+        $this->assertSame([null, null, null], [$line->period_start, $line->period_end, $line->forgone_at]);
+        $this->cronOn('2026-10-06');
+        $this->assertCount(1, $this->open(31));
+        $this->assertStringEndsWith(' 2026-10-10', $this->open(31)[0], 'the period that is due is billed');
+    }
+
+    /** @return array<string, array{bool|null}> */
+    public static function cancellations(): array
+    {
+        return ['as usual' => [null], 'give them all up' => [false], 'bill them all again' => [true]];
+    }
+
+    /** An older paid line reopened is still marked applied as of when it was paid (markAppliedBeforeMyCs): paid again, no second month. */
+    public function test_an_older_paid_invoice_open_again_is_marked_applied_and_renews_nothing_when_paid_again(): void
+    {
+        $this->whmcsService(31, '2026-10-10');
+        $this->whmcsInvoice(400, 'Paid', [31 => 10.0], due: '2026-08-10', date: '2026-08-01');
+        $this->whmcsInvoice(480, 'Paid', [31 => 10.0], due: '2026-09-10');
+        $this->importWhmcs();
+        $this->settings();
+
+        (new RecordPaymentService)->deleteTransaction(InvoiceTransaction::query()->where('invoice_id', 400)->sole());
+
+        $this->assertSame(Invoice::STATUS_UNPAID, Invoice::query()->findOrFail(400)->status);
+        $this->assertSame([null, null, '2026-08-03 10:00:00'], $this->line(400), 'applied as of its paid date, still no period');
+        (new RecordPaymentService)->recordByStaff(Invoice::query()->findOrFail(400), null, '10.00', 'tr_400_again');
+        $this->assertSame([Invoice::STATUS_PAID, '2026-10-10'], [Invoice::query()->findOrFail(400)->status, Service::query()->findOrFail(31)->expires_at->toDateString()]);
+
+        // Open again and cancelled: an applied line with no period gives up nothing either.
+        (new RecordPaymentService)->deleteTransaction(InvoiceTransaction::query()->where('invoice_id', 400)->sole());
+        Invoice::query()->findOrFail(400)->update(['status' => Invoice::STATUS_CANCELLED]);
+        $this->assertSame([null, null], array_slice($this->line(400), 0, 2));
+        $this->assertNull(InvoiceItem::query()->where('invoice_id', 400)->sole()->forgone_at);
+        $this->cronOn('2026-10-03');
+        $this->assertCount(1, $this->open(31));
+    }
+
+    /** A WHMCS invoice of service $service: a Hosting line of 10.00 and a discount line of −1.00 beside it (9.00 to pay). */
+    private function discountedInvoice(int $id, int $service, string $status, string $due, string $discount = 'GroupDiscount'): void
+    {
+        $paid = $status === 'Paid' ? '2026-09-03 10:00:00' : '0000-00-00 00:00:00';
+        $this->whmcs->exec("INSERT INTO tblinvoices VALUES ({$id}, {$this->whmcsClientId}, '', '2026-09-01', '{$due}', '{$paid}', '{$status}', 9, 0, 0)");
+        // A group's discount names no service (relid 0); a promotion's names its own.
+        foreach ([['Hosting', $service, 10], [$discount, $discount === 'GroupDiscount' ? 0 : $service, -1]] as [$type, $relid, $amount]) {
             $this->whmcs->exec("INSERT INTO tblinvoiceitems (invoiceid, userid, type, relid, description, amount, taxed, duedate)
-                VALUES (480, {$this->whmcsClientId}, '{$type}', 31, '{$type}', {$amount}, 0, '2026-09-10')");
+                VALUES ({$id}, {$this->whmcsClientId}, '{$type}', {$relid}, '{$type}', {$amount}, 0, '{$due}')");
         }
-        $this->whmcs->exec("INSERT INTO tblaccounts VALUES (480, {$this->whmcsClientId}, 480, 'banktransfer', '2026-09-03 10:00:00', 9, 0, 0, 'tr_480', 0)");
+        if ($status === 'Paid') {
+            $this->whmcs->exec("INSERT INTO tblaccounts VALUES ({$id}, {$this->whmcsClientId}, {$id}, 'banktransfer', '{$paid}', 9, 0, 0, 'tr_{$id}', 0)");
+        }
+    }
+
+    /**
+     * WHMCS bills a client group's discount (and a promotion) as a negative line of its own, so the Hosting line holds the
+     * amount before it (10.00 with −1.00 beside it, 9.00 paid). With its period, the days left would be worth what the
+     * LINE says (20 of 30 days of 10.00 = 6.67). The importer leaves that line as it came and names the service: the days
+     * are worth the service's own price, which holds the discount (6.00, what was paid).
+     */
+    #[DataProvider('discounts')]
+    public function test_the_last_paid_line_beside_a_discount_line_gets_no_period_and_its_days_are_worth_what_was_paid(string $discount): void
+    {
+        $this->whmcsService(31, '2026-10-10', 9.0);
+        $this->discountedInvoice(480, 31, 'Paid', '2026-09-10', $discount);
+        // On the same import, a service with no discount gets its periods.
+        $this->whmcsService(32, '2026-10-10');
+        $this->whmcsInvoice(481, 'Paid', [32 => 10.0], due: '2026-09-10');
+        $this->whmcsInvoice(521, 'Unpaid', [32 => 10.0], due: '2026-10-10');
         $this->importWhmcs();
 
+        $hosting = InvoiceItem::query()->where('invoice_id', 480)->where('reference_type', Service::class)->whereNull('kind')->sole();
+        $this->assertSame([null, null, null], [$hosting->period_start, $hosting->period_end, $hosting->applied_at]);
         $this->assertSame('6.00', ChangeCycle::unused(Service::query()->findOrFail(31), CarbonImmutable::today()));
+        $this->assertSame(['2026-09-10', '2026-10-10', '2026-09-03 10:00:00'], $this->line(481));
+        $this->assertSame(['2026-10-10', '2026-11-10', null], $this->line(521));
+        $this->assertSame('6.67', ChangeCycle::unused(Service::query()->findOrFail(32), CarbonImmutable::today()), '20 of 30 days of the 10.00 it paid');
+        $said = $this->importSaid();
+        $this->assertStringContainsString('1 live service(s) whose last paid line or open renewal got no period', $said);
+        $this->assertStringContainsString("#31 (its last paid line (#{$hosting->id}) is on an invoice with a discount line (invoice #480): it holds the amount before the discount).", $said);
+        $this->assertStringContainsString('1 last paid line(s)', $said);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function discounts(): array
+    {
+        return ['a client group\'s' => ['GroupDiscount'], 'a promotion\'s' => ['PromoHosting']];
+    }
+
+    /**
+     * The OPEN renewal beside a discount line is written all the same. Leaving it out would not keep its days from being
+     * priced by the line: paid here, it takes the same period from the payment (RenewServiceService), and the days left
+     * read the same with the importer's period and without it. Leaving it out would only bring back the guesses of sweep 8.
+     */
+    public function test_an_open_renewal_beside_a_discount_line_is_written_and_reads_the_same_once_paid_as_without_it(): void
+    {
+        $unused = [];
+        foreach ([31, 32] as $service) {
+            $this->whmcsService($service, '2026-09-25', 9.0);
+            $this->discountedInvoice(400 + $service, $service, 'Paid', '2026-08-25');
+            $this->discountedInvoice(500 + $service, $service, 'Unpaid', '2026-09-25');
+        }
+        $this->importWhmcs();
+        $this->settings();
+        $open = fn (int $invoice) => InvoiceItem::query()->where('invoice_id', $invoice)->where('reference_type', Service::class)->whereNull('kind')->sole();
+        $this->assertSame(['2026-09-25', '2026-10-25', null], [$open(531)->period_start?->toDateString(), $open(531)->period_end?->toDateString(), $open(531)->applied_at]);
+        $this->assertNull($open(431)->period_start, 'its paid line, beside a discount line, has none');
+        // Service 32 as if the importer had left its open renewal alone too.
+        DB::table('invoice_items')->where('id', $open(532)->id)->update(['period_start' => null, 'period_end' => null]);
+
+        foreach ([31, 32] as $service) {
+            (new RecordPaymentService)->recordByStaff(Invoice::query()->findOrFail(500 + $service), null, '9.00', 'tr_' . $service);
+            $this->assertSame('2026-10-25', Service::query()->findOrFail($service)->expires_at->toDateString());
+        }
+        Carbon::setTestNow('2026-10-05 10:00:00');
+        foreach ([31, 32] as $service) {
+            $unused[$service] = ChangeCycle::unused(Service::query()->findOrFail($service), CarbonImmutable::today());
+        }
+        $this->assertSame(['6.67', '6.67'], [$unused[31], $unused[32]], 'the same days left, by the line either way (20 of 30 days of the line\'s 10.00)');
     }
 
     public function test_a_source_without_the_lines_due_date_is_said_and_nothing_is_written(): void
