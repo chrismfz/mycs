@@ -58,9 +58,10 @@ class ChargeAttempt extends Model
     public const STATUS_UNKNOWN = 'unknown';
 
     /**
-     * The gateway was not reached before the charge (an outage, a timeout, a rate limit: ChargeNotSent): nothing taken,
-     * nothing declined. Holds nothing, is not counted as a decline, and the customer is not told it failed (sweep 3
-     * L-FAILURES-2); the cron tries again as set.
+     * The gateway was not reached before the charge, or ran nothing (an outage, a timeout, a rate limit, no token, our key
+     * refused: ChargeNotSent): nothing taken, nothing declined. Holds nothing, is not counted as a decline, and the customer
+     * is not told it failed (sweep 3 L-FAILURES-2); the cron tries again as set. Only a first send: a resend of an unknown
+     * outcome that is not sent stays unknown (S8-PAYMENTS-1).
      */
     public const STATUS_NOT_SENT = 'not_sent';
 

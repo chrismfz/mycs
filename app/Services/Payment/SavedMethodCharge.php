@@ -201,7 +201,8 @@ final class SavedMethodCharge
                 throw new DisplayException(__('A payment for this invoice is already on its way.'));
             }
             if ($unknown !== null) {
-                $unknown->update(['status' => ChargeAttempt::STATUS_STARTED, 'source' => $source, 'error' => null, 'sent_at' => now(), 'finished_at' => null]);
+                // Its error is kept: a resend that is not sent leaves it the charge of unknown outcome it was (below).
+                $unknown->update(['status' => ChargeAttempt::STATUS_STARTED, 'source' => $source, 'sent_at' => now(), 'finished_at' => null]);
 
                 return $unknown;
             }
@@ -238,7 +239,10 @@ final class SavedMethodCharge
             $this->finish($attempt, $agreement, ChargeAttempt::STATUS_ACTION_REQUIRED, $e->getMessage());
         } catch (ChargeNotSent $e) {
             // The gateway was not reached before the charge (an outage): nothing taken, nothing declined (L-FAILURES-2).
-            $this->finish($attempt, $agreement, ChargeAttempt::STATUS_NOT_SENT, $e->getMessage());
+            // A resend not sent says nothing of the first send, which may have taken the money: the attempt stays of unknown
+            // outcome, with its first error, its key and its hold (S8-PAYMENTS-1).
+            $resent = !$attempt->wasRecentlyCreated;
+            $this->finish($attempt, $agreement, $resent ? ChargeAttempt::STATUS_UNKNOWN : ChargeAttempt::STATUS_NOT_SENT, $resent ? $attempt->error : $e->getMessage());
         } catch (DisplayException $e) {
             $this->finish($attempt, $agreement, ChargeAttempt::STATUS_FAILED, $e->getMessage());
         } catch (Throwable $e) {
