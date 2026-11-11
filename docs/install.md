@@ -89,9 +89,11 @@ MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
   `2` και `3` για το δεύτερο. Επιπλέον ή, όπου δεν φτάνουν οι αριθμοί, αντί γι' αυτούς: **`REDIS_PREFIX`** (όλα τα κλειδιά
   του Redis, προεπιλογή `mycs_database_` από το `APP_NAME`) και **`CACHE_PREFIX`** (τα κλειδιά της cache, προεπιλογή
   `mycs_cache_`). Το prefix χωρίζει τα κλειδιά αλλά όχι ένα flush: το `cache:clear` και το import του WHMCS
-  (`docs/importer.md`) κάνουν `FLUSHDB` σε όλη τη `REDIS_CACHE_DB`, γι' αυτό προτιμώνται οι δικοί του αριθμοί. Μετά την
+  (`docs/importer.md`) κάνουν `FLUSHDB` σε όλη τη `REDIS_CACHE_DB`: αδειάζουν ό,τι έχει εκεί **οποιαδήποτε** άλλη εφαρμογή
+  μοιράζεται αυτή τη βάση του Redis, όχι μόνο ένα δεύτερο checkout του MyCS. Γι' αυτό προτιμώνται δικοί του αριθμοί, που
+  δεν τους χρησιμοποιεί τίποτε άλλο στον host. Μετά την
   αλλαγή: `php artisan config:cache` και restart του queue worker.
-- **Στην παραγωγή η cache είναι Redis (ή `database`), όχι `file`** (S8-OPS-3): στο store `file` τίποτα δεν σβήνει τα
+- **Στην παραγωγή η cache είναι Redis, όχι `file`** (S8-OPS-3· το store `database` θέλει πίνακα `cache`, που το σχήμα δεν έχει): στο store `file` τίποτα δεν σβήνει τα
   ληγμένα κλειδιά (π.χ. τα δύο αρχεία ανά επισκέπτη κάθε throttle), μόνο όταν ξαναζητηθεί το ίδιο κλειδί· ο φάκελος
   `storage/framework/cache` μεγαλώνει χωρίς όριο. Το `file` μένει για το devbox.
 
