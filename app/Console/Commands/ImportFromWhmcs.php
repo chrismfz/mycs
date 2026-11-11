@@ -58,8 +58,11 @@ use App\Support\Locales;
 use Closure;
 use DB;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Queue\ClearableQueue;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Log;
@@ -509,6 +512,19 @@ class ImportFromWhmcs extends Command
             ? DB::table('settings')->whereNull('settingable_type')->whereNull('settingable_id')->whereIn('key', self::INSTANCE_SETTINGS)
                 ->get(['key', 'value', 'type', 'encrypted'])->all()
             : [];
+        // What is kept outside the database about the rows about to be emptied (sweep 8, S8-OPS-2): jobs waiting in the
+        // queue and the cache's marks name them by id, and the import brings WHMCS's rows under the same ids. This
+        // instance's own queue and cache store only, as its .env names them (docs/install.md: each instance has its own).
+        // Before the database is emptied: a queue or a cache that cannot be reached (Redis down) stops the import here,
+        // with the database and its settings as they were (review of #796, REV-796-2). A database queue whose table is
+        // not there yet (a new instance, not migrated) has nothing to clear.
+        $name = (string) config('queue.default');
+        $unmade = config("queue.connections.{$name}.driver") === 'database'
+            && !Schema::connection(config("queue.connections.{$name}.connection"))->hasTable((string) config("queue.connections.{$name}.table"));
+        $queue = $unmade ? null : Queue::connection();
+        $jobs = $queue instanceof ClearableQueue ? $queue->clear((string) config("queue.connections.{$name}.queue", 'default')) : 0;
+        Cache::flush();
+        $this->info("Queue and cache cleared with the database: {$jobs} waiting job(s) dropped, the cache store «" . config('cache.default') . '» emptied.');
         // Rerun migrations
         $this->call('migrate:fresh', ['--force' => true]);
         // Seed default data

@@ -3,11 +3,12 @@
 namespace App\Admin\Resources\ServerResource\Pages;
 
 use App\Admin\Concerns\TwoColumnForm;
+use App\Admin\Resources\RedfishMachineResource;
 use App\Admin\Resources\ServerResource;
 use App\Helpers\ExtensionHelper;
 use App\Models\Extension;
+use App\Models\RedfishMachine;
 use App\Models\Server;
-use App\Models\Service;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
@@ -44,7 +45,7 @@ class EditServer extends EditRecord
     /**
      * The machine as its BMC says it now, with its saved settings (never the form's unsaved ones), and who has it.
      *
-     * @return array{machine: ?Machine, error: ?string, services: list<array{label: string}>, own: bool, location: ?string}
+     * @return array{machine: ?Machine, error: ?string, services: list<array{id: int, label: string}>, own: bool, location: ?string, page: string}
      */
     public static function hardware(Server $server): array
     {
@@ -54,13 +55,13 @@ class EditServer extends EditRecord
         } catch (Throwable $e) {
             $error = $e->getMessage();
         }
-        $services = Service::query()->where('server_id', $server->id)
-            ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING])->with('client')->orderBy('id')->get()
-            ->map(fn (Service $service) => ['label' => trim(($service->client->name ?? 'Client') . ' · service #' . $service->id . (filled($service->domain) ? ' · ' . $service->domain : ''))])
-            ->values()->all();
+        $given = RedfishMachine::givenTo($server);
+        // Its page in Utilities → Machines (the hourly read, with its parts), once it has one.
+        $row = RedfishMachine::query()->where('server_id', $server->id)->value('id');
 
-        return ['machine' => $machine, 'error' => $error, 'services' => $services, 'own' => $server->max_accounts !== null && (int) $server->max_accounts === 0,
-            'location' => $server->settings->firstWhere('key', 'location')?->value];
+        return ['machine' => $machine, 'error' => $error, 'services' => $given['services'], 'own' => $given['own'],
+            'location' => $server->settings->firstWhere('key', 'location')?->value,
+            'page' => $row === null ? RedfishMachineResource::getUrl('index') : RedfishMachineResource::getUrl('view', ['record' => $row])];
     }
 
     protected function mutateFormDataBeforeFill(array $data): array

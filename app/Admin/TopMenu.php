@@ -54,6 +54,7 @@ use App\Admin\Resources\PaymentGatewayEventResource;
 use App\Admin\Resources\ProductAddonResource;
 use App\Admin\Resources\ProductResource;
 use App\Admin\Resources\ProxmoxGuestResource;
+use App\Admin\Resources\RedfishMachineResource;
 use App\Admin\Resources\RoleResource;
 use App\Admin\Resources\ServerGroupResource;
 use App\Admin\Resources\ServerResource;
@@ -139,6 +140,7 @@ class TopMenu
             [ProxmoxGuestResource::class, 'index', 'Proxmox Guests'],
             [IpPoolResource::class, 'index', 'IP Pools'],
             [ProxmoxNodes::class],
+            [RedfishMachineResource::class, 'index', 'Machines'],
             [CpanelAccountResource::class, 'index', 'Hosting Accounts'],
             [MailcowDomainResource::class, 'index', 'Mail Domains'],
             [McpProposalResource::class, 'index', 'MCP Proposals'],

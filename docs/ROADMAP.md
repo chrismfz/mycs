@@ -73,7 +73,8 @@
   refunded. Δεν έχει ελεγχθεί.
 - **Γνωστή διαδρομή πίστωσης:** διαγραφή πληρωμής → αφαίρεση της γραμμής υπηρεσίας → downgrade πιστώνει μέρες στην
   τιμή ανανέωσης (fallback του `ChangeCycle::unused`).
-- Όσα έμειναν «όπως είναι, μόνο καταγραφή» στα sweeps: `sweeps/2026-11-09-sixth.md`, `sweeps/2026-11-10-seventh.md`.
+- Όσα έμειναν «όπως είναι, μόνο καταγραφή» στα sweeps: `sweeps/2026-11-09-sixth.md`, `sweeps/2026-11-10-seventh.md`,
+  `sweeps/2026-11-11-eighth.md` (και τα ανοιχτά του όγδοου, στο τέλος του αρχείου).
 - Τα 8 ερωτήματα του sweep των domains (`domains.md`, «Sweep 2026-10-22»).
 
 ## Μετά το cut-over, ανά θέμα
@@ -98,6 +99,9 @@
   - [x] Βήμα 1, ανάγνωση (2026-11-11): module «Redfish», ένα μηχάνημα = ένας server, «Hardware» με μοντέλο, serial,
         power state, health και watt (`docs/provisioning.md`, «Μηχανήματα με BMC»). Μένει η δοκιμή σε πραγματικό
         Supermicro, και από το βήμα 1 οι θερμοκρασίες και το inventory.
+  - [x] Utilities → Machines (2026-11-11): `redfish:sync` κάθε ώρα, λίστα και σελίδα ανά μηχάνημα με ανεμιστήρες,
+        θερμοκρασίες, τροφοδοτικά, CPU, RAM, δίσκους. Μόνο ένδειξη, χωρίς εργασία ή mail. Μένουν event log, RAID,
+        δίκτυο και η δοκιμή των εξαρτημάτων σε πραγματικά BMC.
 - [ ] DirectAdmin: αλλαγή κωδικού στον server (`CMD_API_USER_PASSWD`) μετά από live δοκιμή· ως τότε «Save a password
       set elsewhere».
 - [ ] ngm: live δοκιμή σε ngm-debian με άδεια του ιδιοκτήτη· ό,τι κάνει το module του WHMCS και δεν πέρασε ακόμα.

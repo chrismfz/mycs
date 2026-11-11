@@ -213,7 +213,8 @@ email επιβεβαίωσης στον επισκέπτη με τον αριθ�
 - **`packages/ticket-mail`** (χωρίς Laravel, 30 tests): `Parser` (raw RFC 822 → `InboundEmail`, ένας parser για IMAP,
   καραντίνα και tests), `AuthenticationResults`, `Automation` (§3 Ε), `MessageId` (`tk.{128 bit}@domain`),
   `Attachments` (λίστα τύπων με έλεγχο **και του περιεχομένου** με libmagic, 20 MB/αρχείο, 5/μήνυμα, 25 MB/email),
-  `HtmlToText`, `ReplyText`, και το `Imap\ImapEngineMailbox`.
+  `HtmlToText`, `ReplyText`, και το `Imap\ImapEngineMailbox`. Ένα mail με πάνω από 2.000 γραμμές
+  (`ReplyText::MAX_LINES`) κρατά και το ιστορικό που παραθέτει: ο reply parser δεν ρωτιέται (sweep 8, REV-795-2).
 - **Απόφαση: `directorytree/imapengine` + `zbateson/mail-mime-parser`** (ήταν ήδη εξαρτήσεις) αντί για το webklex του
   Ekdosi: ένα λιγότερο πακέτο, και το routing ελέγχεται με `.eml` χωρίς το αντικείμενο του IMAP client. Πρώτα headers
   και μέγεθος, μετά κάθε σώμα χωριστά (`BODY.PEEK`)· πάνω από 40 MB μόνο τα headers, στην καραντίνα.
