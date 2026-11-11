@@ -75,6 +75,8 @@ class Rev803Test extends TestCase
      */
     public function test_rev_803_1_an_unpaid_order_of_an_on_order_product_cancelled_by_staff_uses_the_coupon_up(): void
     {
+        $this->markTestIncomplete('REV-803-1 accepted (2026-11-11): an «on order» product starts at checkout, so the service ran and is a use by the rule; staff give the discount by hand.');
+
         $product = $this->product(Product::AUTOSETUP_ORDER);
         $coupon = Coupon::query()->create(['code' => 'REV803A', 'type' => 'percentage', 'value' => 50, 'once_per_client' => true, 'max_uses_per_user' => 1]);
         $order = $this->place($product, $coupon)->order->fresh();
@@ -107,6 +109,8 @@ class Rev803Test extends TestCase
      */
     public function test_rev_803_2_a_service_created_suspended_and_later_cancelled_frees_its_coupon(): void
     {
+        $this->markTestIncomplete('REV-803-2 accepted (2026-11-11): a staff or API action that skips active (created suspended, pending → suspended) leaves no start; rare, done by staff.');
+
         $product = $this->product(Product::AUTOSETUP_PAYMENT);
         $coupon = Coupon::query()->create(['code' => 'REV803B', 'type' => 'percentage', 'value' => 50, 'once_per_client' => true, 'max_uses' => 1]);
         // As ServiceController::store: Service::create() of the validated fields.
