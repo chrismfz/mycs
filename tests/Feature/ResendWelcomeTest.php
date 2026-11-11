@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Helpers\NotificationHelper;
 use App\Livewire\Services\Show;
 use App\Mail\Mail as MyCSMail;
@@ -84,6 +85,12 @@ class ResendWelcomeTest extends TestCase
     private function page(?Staff $staff = null)
     {
         return $this->livewireAs($staff ?? $this->staff())->test(EditService::class, ['record' => $this->service->getRouteKey()]);
+    }
+
+    /** The company's nameservers, as rows (a stored setting reloads them all: setUp's own with them). */
+    private function nameservers(string $first, string $second): void
+    {
+        $this->storeSettings(['mail_disable' => false, 'default_currency' => 'USD', 'domain_nameserver_1' => $first, 'domain_nameserver_2' => $second]);
     }
 
     /** @return list<MyCSMail> */
@@ -241,8 +248,8 @@ class ResendWelcomeTest extends TestCase
             $this->assertStringContainsString($shown, $mail->renderedHtml);
         }
         $this->assertStringContainsString('<strong>Server</strong>', $mail->renderedHtml);
-        // Never the panel's port or scheme, nor WHMCS's notes among the IPs (review of #674).
-        foreach ([':2087', 'https://whm.test', 'old, to'] as $hidden) {
+        // Never WHM's own port (the customer's are cPanel's: below), nor WHMCS's notes among the IPs (review of #674).
+        foreach ([':2087', 'old, to'] as $hidden) {
             $this->assertStringNotContainsString($hidden, $mail->renderedHtml);
         }
     }
@@ -264,10 +271,11 @@ class ResendWelcomeTest extends TestCase
         $cluster->settings()->create(['key' => 'host', 'value' => 'https://pve.internal.test:8006']);
         $this->service->forceFill(['server_id' => $cluster->id])->save();
 
-        $this->assertSame(['service_server' => null, 'server_hostname' => null, 'server_ip' => null, 'service_ips' => null],
+        $this->assertSame(['service_server' => null, 'server_hostname' => null, 'server_ip' => null, 'service_ips' => null, 'nameservers' => null, 'ssh_host' => null],
             NotificationHelper::welcomeServer($this->service->fresh()));
         $this->service->forceFill(['assigned_ips' => '198.51.100.20'])->save();
-        $this->assertSame(['service_server' => true, 'server_hostname' => null, 'server_ip' => null, 'service_ips' => '198.51.100.20'],
+        // A machine's own address is where its root signs in; a cluster has no nameservers of the customer's.
+        $this->assertSame(['service_server' => true, 'server_hostname' => null, 'server_ip' => null, 'service_ips' => '198.51.100.20', 'nameservers' => null, 'ssh_host' => '198.51.100.20'],
             NotificationHelper::welcomeServer($this->service->fresh()));
     }
 
@@ -445,5 +453,111 @@ class ResendWelcomeTest extends TestCase
         $page->call('changeServicePassword');
         $this->assertSame($generated, $this->service->fresh()->password);
         $this->assertSame('', $page->get('generatedPassword'), 'not kept after the change');
+    }
+
+    /** Owner 2026-11-11: what WHMCS's hosting welcome said and ours did not: the panel's and webmail's addresses, FTP, mail, nameservers. */
+    public function test_a_hosting_welcome_says_the_panel_webmail_ftp_mail_and_nameservers(): void
+    {
+        $this->nameservers('ns1.host.test', 'ns2.host.test.');
+
+        $this->page()->callAction('resendWelcome');
+
+        [$mail] = $this->welcomes();
+        foreach (['href="https://whm.test:2083"', 'href="https://whm.test:2096"', 'FTP: whm.test', 'mail.example.test', 'ns1.host.test, ns2.host.test<',
+            '<strong>Nameservers</strong>', 'change your password'] as $shown) {
+            $this->assertStringContainsString($shown, $mail->renderedHtml);
+        }
+        // WHM is a reseller's; SSH is a machine's.
+        foreach ([':2087', 'WHM', 'ssh root@'] as $hidden) {
+            $this->assertStringNotContainsString($hidden, $mail->renderedHtml);
+        }
+    }
+
+    public function test_a_resellers_welcome_has_whm_and_one_without_nameservers_set_has_no_such_block(): void
+    {
+        $this->service->properties()->create(['key' => 'cpanel_reseller', 'name' => 'cPanel reseller', 'value' => '1']);
+
+        $this->page()->callAction('resendWelcome');
+
+        [$mail] = $this->welcomes();
+        $this->assertStringContainsString('href="https://whm.test:2087"', $mail->renderedHtml);
+        $this->assertStringNotContainsString('Nameservers', $mail->renderedHtml, 'none set: none said');
+    }
+
+    public function test_a_machines_welcome_has_its_ssh_line_and_nothing_of_hosting(): void
+    {
+        $this->nameservers('ns1.host.test', 'ns2.host.test');
+        $cluster = Server::query()->create(['name' => 'Vega', 'extension' => 'Proxmox', 'type' => 'server', 'enabled' => true]);
+        $cluster->settings()->create(['key' => 'host', 'value' => 'https://pve.internal.test:8006']);
+        $this->service->product->update(['server_id' => $cluster->id]);
+        $this->service->forceFill(['server_id' => $cluster->id, 'username' => null, 'dedicated_ip' => '198.51.100.7', 'assigned_ips' => '198.51.100.8'])->save();
+        $this->service->properties()->delete();
+
+        $this->page()->callAction('resendWelcome');
+
+        [$mail] = $this->welcomes();
+        $this->assertStringContainsString('ssh root@198.51.100.7', $mail->renderedHtml);
+        foreach (['Nameservers', 'Control panel', 'FTP', 'pve.internal.test'] as $hidden) {
+            $this->assertStringNotContainsString($hidden, $mail->renderedHtml);
+        }
+    }
+
+    /** ngm (owner 2026-11-11: being made ready): its panel's sign-in page and the nameservers, never cPanel's lines. */
+    public function test_an_ngm_welcome_says_its_panel_and_the_nameservers(): void
+    {
+        $this->nameservers('ns1.host.test', 'ns2.host.test');
+        $ngm = Server::query()->create(['name' => 'Ngm', 'extension' => 'Ngm', 'type' => 'server', 'enabled' => true]);
+        foreach (['host' => 'ngm.host.test', 'token' => 'secret-token'] as $key => $value) {
+            $ngm->settings()->create(['key' => $key, 'value' => $value]);
+        }
+        $this->service->product->update(['server_id' => $ngm->id]);
+        $this->service->forceFill(['server_id' => $ngm->id])->save();
+        $this->service->properties()->delete();
+
+        $data = ExtensionHelper::welcomeData($this->service->fresh());
+        $this->assertSame(['panel_url'], array_keys($data));
+        $this->assertStringStartsWith('https://ngm.host.test:', $data['panel_url']);
+        $this->assertStringEndsWith('/ui/', $data['panel_url']);
+
+        $this->page()->callAction('resendWelcome');
+
+        [$mail] = $this->welcomes();
+        foreach (['href="' . $data['panel_url'] . '"', 'ns1.host.test, ns2.host.test'] as $shown) {
+            $this->assertStringContainsString($shown, $mail->renderedHtml);
+        }
+        foreach (['Webmail', 'FTP', 'secret-token', 'ssh root@'] as $hidden) {
+            $this->assertStringNotContainsString($hidden, $mail->renderedHtml);
+        }
+    }
+
+    public function test_the_hosting_details_migration_adds_them_where_seeded_and_once_and_leaves_an_edited_mail(): void
+    {
+        $migration = include base_path('database/migrations/2027_02_22_000000_welcome_mail_hosting_details.php');
+        $template = fn () => \DB::table('notification_templates')->where('key', WelcomeMail::TEMPLATE)->first();
+        $seeded = $template();
+
+        $migration->down(); // as an install seeded before this change
+        $this->assertStringNotContainsString('panel_url', $template()->body);
+        $this->assertStringNotContainsString('ssh_host', json_decode($template()->translations, true)['el']['body']);
+        $migration->up();
+        $this->assertSame($seeded->body, $template()->body);
+        $this->assertSame(json_decode($seeded->translations, true), json_decode($template()->translations, true));
+        $migration->up(); // twice: no change
+        $this->assertSame($seeded->body, $template()->body);
+
+        \DB::table('notification_templates')->where('key', WelcomeMail::TEMPLATE)->update(['body' => 'Ours: {{ service.mailName }}']);
+        $migration->up();
+        $this->assertSame('Ours: {{ service.mailName }}', $template()->body, 'staff\'s own mail stays theirs');
+    }
+
+    /** WHMCS's «Server Information» on the customer's page: where the account is, and the nameservers to point a domain at. */
+    public function test_the_customers_page_says_the_server_and_the_nameservers(): void
+    {
+        $this->nameservers('ns1.host.test', 'ns2.host.test');
+        Server::query()->findOrFail($this->service->server_id)->settings()->create(['key' => 'ip', 'value' => '203.0.113.10']);
+
+        $this->livewireAs($this->owner)->test(Show::class, ['service' => $this->service])
+            ->assertSee('whm.test')->assertSee('203.0.113.10')->assertSee('ns1.host.test, ns2.host.test')
+            ->assertDontSee(':2087')->assertDontSee('https://whm.test');
     }
 }

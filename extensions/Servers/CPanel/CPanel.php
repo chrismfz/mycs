@@ -835,6 +835,23 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
     }
 
     /**
+     * For the welcome mail (WHMCS's «cPanel URL», «Webmail», a reseller's «WHM»): cPanel's own ports on the server's
+     * hostname, which work before the customer's domain points here. No call to the server.
+     *
+     * @return array<string, string>
+     */
+    public function welcomeData(Service $service, $settings, $properties): array
+    {
+        $host = parse_url(trim((string) $this->config('host')), PHP_URL_HOST);
+        if (!isset($properties['cpanel_username']) || !is_string($host) || $host === '') {
+            return [];
+        }
+
+        return ['panel_url' => "https://{$host}:2083", 'webmail_url' => "https://{$host}:2096"]
+            + (self::wasReseller($properties) ? ['whm_url' => "https://{$host}:2087"] : []);
+    }
+
+    /**
      * A new password for the account (WHM's passwd; WHMCS's «Change Password», staff and customer): WHM's strength rules
      * apply, its refusal is told. Kept on the service (encrypted, never in its audit) once WHM took it.
      */
