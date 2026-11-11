@@ -175,9 +175,16 @@
     2026-11-11): η επιστροφή γίνεται, αλλά **δεν αναιρεί την καταχώρηση**. Ο registrar δεν καλείται και η κατάσταση
     του domain δεν αλλάζει. Το παράθυρο επιβεβαίωσης προειδοποιεί. **Μόνο αν γύρισαν πράγματι χρήματα** του τιμολογίου της, με αυτό το κλικ ή νωρίτερα (REV-793-R2-4· REV-793-6: όχι
     σε απλήρωτη παραγγελία, άρνηση ή αποτυχία του gateway) το staff παίρνει ειδοποίηση «Left for staff» και εργασία
-    «Check: registered domain refunded» στα Pending Module Actions (`ModuleAction::DOMAIN_REFUNDED`, «check this»: δεν
+    «Check: registered domain, order cancelled» στα Pending Module Actions (`ModuleAction::DOMAIN_REFUNDED`, «check this»: δεν
     είναι αποτυχία, κλείνει μόνο με «Checked», **μία ανοιχτή ανά domain**, REV-793-7), που λέει ποιο domain να κρατήσει
     (και να χρεώσει) ή να σβήσει στον registrar με το χέρι.
+  - **«Cancel Order» και «Set as Fraud» (χωρίς refund) με domain ήδη καταχωρημένο** (reviews του sweep 8, #793): το ίδιο
+    πράγμα, με τον ίδιο μηχανισμό. Το domain μένει όπως είναι (ο registrar δεν καλείται), το παράθυρο επιβεβαίωσης
+    προειδοποιεί, και το staff παίρνει ειδοποίηση «Left for staff» και την ίδια εργασία (ίδιο `DOMAIN_REFUNDED`, μία
+    ανοιχτή ανά domain· δεν ανοίγει δεύτερη αν ακολουθήσει «Cancel & Refund»). Το κείμενό της **δεν μιλά για refund**:
+    «cancelling order #N does not undo the registration (nothing was refunded with it)». Παραγγελία χωρίς domain, με
+    domain pending (ακυρώνεται μαζί της όπως πριν) ή τελικό: καμία εργασία. Το «Cancel & Refund» όπως πάνω: αν δεν γύρισαν
+    χρήματα δεν λέει τίποτα (`Sweep8OpenCancelOrderDomainTest`).
   - Ό,τι επιστράφηκε ήδη (από εδώ, ή από το dashboard του gateway με webhook) ή πάρθηκε με chargeback δεν επιστρέφεται
     ξανά (`refundable_amount`).
   - Gateway που δεν κάνει refund (ή αποτυχία): ειδοποίηση στο staff ανά πληρωμή, οι υπόλοιπες συνεχίζουν.

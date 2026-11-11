@@ -249,18 +249,28 @@ class Sweep8DomainsTest extends TestCase
         $this->assertSame(ModuleAction::STATUS_RESOLVED, $task->fresh()->status, 'closed by staff («Checked»)');
     }
 
-    /** The neighbour: «Cancel Order» (no refund) of a registered domain tells nothing new. */
-    public function test_cancel_order_without_a_refund_of_a_registered_domain_opens_no_task(): void
+    /**
+     * «Cancel Order» (no refund) of a registered domain: it stays Active and paid, the registrar is not called, and staff
+     * are told with the same task, in words that claim no refund (open item of the sweep-8 reviews; this test first pinned
+     * «tells nothing»). More in Sweep8OpenCancelOrderDomainTest.
+     */
+    public function test_cancel_order_without_a_refund_of_a_registered_domain_opens_the_task_too(): void
     {
         $domain = $this->order('add', 'mybusiness.com');
         $this->pay($domain);
         $this->runJobs();
+        $calls = count($this->created);
+        Http::fake(fn (Request $request) => $this->fail('Cancel Order called the registrar: ' . $request->url()));
 
-        $this->assertSame([], CancelOrder::handle(Order::query()->sole()));
+        $left = CancelOrder::handle(Order::query()->sole());
 
+        $this->assertSame(["domain #{$domain->id}"], array_keys($left));
         $this->assertSame(DomainStatus::Active, $domain->fresh()->status);
         $this->assertSame(Invoice::STATUS_PAID, $this->invoiceOf($domain)->fresh()->status);
-        $this->assertSame(0, ModuleAction::query()->where('action', ModuleAction::DOMAIN_REFUNDED)->count());
+        $this->assertSame($calls, count($this->created));
+        $task = ModuleAction::query()->where('domain_id', $domain->id)->where('action', ModuleAction::DOMAIN_REFUNDED)->sole();
+        $this->assertStringContainsString('mybusiness.com is already registered at the registrar: cancelling order', (string) $task->last_error);
+        $this->assertStringNotContainsString('the refund of order', (string) $task->last_error);
     }
 
     /** The neighbour: a domain ordered and never sent is cancelled with its order as before, with nothing to tell. */
