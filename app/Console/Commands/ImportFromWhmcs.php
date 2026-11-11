@@ -58,8 +58,11 @@ use App\Support\Locales;
 use Closure;
 use DB;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Queue\ClearableQueue;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Log;
@@ -511,6 +514,13 @@ class ImportFromWhmcs extends Command
             : [];
         // Rerun migrations
         $this->call('migrate:fresh', ['--force' => true]);
+        // What was kept outside the database about the rows just emptied (sweep 8, S8-OPS-2): jobs waiting in the queue
+        // and the cache's marks name them by id, and the import brings WHMCS's rows under the same ids. This instance's
+        // own queue and cache store only, as its .env names them (docs/install.md: each instance has its own).
+        $queue = Queue::connection();
+        $jobs = $queue instanceof ClearableQueue ? $queue->clear((string) config('queue.connections.' . config('queue.default') . '.queue', 'default')) : 0;
+        Cache::flush();
+        $this->info("Queue and cache cleared with the database: {$jobs} waiting job(s) dropped, the cache store «" . config('cache.default') . '» emptied.');
         // Seed default data
         $this->call('db:seed', ['--force' => true]);
         foreach ($kept as $setting) {

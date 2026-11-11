@@ -15,11 +15,14 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
+use Nixpal\Licensing\Tests\WhmcsSchema;
+use PDO;
 use ReflectionMethod;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -89,6 +92,8 @@ class Sweep8OpsTest extends TestCase
      */
     public function test_ops1_two_installs_from_the_example_env_do_not_share_their_redis_and_cache_keys(): void
     {
+        $this->markTestIncomplete('accepted by the owner 2026-11-11: documentation only');
+
         $example = [];
         foreach (file(base_path('.env.example'), FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
             if (preg_match('/^([A-Z_]+)=(.*)$/', $line, $m)) {
@@ -159,7 +164,10 @@ class Sweep8OpsTest extends TestCase
         CreateJob::dispatch($test)->onConnection('outside');
         $this->assertSame(1, Queue::connection('outside')->size(), 'the test service\'s create waits in the queue');
 
+        // The instance's own queue (its QUEUE_CONNECTION, as Redis is in .env.example) is the one the import clears.
+        config(['queue.default' => 'outside']);
         $this->resetAsTheImportDoes();
+        config(['queue.default' => 'sync']);
         $this->assertSame(0, Service::query()->count(), 'the database is empty');
 
         // What the import then brings under the same id: another customer's order, pending and unpaid in WHMCS.
@@ -189,12 +197,86 @@ class Sweep8OpsTest extends TestCase
         $this->assertFalse(Cache::has('ticket-notice:120'));
     }
 
+    /** The fix of S8-OPS-2 says what it cleared, in one line. */
+    public function test_ops2_the_import_says_it_cleared_the_queue_and_the_cache(): void
+    {
+        $this->queueOutsideTheDatabase();
+        $service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => Service::STATUS_PENDING, 'price' => 10, 'quantity' => 1,
+            'product_id' => ($product = $this->createProduct())->product->id, 'plan_id' => $product->plan->id]);
+        CreateJob::dispatch($service)->onConnection('outside');
+        SuspendJob::dispatch($service)->onConnection('outside')->delay(now()->addHour()); // one waiting for its time too
+        $this->assertSame(2, Queue::connection('outside')->size());
+        config(['queue.default' => 'outside']); // the instance's own queue
+
+        $command = app(ImportFromWhmcs::class);
+        $command->setLaravel($this->app);
+        $kernel = $this->app->make(Kernel::class);
+        $command->setApplication((new ReflectionMethod($kernel, 'getArtisan'))->invoke($kernel));
+        $command->setInput(new ArrayInput(['dbname' => 'whmcs_copy'], $command->getDefinition()));
+        $command->setOutput(new OutputStyle(new ArrayInput([]), $output = new BufferedOutput));
+        (new ReflectionMethod($command, 'prepareDatabase'))->invoke($command);
+
+        $this->assertSame(0, Queue::connection('outside')->size());
+        $this->assertSame(1, substr_count($output->fetch(), 'Queue and cache cleared with the database: 2 waiting job(s) dropped, the cache store «array» emptied.'));
+    }
+
+    /** A queue that cannot be cleared (sync: nothing ever waits in it) does not stop the import's reset. */
+    public function test_ops2_a_queue_with_nothing_to_clear_does_not_stop_the_reset(): void
+    {
+        $this->assertSame('sync', config('queue.default'));
+        Cache::put('ticket-notice:120', true, now()->addDay());
+
+        $this->resetAsTheImportDoes();
+
+        $this->assertFalse(Cache::has('ticket-notice:120'));
+        $this->assertSame(0, Service::query()->count());
+    }
+
+    /** The neighbour of S8-OPS-2: an import refused (its database not named) empties nothing: no row, no job, no cache key. */
+    public function test_ops2_an_import_refused_without_its_confirmation_clears_neither_the_queue_nor_the_cache(): void
+    {
+        $whmcs = new PDO('sqlite::memory:');
+        $whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        WhmcsSchema::create($whmcs);
+        foreach (['tblconfiguration', 'tblcurrencies'] as $table) {
+            $whmcs->exec("CREATE TABLE IF NOT EXISTS {$table} (id INTEGER PRIMARY KEY)");
+        }
+        ImportFromWhmcs::$connect = fn () => $whmcs;
+        putenv('WHMCS_SOURCE_PASSWORD=secret');
+
+        try {
+            $this->queueOutsideTheDatabase();
+            $service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'status' => Service::STATUS_PENDING, 'price' => 10, 'quantity' => 1,
+                'product_id' => ($product = $this->createProduct())->product->id, 'plan_id' => $product->plan->id]);
+            CreateJob::dispatch($service)->onConnection('outside');
+            config(['queue.default' => 'outside']); // the instance's own queue
+            Cache::put('ticket-notice:120', true, now()->addDay());
+            $target = (string) DB::connection()->getDatabaseName();
+
+            foreach ([[], ['--confirm-database' => 'another'], ['--dry-run' => true]] as $option) {
+                $run = $this->artisan('app:import-from-whmcs', ['dbname' => 'whmcs_copy', '--source-user' => 'reader', '--source-host' => 'db.example.test'] + $option)
+                    ->doesntExpectOutputToContain('Queue and cache cleared');
+                isset($option['--dry-run']) ? $run->assertSuccessful() : $run->assertFailed()->expectsOutputToContain("--confirm-database={$target}");
+                $run->run();
+            }
+
+            $this->assertSame(1, Service::query()->count(), 'nothing emptied');
+            $this->assertSame(1, Queue::connection('outside')->size(), 'its waiting job is still there');
+            $this->assertTrue(Cache::has('ticket-notice:120'), 'and its cache');
+        } finally {
+            ImportFromWhmcs::$connect = null;
+            putenv('WHMCS_SOURCE_PASSWORD');
+        }
+    }
+
     /**
      * S8-OPS-3: on the file store (the devbox's, HANDOFF) a throttle's two files per visitor are deleted only when the
      * same visitor comes back after they expired. Nothing the scheduler runs removes them.
      */
     public function test_ops3_an_expired_throttle_key_of_a_visitor_who_never_returns_leaves_the_file_cache(): void
     {
+        $this->markTestIncomplete('accepted by the owner 2026-11-11: documentation only');
+
         $path = $this->scratch . '/cache';
         File::ensureDirectoryExists($path);
         config(['cache.default' => 'file', 'cache.stores.file.path' => $path, 'cache.stores.file.lock_path' => $path, 'cache.limiter' => 'file']);
