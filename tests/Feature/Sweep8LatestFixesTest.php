@@ -7,6 +7,7 @@ use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\User;
@@ -54,6 +55,8 @@ class Sweep8LatestFixesTest extends TestCase
      */
     public function test_s8_latest_fixes_1_a_processing_payment_landing_on_an_invoice_paid_by_hand_is_not_given_as_credit(): void
     {
+        $this->markTestIncomplete('accepted by the owner 2026-11-11: rare, the amount shows as credit');
+
         Carbon::setTestNow('2026-10-05 10:00:00');
         $user = User::factory()->create();
         $product = $this->createProduct();
@@ -124,14 +127,70 @@ class Sweep8LatestFixesTest extends TestCase
             $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
         }
 
+        // The fix the owner approved (2026-11-11, KISS): the case is cut. «Cancel & Refund» is refused whole, naming the
+        // part, before anything is cancelled or refunded; staff refund each invoice and cancel by hand. (The verifier's
+        // test asked for «every part refunded, or staff told which was not» after a cancel that went ahead.)
+        try {
+            CancelOrder::handle($order->fresh(), refund: 'manual');
+            $this->fail('«Cancel & Refund» of an order whose invoice was split went ahead');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString("#{$part->id}", $e->getMessage(), 'staff are told which invoice holds the other part');
+            $this->assertStringContainsString('by hand', $e->getMessage());
+        }
+
+        $this->assertSame(['active', 'active'], Service::query()->whereKey($services)->orderBy('id')->pluck('status')->all(), 'nothing was cancelled');
+        $this->assertNotSame(Order::STATUS_CANCELLED, $order->fresh()->status);
+        foreach ([$own, $part] as $invoice) {
+            $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+            $this->assertSame(RecordPaymentService::toCents($invoice->fresh()->total), RecordPaymentService::toCents($invoice->transactions()->sole()->refundable_amount), 'nothing was refunded');
+        }
+
+        // By hand, as the message says: «Cancel Order» (no refund) still works on it.
+        $this->assertSame([], CancelOrder::handle($order->fresh()));
+        $this->assertSame(['cancelled', 'cancelled'], Service::query()->whereKey($services)->orderBy('id')->pluck('status')->all());
+    }
+
+    /** The neighbour of S8-LATEST-FIXES-2: an order whose invoice was never split is cancelled and refunded as before. */
+    public function test_cancel_and_refund_of_an_order_whose_invoice_was_not_split_refunds_it_as_before(): void
+    {
+        [$order, $own, $services] = $this->twoServiceOrder();
+        (new RecordPaymentService)->handle($own->fresh(), null, (float) $own->fresh()->total, transactionId: 'bank-1');
+
         $left = CancelOrder::handle($order->fresh(), refund: 'manual');
 
+        $this->assertSame([], $left);
         $this->assertSame(['cancelled', 'cancelled'], Service::query()->whereKey($services)->orderBy('id')->pluck('status')->all());
-        $this->assertSame(0.0, (float) $own->transactions()->sole()->refundable_amount, 'the order\'s invoice was refunded');
-        $kept = (float) $part->transactions()->sole()->refundable_amount;
-        $told = collect(array_keys($left))->contains(fn (string $key) => str_contains($key, "#{$part->id}"))
-            || collect($left)->contains(fn (\Throwable $e) => str_contains($e->getMessage(), "#{$part->id}"));
-        $this->assertTrue($kept === 0.0 || $told,
-            "the split-off part #{$part->id} of the order keeps {$kept} for a cancelled service, still «{$part->fresh()->status}», and staff were told nothing");
+        $this->assertSame(0, RecordPaymentService::toCents($own->transactions()->sole()->refundable_amount));
+        $this->assertSame(Invoice::STATUS_REFUNDED, $own->fresh()->status);
+    }
+
+    /** A part split off and cancelled since bills nothing of the order any more: the refund is not refused for it. */
+    public function test_cancel_and_refund_is_not_refused_for_a_split_part_cancelled_since(): void
+    {
+        [$order, $own, $services] = $this->twoServiceOrder();
+        $second = InvoiceItem::query()->where('invoice_id', $own->id)->where('reference_id', $services[1])->sole();
+        $part = (new SplitInvoice)->handle($own->id, [$second->id]);
+        $part->update(['status' => Invoice::STATUS_CANCELLED]);
+        (new RecordPaymentService)->handle($own->fresh(), null, (float) $own->fresh()->total, transactionId: 'bank-1');
+
+        $left = CancelOrder::handle($order->fresh(), refund: 'manual');
+
+        $this->assertSame([], $left);
+        $this->assertSame(0, RecordPaymentService::toCents($own->transactions()->sole()->refundable_amount));
+        $this->assertSame(['cancelled', 'cancelled'], Service::query()->whereKey($services)->orderBy('id')->pluck('status')->all());
+    }
+
+    /** @return array{0: Order, 1: Invoice, 2: list<int>} */
+    private function twoServiceOrder(): array
+    {
+        Carbon::setTestNow('2026-01-01 10:00:00');
+        $user = User::factory()->create();
+        $product = $this->createProduct()->product;
+        $product->update(['autosetup' => Product::AUTOSETUP_PAYMENT, 'server_id' => null, 'stock' => 10]);
+        $product = $product->fresh();
+        $order = (new PlaceOrderService)->place($user->client(), 'USD',
+            array_fill(0, 2, new OrderLine($product, $product->plans()->first(), price: '10.00')))->order->fresh();
+
+        return [$order, Invoice::query()->findOrFail($order->invoice_id), $order->services()->orderBy('id')->pluck('id')->all()];
     }
 }

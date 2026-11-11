@@ -30,6 +30,10 @@ use Throwable;
  * a refund or a chargeback already gave back is not given twice (refundable_amount). An order invoice that also bills
  * something else is left to staff, as anything the invoices' own rules leave open.
  *
+ * A case a refund leaves to staff (sweep 8, owner 2026-11-11, KISS): the order's invoice was split (#780) and a part
+ * still bills the order. «Cancel & Refund» is refused whole, before anything is cancelled (splitParts). Staff refund each
+ * invoice and cancel by hand; no refund over many invoices here.
+ *
  * Only its items still its customer's: one moved to another customer since (MoveToClient) is that customer's now, never
  * cancelled with the first one's order (adversarial R2-1 of #357).
  *
@@ -48,6 +52,10 @@ final class CancelOrder
     {
         if ($refund !== null && !in_array($refund, self::REFUND_METHODS, true)) {
             throw new \InvalidArgumentException("Unknown refund method {$refund}");
+        }
+        if ($refund !== null && ($parts = self::splitParts($order)) !== []) {
+            throw new DisplayException("Not cancelled, nothing refunded: invoice #{$order->invoice_id} of this order was split, and #" . implode(', #', $parts)
+                . ' ' . (count($parts) === 1 ? 'bills' : 'bill') . ' a part of it. «Cancel & Refund» refunds one invoice only: refund each invoice from its page and cancel the services by hand («Cancel Order»).');
         }
         $reason = __('invoices.cancellation_reasons.order_cancelled');
 
@@ -97,6 +105,27 @@ final class CancelOrder
         }
 
         return $left;
+    }
+
+    /**
+     * The invoices split off the order's own invoice that still bill something of the order (a service or a domain of
+     * it), not cancelled: with one, «Cancel & Refund» is refused.
+     *
+     * @return list<int>
+     */
+    public static function splitParts(Order $order): array
+    {
+        if ($order->invoice_id === null) {
+            return [];
+        }
+        $services = Service::query()->where('order_id', $order->id)->select('id');
+        $domains = Domain::query()->where('order_id', $order->id)->select('id');
+
+        return Invoice::query()->where('split_from_id', $order->invoice_id)->where('status', '!=', Invoice::STATUS_CANCELLED)
+            ->whereHas('items', fn ($line) => $line->where(fn ($ours) => $ours
+                ->where(fn ($q) => $q->where('reference_type', Service::class)->whereIn('reference_id', $services))
+                ->orWhere(fn ($q) => $q->where('reference_type', Domain::class)->whereIn('reference_id', $domains))))
+            ->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
     /**
