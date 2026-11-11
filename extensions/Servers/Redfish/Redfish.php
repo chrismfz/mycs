@@ -59,10 +59,13 @@ class Redfish extends OfflineMachineServer
             trim((string) $this->config('username')), (string) $this->config('password'));
     }
 
-    /** The machine as its BMC says it now (three to five requests, seconds on a slow BMC). */
-    public function hardware(): Machine
+    /**
+     * The machine as its BMC says it now (three to five requests, seconds on a slow BMC); with its parts (fans, memory,
+     * drives: tens of requests, within $budget seconds) for Utilities → Machines.
+     */
+    public function hardware(bool $parts = false, float $budget = 45.0): Machine
     {
-        return $this->client()->machine();
+        return $this->client()->machine($parts, $budget);
     }
 
     public function testConfig(): bool|string
