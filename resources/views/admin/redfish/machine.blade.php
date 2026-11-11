@@ -23,19 +23,19 @@
     ], fn ($value) => $value !== null && $value !== '');
     // Each part's table: its title, its rows, and its columns as [heading, fn(row) => text].
     $tables = $machine === null ? [] : [
-        ['Fans', $machine->fans, [['Fan', fn ($r) => $r['name']], ['Speed', fn ($r) => $r['rpm'] !== null ? $num($r['rpm']) . ' RPM' : ($r['percent'] !== null ? $num($r['percent']) . ' %' : null)]]],
-        ['Temperatures', $machine->temperatures, [['Sensor', fn ($r) => $r['name']], ['Now', fn ($r) => $num($r['celsius'], 1) . ' °C'],
-            ['Warning / critical at', fn ($r) => $r['warning'] === null && $r['critical'] === null ? null : ($num($r['warning']) ?? '—') . ' / ' . ($num($r['critical']) ?? '—') . ' °C']]],
-        ['Power supplies', $machine->powerSupplies, [['Supply', fn ($r) => $r['name']], ['Model', fn ($r) => $r['model']], ['Draws', fn ($r) => $watts($r['watts'])], ['Rated', fn ($r) => $watts($r['capacity'])]]],
-        ['Processors', $machine->processors, [['Socket', fn ($r) => $r['name']], ['Model', fn ($r) => $r['model']],
-            ['Cores / threads', fn ($r) => $r['cores'] === null ? null : $r['cores'] . ($r['threads'] !== null ? ' / ' . $r['threads'] : '')]]],
-        ['Memory', $machine->memory, [['Slot', fn ($r) => $r['name']], ['Size', fn ($r) => $r['gib'] === null ? null : $num($r['gib'], 1) . ' GiB'],
-            ['Type', fn ($r) => trim(($r['type'] ?? '') . ($r['mhz'] !== null ? ' ' . $r['mhz'] . ' MHz' : '')) ?: null]]],
-        ['Drives', $machine->drives, [['Drive', fn ($r) => $r['name']], ['Model', fn ($r) => $r['model']], ['Serial', fn ($r) => $r['serial']],
-            ['Size', fn ($r) => $r['gb'] === null ? null : ($r['gb'] >= 1000 ? $num($r['gb'] / 1000, 2) . ' TB' : $num($r['gb']) . ' GB')],
+        ['Fans', $machine->fans, [['Fan', fn ($r) => ($r['name'] ?? null)], ['Speed', fn ($r) => ($r['rpm'] ?? null) !== null ? $num(($r['rpm'] ?? null)) . ' RPM' : (($r['percent'] ?? null) !== null ? $num(($r['percent'] ?? null)) . ' %' : null)]]],
+        ['Temperatures', $machine->temperatures, [['Sensor', fn ($r) => ($r['name'] ?? null)], ['Now', fn ($r) => $num(($r['celsius'] ?? null), 1) . ' °C'],
+            ['Warning / critical at', fn ($r) => ($r['warning'] ?? null) === null && ($r['critical'] ?? null) === null ? null : ($num(($r['warning'] ?? null)) ?? '—') . ' / ' . ($num(($r['critical'] ?? null)) ?? '—') . ' °C']]],
+        ['Power supplies', $machine->powerSupplies, [['Supply', fn ($r) => ($r['name'] ?? null)], ['Model', fn ($r) => ($r['model'] ?? null)], ['Draws', fn ($r) => $watts(($r['watts'] ?? null))], ['Rated', fn ($r) => $watts(($r['capacity'] ?? null))]]],
+        ['Processors', $machine->processors, [['Socket', fn ($r) => ($r['name'] ?? null)], ['Model', fn ($r) => ($r['model'] ?? null)],
+            ['Cores / threads', fn ($r) => ($r['cores'] ?? null) === null ? null : ($r['cores'] ?? null) . (($r['threads'] ?? null) !== null ? ' / ' . ($r['threads'] ?? null) : '')]]],
+        ['Memory', $machine->memory, [['Slot', fn ($r) => ($r['name'] ?? null)], ['Size', fn ($r) => ($r['gib'] ?? null) === null ? null : $num(($r['gib'] ?? null), 1) . ' GiB'],
+            ['Type', fn ($r) => trim(($r['type'] ?? '') . (($r['mhz'] ?? null) !== null ? ' ' . ($r['mhz'] ?? null) . ' MHz' : '')) ?: null]]],
+        ['Drives', $machine->drives, [['Drive', fn ($r) => ($r['name'] ?? null)], ['Model', fn ($r) => ($r['model'] ?? null)], ['Serial', fn ($r) => ($r['serial'] ?? null)],
+            ['Size', fn ($r) => ($r['gb'] ?? null) === null ? null : (($r['gb'] ?? null) >= 1000 ? $num(($r['gb'] ?? null) / 1000, 2) . ' TB' : $num(($r['gb'] ?? null)) . ' GB')],
             ['Kind', fn ($r) => trim(($r['media'] ?? '') . ' ' . ($r['protocol'] ?? '')) ?: null],
-            ['Life left', fn ($r) => $r['life'] === null ? null : $num($r['life'], 1) . ' %'],
-            ['Failure predicted', fn ($r) => $r['failing'] ? 'YES' : null]]],
+            ['Life left', fn ($r) => ($r['life'] ?? null) === null ? null : $num(($r['life'] ?? null), 1) . ' %'],
+            ['Failure predicted', fn ($r) => ($r['failing'] ?? null) ? 'YES' : null]]],
     ];
 @endphp
 <div class="space-y-4 text-sm">
@@ -114,7 +114,7 @@
                                     @foreach ($columns as [, $value])
                                         <td class="py-1 pe-4 text-gray-950 dark:text-white">{{ $value($part) ?? '—' }}</td>
                                     @endforeach
-                                    <td class="py-1"><x-filament::badge :color="$color($part['health'])">{{ $part['health'] ?? 'not said' }}</x-filament::badge></td>
+                                    <td class="py-1"><x-filament::badge :color="$color($part['health'] ?? null)">{{ $part['health'] ?? 'not said' }}</x-filament::badge></td>
                                 </tr>
                             @endforeach
                         </tbody>

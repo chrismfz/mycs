@@ -19,7 +19,7 @@ use MyCS\Redfish\Machine;
 use Throwable;
 
 /**
- * Utilities → Machines (owner 2026-11-11): every physical machine with a BMC (a Redfish server each), a line each as
+ * Utilities → Machines (owner 2026-11-11): every physical machine with a BMC (a Redfish server each), a line each (the enabled ones) as
  * redfish:sync last read it (every hour): who has it, on or off, health, watts, the air it takes in, the parts to look
  * at. Its page has the parts. Read-only on the machine; an indication only, nobody is told (the monitoring alerts).
  */
@@ -42,7 +42,7 @@ class RedfishMachineResource extends Resource
         $stale = fn () => now()->subHours(RedfishMachine::STALE_HOURS);
 
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->whereHas('server', fn (Builder $server) => $server->where('extension', 'Redfish'))->with('server.settings'))
+            ->modifyQueryUsing(fn (Builder $query) => $query->whereHas('server', fn (Builder $server) => $server->where('extension', 'Redfish')->where('enabled', true))->with('server.settings'))
             ->defaultSort('server.name')
             ->recordUrl(fn (RedfishMachine $record) => self::getUrl('view', ['record' => $record]))
             ->columns([
@@ -89,7 +89,7 @@ class RedfishMachineResource extends Resource
                     // Less than the cron's: a page's request must end. Parts not reached are said on its page.
                     $row = MachineSync::sync($record->server, budget: 20.0);
                     Notification::make()->success()->title($record->server->name)
-                        ->body(($row->power_state ?? '?') . ', health ' . ($row->health ?? 'not said') . ($row->watts !== null ? ", {$row->watts} W" : ''))->send();
+                        ->body(e(($row->power_state ?? '?') . ', health ' . ($row->health ?? 'not said') . ($row->watts !== null ? ", {$row->watts} W" : '')))->send();
                 } catch (Throwable $e) {
                     Notification::make()->danger()->title($record->server->name)->body(e(Redact::text($e->getMessage())))->send();
                 }

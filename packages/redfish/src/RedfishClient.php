@@ -20,7 +20,7 @@ final class RedfishClient
     private const MEMBERS = 64;
 
     /** What a firmware says where nobody filled a value in: no value. */
-    private const PLACEHOLDER = '/^(to be filled by o\.?\s?e\.?\s?m\.?|default string|not specified|not available|n\/?a|none|null|unknown|system (serial|product) (number|name)|chassis serial number|0+|x+|\.+|-+)$/i';
+    private const PLACEHOLDER = '/^(to be filled by o\.?\s?e\.?\s?m\.?|default string|not specified|not available|n\/?a|none|null|unknown|system (serial|product) (number|name)|chassis serial number|0{4,}|0123456789|x{2,}|\.+|-+)$/i';
 
     /** @var float|null the time by which the parts must be read (machine(parts: true)); null: no limit */
     private ?float $until = null;
@@ -63,18 +63,16 @@ final class RedfishClient
         $detail = [];
         if ($parts) {
             $this->until = microtime(true) + $budget;
+            // Fans and temperatures first: one request, and what a slow BMC must not be cut before.
+            $thermal = $chassisPath === null ? [] : ($this->get(self::link($chassis['Thermal'] ?? null) ?? self::under($chassisPath, 'Thermal'), optional: true) ?? []);
             $detail = [
-                'fans' => [], 'temperatures' => [],
+                'fans' => self::list($thermal['Fans'] ?? null, self::fan(...)),
+                'temperatures' => self::list($thermal['Temperatures'] ?? null, self::temperature(...)),
                 'powerSupplies' => $this->powerSupplies($this->lastPower),
                 'processors' => $this->each($system, $systems[0], 'Processors', self::processor(...)),
                 'memory' => $this->each($system, $systems[0], 'Memory', self::memory(...)),
                 'drives' => $this->drives($system, $systems[0]),
             ];
-            if ($chassisPath !== null) {
-                $thermal = $this->get(self::link($chassis['Thermal'] ?? null) ?? self::under($chassisPath, 'Thermal'), optional: true) ?? [];
-                $detail['fans'] = self::list($thermal['Fans'] ?? null, self::fan(...));
-                $detail['temperatures'] = self::list($thermal['Temperatures'] ?? null, self::temperature(...));
-            }
             $detail += ['partsRead' => true, 'partsComplete' => !$this->wasCut()];
         }
 
@@ -222,7 +220,7 @@ final class RedfishClient
         $celsius = self::number($sensor['ReadingCelsius'] ?? null);
 
         return $celsius === null ? null : ['name' => self::text($sensor['Name'] ?? null), 'celsius' => $celsius,
-            'warning' => self::number($sensor['UpperThresholdNonCritical'] ?? null), 'critical' => self::number($sensor['UpperThresholdCritical'] ?? null),
+            'warning' => self::number($sensor['UpperThresholdNonCritical'] ?? null), 'critical' => self::number($sensor['UpperThresholdCritical'] ?? null) ?? self::number($sensor['UpperThresholdFatal'] ?? null),
             'health' => self::health($sensor)];
     }
 
@@ -340,6 +338,12 @@ final class RedfishClient
         // A refused login is said whatever was asked: never read as «this BMC has no such resource».
         if ($status === 401) {
             throw new RedfishException('The BMC refused the login (401): check the username and password.', 401);
+        }
+        if ($status === 0 && $optional && $this->until !== null) {
+            // One part too slow while the machine itself answered: left out and said, the rest of the read kept.
+            $this->cut = true;
+
+            return null;
         }
         if ($status === 0) {
             throw new RedfishException('The BMC did not answer: check its address and that MyCS reaches the management network.');

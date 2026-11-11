@@ -76,8 +76,10 @@ final class Machine
                 $why = match (true) {
                     ($part['health'] ?? null) !== null && $part['health'] !== self::HEALTH_OK => $part['health'],
                     ($part['failing'] ?? false) === true => 'failure predicted',
-                    isset($part['life']) && $part['life'] < 10 => rtrim(rtrim(number_format($part['life'], 1, '.', ''), '0'), '.') . '% life left',
-                    isset($part['celsius'], $part['warning']) && $part['warning'] > 0 && $part['celsius'] >= $part['warning'] => $part['celsius'] . ' °C',
+                    // 0 is what a disk that keeps no such count answers (review of #798): only a count above it is one.
+                    isset($part['life']) && $part['life'] > 0 && $part['life'] < 10 => rtrim(rtrim(number_format($part['life'], 1, '.', ''), '0'), '.') . '% life left',
+                    // At its warning threshold, or its critical one where the BMC has no warning (iLO).
+                    isset($part['celsius']) && ($limit = ($part['warning'] ?? null) ?: ($part['critical'] ?? null)) > 0 && $part['celsius'] >= $limit => $part['celsius'] . ' °C',
                     default => null,
                 };
                 if ($why !== null) {
@@ -92,9 +94,11 @@ final class Machine
     /** The air it takes in, in °C: the sensor named inlet / ambient / system temp, where the BMC has one. */
     public function inletCelsius(): ?float
     {
-        foreach (['/inlet|ambient|intake/i', '/^system temp|board inlet|front panel/i'] as $pattern) {
+        foreach (['/inlet|ambient|intake/i', '/^system temp|front panel/i'] as $pattern) {
             foreach ($this->temperatures as $sensor) {
-                if (preg_match($pattern, (string) $sensor['name']) === 1) {
+                $name = (string) ($sensor['name'] ?? '');
+                // A power supply's own inlet is not the machine's.
+                if (preg_match($pattern, $name) === 1 && preg_match('~p/?s\b|psu|power supply~i', $name) !== 1) {
                     return $sensor['celsius'];
                 }
             }

@@ -36,7 +36,7 @@ final class MachineSync
             throw new RuntimeException("{$server->name} is being read already: try again in a minute.");
         }
         try {
-            $row = RedfishMachine::query()->firstOrNew(['server_id' => $server->id]);
+            $row = RedfishMachine::query()->firstOrCreate(['server_id' => $server->id]);
             try {
                 $machine = $extension->hardware(parts: true, budget: $budget);
             } catch (Throwable $e) {
@@ -47,9 +47,9 @@ final class MachineSync
             $row->fill([
                 'power_state' => $machine->powerState === null ? null : Str::limit($machine->powerState, 32, ''),
                 'health' => $machine->health,
-                'watts' => $machine->watts === null ? null : (int) round($machine->watts),
+                'watts' => $machine->watts === null ? null : (int) round(min($machine->watts, 1_000_000)),
                 'inlet_celsius' => $inlet === null ? null : (int) round(min($inlet, 999)),
-                'attention' => implode("\n", $machine->attention()) ?: null,
+                'attention' => implode("\n", array_slice($machine->attention(), 0, 50)) ?: null,
                 'data' => $machine->toArray(),
                 'read_at' => now(), 'failed_at' => null, 'error' => null,
             ])->save();
@@ -60,11 +60,11 @@ final class MachineSync
         }
     }
 
-    /** A row for every Redfish server, read or not yet: a machine just added is on the list before its first read. */
+    /** A row for every enabled Redfish server, read or not yet: a machine just added is on the list before its first read. */
     public static function ensureRows(): void
     {
         $have = RedfishMachine::query()->pluck('server_id')->all();
-        foreach (Server::query()->where('extension', 'Redfish')->whereNotIn('id', $have)->pluck('id') as $id) {
+        foreach (Server::query()->where('extension', 'Redfish')->where('enabled', true)->whereNotIn('id', $have)->pluck('id') as $id) {
             RedfishMachine::query()->firstOrCreate(['server_id' => $id]);
         }
     }

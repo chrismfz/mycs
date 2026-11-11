@@ -15,6 +15,12 @@ class ListRedfishMachines extends ListRecords
 {
     protected static string $resource = RedfishMachineResource::class;
 
+    /** How long «Read all now» reads before it leaves the rest to the hourly read. */
+    public const READ_ALL_SECONDS = 30.0;
+
+    /** @var float|null another deadline, for the tests */
+    public static ?float $readAllSeconds = null;
+
     public function mount(): void
     {
         parent::mount();
@@ -32,20 +38,29 @@ class ListRedfishMachines extends ListRecords
                 ->visible(fn () => (bool) Auth::guard('staff')->user()?->hasPermission('admin.servers.update'))
                 ->action(function () {
                     $servers = MachineSync::servers();
-                    $failed = [];
-                    // The whole page's request must end: the time is shared, a machine each at least a few seconds.
-                    $budget = max(4.0, 40.0 / max(1, $servers->count()));
+                    $failed = $late = [];
+                    // The page's request must end (review of #798): one deadline for them all. Each machine gets a few
+                    // seconds for its parts; those not reached by the deadline wait for the hourly read.
+                    $until = microtime(true) + (self::$readAllSeconds ?? self::READ_ALL_SECONDS);
                     foreach ($servers as $server) {
+                        $left = $until - microtime(true);
+                        if ($left <= 0) {
+                            $late[] = $server->name;
+
+                            continue;
+                        }
                         try {
-                            MachineSync::sync($server, $budget);
+                            MachineSync::sync($server, min(8.0, $left));
                         } catch (Throwable) {
                             $failed[] = $server->name;
                         }
                     }
-                    $failed === []
-                        ? Notification::make()->success()->title($servers->count() . ' machine(s) read')->send()
-                        : Notification::make()->warning()->title(($servers->count() - count($failed)) . ' read, ' . count($failed) . ' not')
-                            ->body(e(implode(', ', $failed)) . ': why is on each one\'s line.')->send();
+                    $read = $servers->count() - count($failed) - count($late);
+                    $failed === [] && $late === []
+                        ? Notification::make()->success()->title($read . ' machine(s) read')->send()
+                        : Notification::make()->warning()->title($read . ' read, ' . (count($failed) + count($late)) . ' not')
+                            ->body(e(trim(($failed === [] ? '' : implode(', ', $failed) . ': not read (why is on its line, unless it was being read already). ')
+                                . ($late === [] ? '' : implode(', ', $late) . ': not reached in time, the hourly read will.'))))->send();
                 }),
         ];
     }
