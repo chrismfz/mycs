@@ -1022,10 +1022,17 @@ class ExtensionHelper
     }
 
     /**
-     * After a refund (back or to credit) is recorded: a paid invoice stays settled, so a note takes the refund off its
-     * total; an open one is still to pay in full, its balance grows back (MT-1c); a cancelled one is settled by its
-     * cancellation note already (the whole total), and reopened it is to pay in full again (adversarial review of 2c,
-     * R4). A paid invoice whose payments all went back is refunded (PR 2c, as WHMCS); its services stay as they are.
+     * After a refund (back or to credit) is recorded: a paid invoice stays settled, so a note takes off its total what
+     * the refund leaves it owing; an open one is still to pay in full, its balance grows back (MT-1c); a cancelled one is
+     * settled by its cancellation note already (the whole total), and reopened it is to pay in full again (adversarial
+     * review of 2c, R4). A paid invoice whose payments all went back is refunded (PR 2c, as WHMCS); its services stay as
+     * they are.
+     *
+     * The note is for what the refund leaves owing, at most the refund: money the invoice held over what it bills (staff
+     * lowered a line or wrote a note after it was paid) goes back first and lowers nothing. The refund is counted once
+     * (sweep 8 S8-STAFF-FREEDOM-1): a note for all of it left the invoice as much over as before, and «Close as paid»
+     * gave the refunded money again as account credit.
+     *
      * The rows are locked already (prepareRefund). After a gateway refund ($numberAfterCommit) the note is numbered once
      * the refund is committed (InvoiceNumberListener::numberAfterCommit), so nothing here waits for the credit notes'
      * counter either.
@@ -1033,10 +1040,14 @@ class ExtensionHelper
     private static function afterRefund(InvoiceTransaction $transaction, int $cents, string $description, bool $numberAfterCommit = false): void
     {
         $invoice = $transaction->invoice;
-        if ($invoice->status === Invoice::STATUS_PAID) {
+        // What it owes now, the refund already off its payment (refunded_amount / credited_amount), read under the locks.
+        $owing = $invoice->status !== Invoice::STATUS_PAID ? 0
+            : RecordPaymentService::toCents(Invoice::query()->findOrFail($invoice->id)->withLockedBalance()->remaining);
+        $noteCents = max(0, min($cents, $owing));
+        if ($invoice->status === Invoice::STATUS_PAID && $noteCents > 0) {
             $note = $invoice->adjustmentNotes()->make([
                 'type' => AdjustmentNoteType::Credit->value,
-                'amount' => -1 * $cents / 100,
+                'amount' => -1 * $noteCents / 100,
                 'description' => $description,
                 'is_refund' => true, // follows refunded_amount / credited_amount: never voided by hand (MT-1c)
             ]);
