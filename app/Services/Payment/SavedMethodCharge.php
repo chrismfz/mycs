@@ -240,12 +240,14 @@ final class SavedMethodCharge
                 report($e);
             }
             [$status, $error] = match (true) {
-                // A resend of an unknown outcome only ever confirms the payment. Anything else it meets (not sent, refused
-                // before the charge, the key still in use, a decline, no answer again) does not prove the first send took
-                // nothing: it stays unknown, with its first error, its key and its hold, for staff to resolve
+                // The bank asks the customer to confirm: only ever the gateway's answer to the charge itself, and no money
+                // was taken, so it settles a resend too and the customer pays at the card form (REV-791-R2-2).
+                $e instanceof ChargeNeedsAction => [ChargeAttempt::STATUS_ACTION_REQUIRED, $e->getMessage()],
+                // Else a resend of an unknown outcome only ever confirms the payment. Anything else it meets (not sent,
+                // refused before the charge, the key still in use, a decline, no answer again) does not prove the first
+                // send took nothing: it stays unknown, with its first error, its key and its hold, for staff to resolve
                 // (S8-PAYMENTS-1, REV-791-1/-2).
                 !$attempt->wasRecentlyCreated => [ChargeAttempt::STATUS_UNKNOWN, $attempt->error],
-                $e instanceof ChargeNeedsAction => [ChargeAttempt::STATUS_ACTION_REQUIRED, $e->getMessage()],
                 // The gateway was not reached before the charge (an outage): nothing taken, nothing declined (L-FAILURES-2).
                 $e instanceof ChargeNotSent => [ChargeAttempt::STATUS_NOT_SENT, $e->getMessage()],
                 $e instanceof DisplayException => [ChargeAttempt::STATUS_FAILED, $e->getMessage()],

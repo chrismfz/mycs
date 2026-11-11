@@ -61,7 +61,8 @@ class ChargeAttempt extends Model
      * The gateway was not reached before the charge, or ran nothing (an outage, a timeout, a rate limit, no token, our key
      * refused: ChargeNotSent): nothing taken, nothing declined. Holds nothing, is not counted as a decline, and the customer
      * is not told it failed (sweep 3 L-FAILURES-2); the cron tries again as set. Only a first send: a resend of an unknown
-     * outcome is settled only by a success, and stays unknown otherwise (S8-PAYMENTS-1, REV-791-1/-2).
+     * outcome is settled only by a success or the bank asking to confirm, and stays unknown otherwise (S8-PAYMENTS-1,
+     * REV-791-1/-2, REV-791-R2-2).
      */
     public const STATUS_NOT_SENT = 'not_sent';
 

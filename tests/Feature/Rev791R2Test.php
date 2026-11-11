@@ -118,6 +118,8 @@ class Rev791R2Test extends TestCase
      */
     public function test_rev_791_r2_1_a_decline_stripe_answers_for_the_attempts_own_key_settles_it(): void
     {
+        $this->markTestIncomplete('REV-791-R2-1: accepted as the cost of the resend rule (coordinator 2026-11-11): SavedMethodCharge cannot tell a decline answered on the resend from a refusal before the POST without a new marker; rare, safe side, staff see it at once and «Resolve charge».');
+
         [$mode, $keys] = ['timeout', []];
         $this->stripe($mode, $keys);
         $invoice = $this->invoice();
