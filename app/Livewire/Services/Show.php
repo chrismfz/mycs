@@ -920,7 +920,8 @@ class Show extends Component
             'contactOptions' => $options,
             'licenseFields' => $this->licenseFields(),
             // Where it lives, as the welcome mail says it (WHMCS's «Server Information»): a hosting panel's hostname, IP and nameservers.
-            'serverInfo' => NotificationHelper::welcomeServer($this->service),
+            // Only of an account that is there (as the module's actions): never of an unpaid order or an ended service.
+            'serverInfo' => in_array($this->service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true) ? NotificationHelper::welcomeServer($this->service) : [],
             'sslOrder' => $sslOrder = $this->hasSsl ? SslOrder::query()->where('service_id', $this->service->id)->first() : null,
             ...$this->sslVaultView($sslOrder),
         ])->layoutData([

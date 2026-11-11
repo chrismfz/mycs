@@ -693,6 +693,17 @@ class NotificationHelper
         self::toAccount($client, 'new_server_created', $data, mailOnly: $resend, gated: !$resend && !$byStaff);
     }
 
+    /**
+     * A panel's host as a name for the customer, or null: never an address (a panel set by its IP, often a LAN one, has
+     * no name to sign in at or to give a certificate; its public IP is the «IP» line's; review of #787).
+     */
+    public static function hostName(mixed $host): ?string
+    {
+        $host = is_string($host) ? trim($host, '[] ') : '';
+
+        return $host !== '' && filter_var($host, FILTER_VALIDATE_IP) === false && str_contains($host, '.') ? $host : null;
+    }
+
     /** Hosting panels: the account's DNS is the company's nameservers. */
     private const HOSTING = ['CPanel', 'DirectAdmin', 'Ngm'];
 
@@ -722,7 +733,7 @@ class NotificationHelper
             $settings = $server->settings->pluck('value', 'key');
             $host = parse_url(trim((string) ($settings['host'] ?? '')), PHP_URL_HOST);
 
-            return [is_string($host) && $host !== '' ? $host : null, $public($settings['ip'] ?? ''), $server->extension];
+            return [self::hostName($host), $public($settings['ip'] ?? ''), $server->extension];
         }, [null, null, null]);
         // Only what is an IP of the free text WHMCS kept (assignedips may hold notes).
         $ips = collect([$service->dedicated_ip, ...preg_split('/[\s,;]+/', (string) $service->assigned_ips)])

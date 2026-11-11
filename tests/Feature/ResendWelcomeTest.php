@@ -249,7 +249,7 @@ class ResendWelcomeTest extends TestCase
         }
         $this->assertStringContainsString('<strong>Server</strong>', $mail->renderedHtml);
         // Never WHM's own port (the customer's are cPanel's: below), nor WHMCS's notes among the IPs (review of #674).
-        foreach ([':2087', 'old, to'] as $hidden) {
+        foreach ([':2087', 'Hostname: https', 'old, to'] as $hidden) {
             $this->assertStringNotContainsString($hidden, $mail->renderedHtml);
         }
     }
@@ -559,5 +559,43 @@ class ResendWelcomeTest extends TestCase
         $this->livewireAs($this->owner)->test(Show::class, ['service' => $this->service])
             ->assertSee('whm.test')->assertSee('203.0.113.10')->assertSee('ns1.host.test, ns2.host.test')
             ->assertDontSee(':2087')->assertDontSee('https://whm.test');
+    }
+
+    /** Review of #787: a panel set by its address (a LAN one, an IPv6 literal) has no name or link for the customer. */
+    public function test_a_panel_set_by_its_address_gives_no_hostname_and_no_links(): void
+    {
+        foreach (['https://10.0.0.5:2087', 'https://203.0.113.10:2087', 'https://[2001:db8::1]:2087', 'https://whm:2087'] as $host) {
+            Server::query()->findOrFail($this->service->server_id)->settings()->where('key', 'host')->update(['value' => $host]);
+            $this->assertNull(NotificationHelper::welcomeServer($this->service->fresh())['server_hostname'], $host);
+            $this->assertSame([], ExtensionHelper::welcomeData($this->service->fresh()), $host);
+        }
+        $this->page()->callAction('resendWelcome');
+        [$mail] = $this->welcomes();
+        foreach (['Control panel', 'FTP', '2001:db8', '10.0.0.5'] as $hidden) {
+            $this->assertStringNotContainsString($hidden, $mail->renderedHtml);
+        }
+    }
+
+    public function test_the_ftp_line_needs_a_login_in_the_mail(): void
+    {
+        $this->service->forceFill(['username' => null])->save();
+        $this->service->properties()->delete();
+
+        $this->page()->callAction('resendWelcome');
+
+        [$mail] = $this->welcomes();
+        $this->assertStringNotContainsString('FTP: whm.test', $mail->renderedHtml);
+        $this->assertStringContainsString('mail.example.test', $mail->renderedHtml);
+    }
+
+    /** Review of #787: an unpaid order or an ended service has no account there to point a domain at. */
+    public function test_the_customers_page_says_no_server_of_a_pending_or_ended_service(): void
+    {
+        $this->nameservers('ns1.host.test', 'ns2.host.test');
+        foreach ([Service::STATUS_PENDING, Service::STATUS_CANCELLED] as $status) {
+            $this->service->forceFill(['status' => $status])->save();
+            $this->livewireAs($this->owner)->test(Show::class, ['service' => $this->service->fresh()])
+                ->assertDontSee('whm.test')->assertDontSee('ns1.host.test');
+        }
     }
 }

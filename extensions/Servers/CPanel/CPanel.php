@@ -842,8 +842,9 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
      */
     public function welcomeData(Service $service, $settings, $properties): array
     {
-        $host = parse_url(trim((string) $this->config('host')), PHP_URL_HOST);
-        if (!isset($properties['cpanel_username']) || !is_string($host) || $host === '') {
+        // By its name only: a server set by its address has no link for the customer (NotificationHelper::hostName).
+        $host = NotificationHelper::hostName(parse_url(trim((string) $this->config('host')), PHP_URL_HOST));
+        if (!isset($properties['cpanel_username']) || $host === null) {
             return [];
         }
 

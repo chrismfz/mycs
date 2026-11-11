@@ -57,7 +57,9 @@ return new class extends Migration
 
             {% if server_hostname %}
             **FTP και email**
+            {% if service.username %}
             - FTP: {{ server_hostname }}, με το όνομα χρήστη και τον κωδικό παραπάνω
+            {% endif %}
             {% if service.domain %}
             - Server εισερχόμενης και εξερχόμενης αλληλογραφίας, αφού το domain σας δείξει εδώ: mail.{{ service.domain }}. Συνδεθείτε με ολόκληρη τη διεύθυνση email και ενεργοποιήστε το SMTP authentication.
             {% endif %}
@@ -94,7 +96,9 @@ return new class extends Migration
 
             {% if server_hostname %}
             **FTP and email**
+            {% if service.username %}
             - FTP: {{ server_hostname }}, with the username and password above
+            {% endif %}
             {% if service.domain %}
             - Incoming and outgoing mail server, once your domain points here: mail.{{ service.domain }}. Sign in with the full email address and turn on SMTP authentication.
             {% endif %}
