@@ -276,16 +276,24 @@ class Rev793Test extends TestCase
      * «Cancel Order» on the same order opens none.
      *
      * Should: no «refunded» task when no money went back.
+     *
+     * Reworded with #801 (owner 2026-11-11): any cancel of an order with a registered domain now opens the one task, so
+     * «Cancel Order» and «Cancel & Refund» agree, in ONE text that states nothing about refunds as fact (REV-801-3). What
+     * this finding was about still holds and is what is pinned: the task and the notice must not claim a refund that
+     * did not happen.
      */
-    public function test_rev_793_6_no_domain_refunded_task_when_nothing_was_refunded(): void
+    public function test_rev_793_6_no_refund_is_claimed_when_nothing_was_refunded(): void
     {
         [$order, $own, $domain] = $this->orderWithRegisteredDomain();
         $this->assertSame(0, $own->transactions()->count(), 'precondition: never paid');
 
-        CancelOrder::handle($order->fresh(), refund: 'manual');
+        $left = CancelOrder::handle($order->fresh(), refund: 'manual');
 
-        $this->assertSame(0, ModuleAction::query()->where('domain_id', $domain->id)->where('action', 'domain_refunded')->count(),
-            'a «registered domain refunded» task was opened though no payment was refunded');
+        $task = ModuleAction::query()->where('domain_id', $domain->id)->where('action', 'domain_refunded')->sole();
+        foreach ([(string) $task->last_error, $left["domain #{$domain->id}"]->getMessage()] as $text) {
+            $this->assertStringNotContainsString('the refund of order', $text, 'a refund that never happened is claimed');
+            $this->assertStringContainsString("order #{$order->id} was cancelled, and that does not undo the registration (check its invoice for what was refunded)", $text);
+        }
     }
 
     /**

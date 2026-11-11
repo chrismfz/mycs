@@ -1342,20 +1342,13 @@ class Stripe extends Gateway
      * A saved method's charge Stripe refused for our key (keyRefused): ours to fix, not a decline of the card. Kept as not
      * sent, so the customer is not told the payment failed and the method's declines are not counted (S8-PAYMENTS-2); staff
      * are told, once an hour, as for a customer that cannot be read (createOrGetStripeCustomer). The notice never changes
-     * the outcome: when it cannot be made it is reported, and the charge is not sent all the same (REV-791-3).
+     * the outcome: when it cannot be made it is reported, and the charge is not sent all the same (REV-791-3; the shared
+     * SavedMethodCharge::tellCredentialsRefused, as PayPal's refused credentials).
      */
     private function chargeKeyRefused(Throwable $e, Invoice $invoice): ChargeNotSent
     {
-        try {
-            if (Cache::add('stripe-charge-key-refused', true, now()->addHour())) {
-                $message = 'Stripe refused the secret key saved in the Stripe gateway on a saved method\'s charge (HTTP ' . ($e instanceof RequestException ? $e->response->status() : '?') . ', invoice #' . $invoice->id . '): check the key, its permissions and its mode (live/test). This charge was not sent now and no customer was told it failed; saved cards are not charged until the key works, and the cron tries again as set.';
-                PaymentsLog::warning($message, ['invoice_id' => $invoice->id]);
-                NotificationHelper::sendSystemEmailNotification('Stripe: saved cards cannot be charged', e($message));
-            }
-        } catch (Throwable $notice) {
-            report($notice);
-            rescue(fn () => Cache::forget('stripe-charge-key-refused'), report: false); // told again by the next charge
-        }
+        SavedMethodCharge::tellCredentialsRefused('stripe-charge-key-refused', 'Stripe: saved cards cannot be charged',
+            'Stripe refused the secret key saved in the Stripe gateway on a saved method\'s charge (HTTP ' . ($e instanceof RequestException ? $e->response->status() : '?') . ', invoice #' . $invoice->id . '): check the key, its permissions and its mode (live/test). This charge was not sent now and no customer was told it failed; saved cards are not charged until the key works, and the cron tries again as set.', $invoice);
 
         return new ChargeNotSent('Stripe refused our key: the charge was not sent');
     }

@@ -84,6 +84,7 @@ class PayInvoicesAction
                     throw new Halt;
                 }
                 Notification::make()->success()->title(__('Payment recorded on :count invoices', ['count' => 1 + count($others)]))->send();
+                ResolveCharge::remind(...$records->map(fn (Invoice $invoice) => $invoice->fresh())->filter()->all());
             });
     }
 }

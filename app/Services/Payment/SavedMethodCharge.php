@@ -7,15 +7,18 @@ use App\Exceptions\ChargeNeedsAction;
 use App\Exceptions\ChargeNotSent;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Helpers\NotificationHelper;
 use App\Models\BillingAgreement;
 use App\Models\ChargeAttempt;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\PaymentGroup;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\PaymentsLog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -64,17 +67,41 @@ final class SavedMethodCharge
 
     /**
      * An earlier charge to this method of this invoice whose outcome is unknown (a timeout, a 5xx, or one started and never
-     * finished), still within its gateway's key window: sent again with its key, not a new charge.
+     * finished), still within its gateway's key window: sent again with its key, not a new charge. Only a charge of the
+     * same thing: of the invoice alone ($groupId null), or of that Mass Pay group. The gateway keeps a key for the request
+     * it first came with, so an invoice's own charge resent as a group's of the same total (or the other way round) is
+     * answered with an error and settles nothing (sweep-8 reviews, #791). The other one is not this charge's to resend: it
+     * holds the invoice (unresolved), and charge() refuses.
      */
-    public static function unknownAttempt(int $invoiceId, int $agreementId): ?ChargeAttempt
+    public static function unknownAttempt(int $invoiceId, int $agreementId, ?int $groupId = null): ?ChargeAttempt
     {
         $attempt = self::current(ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
+            ->where('payment_group_id', $groupId)
             ->where(fn ($query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
                 ->orWhere(fn ($stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)
                     ->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
             ->latest('id'))->first();
 
         return $attempt !== null && $attempt->started_at->greaterThan(now()->subHours(self::keyReuseHours($attempt->billingAgreement))) ? $attempt : null;
+    }
+
+    /**
+     * A gateway refused OUR credentials on a saved method's charge (Stripe: the key; PayPal: the client ID and secret at the
+     * token call): ours to fix, not a decline and not an outage. Staff are told, in the payments log and by mail, once an
+     * hour per $claim. The notice never changes the charge's outcome: when it cannot be made (the cache or the queue is
+     * down) it is reported, its claim dropped so the next charge tells again, and the caller's «not sent» stands (REV-791-3).
+     */
+    public static function tellCredentialsRefused(string $claim, string $subject, string $message, Invoice $invoice): void
+    {
+        try {
+            if (Cache::add($claim, true, now()->addHour())) {
+                PaymentsLog::warning($message, ['invoice_id' => $invoice->id]);
+                NotificationHelper::sendSystemEmailNotification($subject, e($message));
+            }
+        } catch (Throwable $notice) {
+            report($notice);
+            rescue(fn () => Cache::forget($claim), report: false);
+        }
     }
 
     /**
@@ -188,7 +215,8 @@ final class SavedMethodCharge
             }
             // An earlier charge of the same amount to the same method whose outcome is unknown (a timeout, a 5xx): sent again
             // with its key, so the gateway answers with that charge instead of taking the money twice (adversarial ADV-3).
-            $unknown = self::unknownAttempt($locked->id, $agreement->id);
+            // Of the same thing only: the invoice alone, or this group. An unknown charge of the other kind is another charge.
+            $unknown = self::unknownAttempt($locked->id, $agreement->id, $group?->id);
             if ($unknown !== null && RecordPaymentService::toCents($unknown->amount) !== $amount) {
                 $unknown = null; // another amount is another charge: held below until its outcome is known
             }
@@ -355,9 +383,11 @@ final class SavedMethodCharge
     /**
      * The attempts whose payment was not recorded (from the gateway's answer, its webhook, or staff with its transaction
      * id): one on its invoice through its method's gateway, of at least its amount, that went through (a failed one is no
-     * money taken: ADV-UNRES-1), from the day it was sent (staff date a payment by its day, at the time they record it:
-     * ADV-UNRES-4). Credit, a transfer staff record or a smaller payment is not it (code review CR-7). In SQL, for any
-     * number of attempts at once (ADV-UNRES-6).
+     * money taken: ADV-UNRES-1), created at or after its first send (started_at: a resend does not move it). A payment
+     * made before the charge is not its payment, also one of the same day (REV-801-2). So a payment staff record by hand,
+     * dated before the send (the form's «Payment date» with the time they record it), does not settle it: they close it
+     * with «Resolve charge» (owner 2026-11-11, which reverses ADV-UNRES-4). Credit, a transfer staff record or a smaller
+     * payment is not it (code review CR-7). In SQL, for any number of attempts at once (ADV-UNRES-6).
      *
      * @param  Builder<ChargeAttempt>  $attempts
      * @return Builder<ChargeAttempt>
@@ -370,7 +400,7 @@ final class SavedMethodCharge
             ->where('invoice_transactions.is_credit_transaction', false)
             ->whereIn('invoice_transactions.status', [InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value])
             ->whereColumn('invoice_transactions.amount', '>=', 'charge_attempts.amount')
-            ->whereRaw('invoice_transactions.created_at >= DATE(charge_attempts.sent_at)'));
+            ->whereColumn('invoice_transactions.created_at', '>=', 'charge_attempts.started_at'));
     }
 
     /**

@@ -890,6 +890,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
         if ($domain === '' || preg_match('/^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/', $local) !== 1 || str_contains($local, '..')) {
             throw new Exception(__('services.cpanel.email_invalid'));
         }
+        $this->ownAccount($service, $properties, $properties['cpanel_username']); // never a mailbox in a stranger's account (sweep-8 reviews, #796)
         $json = $this->request('/cpanel', 'post', [
             'cpanel_jsonapi_user' => $properties['cpanel_username'],
             'cpanel_jsonapi_apiversion' => 3,

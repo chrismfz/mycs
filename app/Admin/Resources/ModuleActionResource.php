@@ -261,7 +261,7 @@ class ModuleActionResource extends Resource
             ModuleAction::STRAY_ENDED => 'Check: ended in MyCS',
             ModuleAction::STRAY_UNMAPPED => 'Check: not mapped',
             ModuleAction::DOMAIN_CHECK => 'Check: domain sync',
-            ModuleAction::DOMAIN_REFUNDED => 'Check: registered domain refunded',
+            ModuleAction::DOMAIN_REFUNDED => 'Check: registered domain, order cancelled',
             default => ucfirst($action),
         };
     }
