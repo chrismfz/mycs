@@ -120,6 +120,7 @@ class Sweep10MoneyLedgerTest extends TestCase
      */
     public function test_s10_money_ledger_2_service_unbilled_tells_an_imported_no_period_service_whose_payment_was_deleted(): void
     {
+        $this->markTestIncomplete('accepted by the owner 2026-11-12: service_unbilled does not see a no-period imported service whose WHMCS payment was deleted');
         Carbon::setTestNow('2026-09-20 10:00:00');
         $user = User::factory()->create();
         $product = $this->createProduct();

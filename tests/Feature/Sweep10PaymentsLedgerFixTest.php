@@ -6,8 +6,13 @@ use App\Enums\InvoiceTransactionStatus;
 use App\Events\InvoiceTransaction\Updated;
 use App\Helpers\ExtensionHelper;
 use App\Listeners\SendMailListener;
+use App\Models\Credit;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use App\Models\InvoiceTransaction;
+use App\Models\Price;
+use App\Models\Service;
 use App\Models\User;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayReference;
@@ -264,5 +269,133 @@ class Sweep10PaymentsLedgerFixTest extends TestCase
         $this->assertSame(InvoiceTransactionStatus::Succeeded, $payment->status);
         $this->assertSame(2000, RecordPaymentService::toCents($payment->amount));
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status);
+    }
+
+    // ---- S10-MONEY-LEDGER-1: a gateway refund or chargeback, and the invoice it leaves ----
+
+    /**
+     * An invoice of 100.00 for a renewal, $paid of it paid by card (pi_s10fix).
+     *
+     * @return array{invoice: Invoice, service: Service, line: InvoiceItem, client: int, expires: string}
+     */
+    private function renewalInvoice(string $paid): array
+    {
+        $this->freezeTime();
+        $this->storeSettings(['credits_enabled' => true, 'credits_auto_use' => true]);
+        $client = $this->user->client()->id;
+        $gateway = Gateway::query()->firstOrCreate(['extension' => 'Stripe'], ['name' => 'Stripe', 'type' => 'gateway']);
+        $product = $this->createProduct();
+        Price::query()->where('plan_id', $product->plan->id)->update(['price' => 100.00]);
+        $service = Service::factory()->create(['client_id' => $client, 'plan_id' => $product->plan->id, 'product_id' => $product->product->id,
+            'status' => Service::STATUS_ACTIVE, 'expires_at' => now()->addDays(5)->startOfDay(), 'currency_code' => 'USD', 'price' => 100.00]);
+        $invoice = Invoice::factory()->create(['client_id' => $client, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD', 'due_at' => now()->addDays(5)]);
+        $line = $invoice->items()->create(['description' => 'Hosting', 'quantity' => 1, 'price' => 100, 'reference_type' => Service::class, 'reference_id' => $service->id,
+            'period_start' => now()->addDays(5)->toDateString(), 'period_end' => now()->addDays(5)->addMonth()->toDateString()]);
+        $expires = $service->fresh()->expires_at->toDateString();
+        (new RecordPaymentService)->handle($invoice->id, $gateway, $paid, null, 'pi_s10fix');
+
+        return ['invoice' => $invoice, 'service' => $service, 'line' => $line, 'client' => $client, 'expires' => $expires];
+    }
+
+    /**
+     * @param  array{invoice: Invoice, service: Service, client: int, expires: string}  $made
+     * @return array{refunded: int, credited: int, credit: int, status: string, remaining: int, renewed: bool}
+     */
+    private function ledger(array $made): array
+    {
+        $payment = InvoiceTransaction::query()->where('transaction_id', 'pi_s10fix')->sole();
+        $invoice = $made['invoice']->fresh();
+
+        return [
+            'refunded' => RecordPaymentService::toCents($payment->refunded_amount),
+            'credited' => RecordPaymentService::toCents($payment->credited_amount),
+            'credit' => RecordPaymentService::toCents(Credit::query()->where('client_id', $made['client'])->value('amount') ?? 0),
+            'status' => $invoice->status,
+            'remaining' => RecordPaymentService::toCents($invoice->remaining),
+            'renewed' => $made['service']->fresh()->expires_at->toDateString() !== $made['expires'],
+        ];
+    }
+
+    /** As on main: an exactly-paid invoice whose whole payment is refunded at the gateway is refunded, its service as it was. */
+    public function test_a_gateway_refund_of_an_exactly_paid_invoice_is_as_before(): void
+    {
+        $made = $this->renewalInvoice('100.00');
+        $this->assertSame(Invoice::STATUS_PAID, $made['invoice']->fresh()->status);
+
+        ExtensionHelper::refundedAtGateway('Stripe', 'pi_s10fix', 're_s10fix', 100.00, 'USD');
+
+        $this->assertSame(['refunded' => 10000, 'credited' => 0, 'credit' => 0, 'status' => Invoice::STATUS_REFUNDED, 'remaining' => 0, 'renewed' => true], $this->ledger($made));
+    }
+
+    /** As on main: an exactly-paid invoice whose payment is charged back is owed again. */
+    public function test_a_chargeback_of_an_exactly_paid_invoice_is_as_before(): void
+    {
+        $made = $this->renewalInvoice('100.00');
+
+        ExtensionHelper::chargebackAtGateway('Stripe', 'pi_s10fix', 'dp_s10fix', 100.00, 'USD');
+
+        $this->assertSame(['refunded' => 10000, 'credited' => 0, 'credit' => 0, 'status' => Invoice::STATUS_UNPAID, 'remaining' => 10000, 'renewed' => true], $this->ledger($made));
+    }
+
+    /** As on main: 80.00 on an invoice of 100.00 that was not lowered, 20.00 refunded to credit, the other 60.00 at the gateway. */
+    public function test_refund_to_credit_then_a_gateway_refund_of_the_rest_on_an_invoice_not_lowered(): void
+    {
+        $made = $this->renewalInvoice('80.00');
+        ExtensionHelper::refundToCredit(InvoiceTransaction::query()->where('transaction_id', 'pi_s10fix')->sole(), 20.00, false);
+        $this->assertSame(['refunded' => 0, 'credited' => 2000, 'credit' => 2000, 'status' => Invoice::STATUS_UNPAID, 'remaining' => 4000, 'renewed' => false], $this->ledger($made));
+
+        ExtensionHelper::refundedAtGateway('Stripe', 'pi_s10fix', 're_s10fix', 60.00, 'USD');
+
+        $this->assertSame(['refunded' => 6000, 'credited' => 0, 'credit' => 0, 'status' => Invoice::STATUS_UNPAID, 'remaining' => 8000, 'renewed' => false], $this->ledger($made));
+    }
+
+    /**
+     * The over-held open invoice (100.00, 80.00 paid, 20.00 to credit, lowered to 50.00: 10.00 over, not closed).
+     *
+     * @return array{invoice: Invoice, service: Service, line: InvoiceItem, client: int, expires: string}
+     */
+    private function overHeld(): array
+    {
+        $made = $this->renewalInvoice('80.00');
+        ExtensionHelper::refundToCredit(InvoiceTransaction::query()->where('transaction_id', 'pi_s10fix')->sole(), 20.00, false);
+        $made['line']->refresh()->update(['price' => 50]);
+        $this->assertSame(['refunded' => 0, 'credited' => 2000, 'credit' => 2000, 'status' => Invoice::STATUS_UNPAID, 'remaining' => -1000, 'renewed' => false], $this->ledger($made));
+
+        return $made;
+    }
+
+    /** A partial gateway refund the credit covers: taken from the credit, and the invoice is left as it was (open, over). */
+    public function test_a_partial_gateway_refund_within_the_credit_leaves_the_over_held_invoice_open(): void
+    {
+        $made = $this->overHeld();
+
+        ExtensionHelper::refundedAtGateway('Stripe', 'pi_s10fix', 're_s10fix', 20.00, 'USD');
+
+        $this->assertSame(['refunded' => 2000, 'credited' => 0, 'credit' => 0, 'status' => Invoice::STATUS_UNPAID, 'remaining' => -1000, 'renewed' => false], $this->ledger($made));
+        // Staff's «Close as paid» still closes it, with the part over as credit.
+        $this->assertTrue((new RecordPaymentService)->settle($made['invoice']->id));
+        $this->assertSame(['refunded' => 2000, 'credited' => 1000, 'credit' => 1000, 'status' => Invoice::STATUS_PAID, 'remaining' => 0, 'renewed' => true], $this->ledger($made));
+    }
+
+    /** A partial gateway refund that leaves exactly what the invoice bills: paid by the money still on it. */
+    public function test_a_partial_gateway_refund_down_to_the_total_pays_the_over_held_invoice(): void
+    {
+        $made = $this->overHeld();
+
+        ExtensionHelper::refundedAtGateway('Stripe', 'pi_s10fix', 're_s10fix', 30.00, 'USD');
+
+        $this->assertSame(['refunded' => 3000, 'credited' => 0, 'credit' => 0, 'status' => Invoice::STATUS_PAID, 'remaining' => 0, 'renewed' => true], $this->ledger($made));
+    }
+
+    /** A payment landing on an invoice already over still closes it with the part over as credit (2b). */
+    public function test_a_new_payment_on_an_over_held_invoice_still_closes_it(): void
+    {
+        $made = $this->overHeld();
+
+        (new RecordPaymentService)->handle($made['invoice']->id, Gateway::query()->where('extension', 'Stripe')->sole(), '5.00', null, 'pi_s10fix_2');
+
+        $this->assertSame(Invoice::STATUS_PAID, $made['invoice']->fresh()->status);
+        $this->assertSame(0, RecordPaymentService::toCents($made['invoice']->fresh()->remaining));
+        $this->assertSame(3500, RecordPaymentService::toCents(Credit::query()->where('client_id', $made['client'])->value('amount')));
     }
 }

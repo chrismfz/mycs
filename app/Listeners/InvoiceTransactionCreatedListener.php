@@ -53,7 +53,12 @@ class InvoiceTransactionCreatedListener
 
                 return;
             }
-            if ($remaining < 0) {
+            // Never on a save that only moved a payment's refunded or credited part (a refund's own bookkeeping): a gateway
+            // refund or chargeback first moves the payment's credited part to refunded, and closing the invoice in the
+            // middle of that credited more of the payment behind the refund's back, which then gave that back as well,
+            // and renewed the service by a refund (S10-MONEY-LEDGER-1). A refund leaves an open invoice open.
+            $transaction = $event->invoiceTransaction;
+            if ($remaining < 0 && ($transaction->wasChanged('status') || !$transaction->wasChanged(['refunded_amount', 'credited_amount']))) {
                 // Paid over its total (staff brought it down and a payment landed before they closed it): closed with
                 // the part over as credit (2b, code review). Refused (a credit purchase, no customer): left to staff.
                 try {
