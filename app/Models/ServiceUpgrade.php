@@ -134,6 +134,17 @@ class ServiceUpgrade extends Model implements Auditable
         return $this->morphMany(ServiceConfig::class, 'configurable');
     }
 
+    /** The service is still on what this upgrade gave it: its product, its plan, and each option it set. */
+    public function heldBy(Service $service): bool
+    {
+        if ((int) $service->product_id !== (int) $this->product_id || (int) $service->plan_id !== (int) $this->plan_id) {
+            return false;
+        }
+        $on = $service->configs()->pluck('config_value_id', 'config_option_id');
+
+        return $this->configs->every(fn (ServiceConfig $config) => (int) ($on[$config->config_option_id] ?? 0) === (int) $config->config_value_id);
+    }
+
     /**
      * What the upgrade charges now, net (Δ1), or gives back when negative (SVC-14, as WHMCS): the service's new recurring
      * amount less the one it has (`services.price`: a staff price or a coupon's counts), times its quantity, for the days

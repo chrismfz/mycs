@@ -18,6 +18,7 @@ use App\Support\AfterCommit;
 use Brick\Math\BigDecimal;
 use Brick\Math\RoundingMode;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -210,29 +211,31 @@ class ServiceUpgradeService
 
     /**
      * Its invoice paid again, after staff changed the package back (sweep 10, S10-STAFF-FREEDOM-2, owner 2026-11-12): the
-     * upgrade was completed, its payment deleted, the service put on another product with the invoice left open, and now
-     * it is paid. A completed upgrade is not applied again, so the money is in and the service is not on the product
-     * it paid for: staff are told, nothing is changed. Not a replay of the same payment (applied after the invoice
-     * became paid), nor a service still on that product.
+     * upgrade was completed, its payment deleted, the service put on another product, plan or option with the invoice left
+     * open, and now it is paid. A completed upgrade is not applied again, so the money is in and the service is not on
+     * what it paid for: staff are told, nothing is changed. Not a replay of the same payment (applied after the invoice
+     * became paid), nor a service still on what the upgrade gave it (ServiceUpgrade::heldBy).
      */
     private function tellPaidForAPackageTakenBack(ServiceUpgrade $upgrade, Service $service): void
     {
-        if ($upgrade->invoice_id === null || (int) $service->product_id === (int) $upgrade->product_id || $service->isEnded()) {
+        if ($upgrade->invoice_id === null || $service->isEnded() || $upgrade->heldBy($service)) {
             return;
         }
         $paidSince = Invoice::query()->whereKey($upgrade->invoice_id)->where('status', Invoice::STATUS_PAID)->value('apply_pending_since');
-        if ($paidSince === null || ($upgrade->applied_at !== null && !$upgrade->applied_at->lessThan(Carbon::parse($paidSince)))) {
+        if ($paidSince === null || ($upgrade->applied_at !== null && !$upgrade->applied_at->lessThan(Carbon::parse($paidSince)))
+            // Once per payment, also while the cron replays an invoice another line of which keeps failing (REV-805-5).
+            || !Cache::add("upgrade-paid-not-applied:{$upgrade->id}:" . Carbon::parse($paidSince)->getTimestamp(), true, now()->addDays(30))) {
             return;
         }
-        $to = $upgrade->product->name ?? "product #{$upgrade->product_id}";
-        $on = $service->product->name ?? "product #{$service->product_id}";
+        $to = ($upgrade->product->name ?? "product #{$upgrade->product_id}") . ' / ' . ($upgrade->plan->name ?? "plan #{$upgrade->plan_id}");
+        $on = ($service->product->name ?? "product #{$service->product_id}") . ' / ' . ($service->plan->name ?? "plan #{$service->plan_id}");
         PaymentsLog::warning('Upgrade invoice paid again after the package was changed back: nothing applied.',
             ['service_upgrade_id' => $upgrade->id, 'service_id' => $service->id, 'invoice_id' => $upgrade->invoice_id]);
         DB::afterCommit(function () use ($upgrade, $service, $to, $on) {
             try {
                 NotificationHelper::sendSystemEmailNotification('Paid upgrade not applied: needs staff attention', e(
                     "Invoice #{$upgrade->invoice_id} was paid but nothing was applied: its upgrade #{$upgrade->id} of service #{$service->id} to {$to} "
-                    . "was completed before, and the service was changed to {$on} since. The package was not changed again. "
+                    . "was completed before, and the service was changed since (it is on {$on} now). The package was not changed again. "
                     . 'Change the package by hand, or refund the payment or move it to credit.'
                 ));
             } catch (Throwable $e) {

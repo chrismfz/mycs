@@ -176,7 +176,7 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         // Fact 2: the service keeps the period it was given.
         $this->assertSame([Service::STATUS_ACTIVE, '2026-11-15'], [$service->fresh()->status, $service->fresh()->expires_at->toDateString()]);
         // Told from that day, with the invoice, what it owes and since when, and what to do.
-        $told = ["runs to 2026-11-15 on invoice #{$invoice->id}, which is unpaid again since 2026-10-12 (owes 10.00 USD): collect it, or cancel the invoice and move the due date back to 2026-10-15"];
+        $told = ["runs to 2026-11-15 on invoice #{$invoice->id}, which is unpaid again since 2026-10-12 (owes 10.00 USD): collect it, or move the due date back to 2026-10-15"];
         $this->assertSame($told, $this->details($service));
         $this->assertSame(['service_unbilled'], array_column((new MoneyCheck)->run(), 'rule'), 'the only finding: the money itself adds up');
 
@@ -218,7 +218,7 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         $this->cronUntil('2026-11-14');
 
         $this->assertSame(0, DB::table('invoice_reminders')->where('invoice_id', $invoice->id)->where('kind', '!=', 'mailed')->count());
-        $this->assertSame(["runs to 2026-11-15 on invoice #{$invoice->id}, which is unpaid again since 2026-10-30 (owes 10.00 USD): collect it, or cancel the invoice and move the due date back to 2026-10-15"],
+        $this->assertSame(["runs to 2026-11-15 on invoice #{$invoice->id}, which is unpaid again since 2026-10-30 (owes 10.00 USD): collect it, or move the due date back to 2026-10-15"],
             $this->details($service));
     }
 
@@ -255,7 +255,7 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         $this->assertTrue(ExtensionHelper::chargebackAtGateway('Stripe', 'pi_1', 'dp_1', 10.00, 'usd'));
 
         $this->assertSame([Invoice::STATUS_UNPAID, '2026-12-15'], [$invoice->fresh()->status, $service->fresh()->expires_at->toDateString()]);
-        $this->assertSame(["runs to 2026-12-15 on invoice #{$invoice->id}, which is unpaid again since 2026-11-20 (owes 10.00 USD): collect it, or cancel the invoice and move the due date back to 2026-11-15"],
+        $this->assertSame(["runs to 2026-12-15 on invoice #{$invoice->id}, which is unpaid again since 2026-11-20 (owes 10.00 USD): collect it, or move the due date back to 2026-11-15"],
             $this->details($service));
     }
 
@@ -272,7 +272,7 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         (new EditPayment)->handle($payment, ['amount' => '4.00']);
 
         $this->assertSame([Invoice::STATUS_UNPAID, '2026-12-15'], [$invoice->fresh()->status, $service->fresh()->expires_at->toDateString()]);
-        $this->assertSame(["runs to 2026-12-15 on invoice #{$invoice->id}, which is unpaid again since 2026-11-12 (owes 6.00 USD): collect it, or cancel the invoice and move the due date back to 2026-11-15"],
+        $this->assertSame(["runs to 2026-12-15 on invoice #{$invoice->id}, which is unpaid again since 2026-11-12 (owes 6.00 USD): collect it, or move the due date back to 2026-11-15"],
             $this->details($service));
     }
 
@@ -439,7 +439,7 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         $invoice = $this->renewal($service, '2026-11-15');
         DB::table('invoice_items')->where('invoice_id', $invoice->id)->update(['applied_at' => now(), 'period_start' => null]);
 
-        $this->assertSame(["runs to 2026-12-15 on invoice #{$invoice->id}, which is unpaid again (owes 10.00 USD): collect it, or cancel the invoice and move the due date back"],
+        $this->assertSame(["runs to 2026-12-15 on invoice #{$invoice->id}, which is unpaid again (owes 10.00 USD): collect it, or move the due date back"],
             $this->details($service));
     }
 

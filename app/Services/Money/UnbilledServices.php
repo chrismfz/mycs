@@ -171,12 +171,11 @@ final class UnbilledServices
                     continue; // covered, to be closed as paid: open_settled says so
                 }
                 $owes = number_format(RecordPaymentService::toCents($invoice->remaining) / 100, 2, '.', '');
-                // Both halves, the invoice first (sweep 10, S10-STAFF-FREEDOM-1): the date moved back alone leaves it open
-                // and applied, and paying it then renews nothing (RenewServiceService). Cancelling alone leaves the date
-                // (InvoiceObserver::givePeriodsUp marks the line, it moves no date): the branch below says so.
+                // Either half is safe: with the date moved back, its payment gives the period again (RenewServiceService,
+                // sweep 10).
                 $this->add(self::PERIOD_NOT_PAID, (int) $line->reference_id, "runs to {$runsTo} on invoice #{$invoice->id}, which is {$invoice->status} again"
                     . (isset($since[$invoice->id]) ? ' since ' . self::day($since[$invoice->id]) : '')
-                    . " (owes {$owes} {$invoice->currency_code}): collect it, or cancel the invoice and move the due date back" . ($start !== null ? " to {$start}" : ''));
+                    . " (owes {$owes} {$invoice->currency_code}): collect it, or move the due date back" . ($start !== null ? " to {$start}" : ''));
             } elseif (in_array($invoice->status, [Invoice::STATUS_CANCELLED, Invoice::STATUS_REFUNDED], true)) {
                 // Not «paid»: a payment that landed between the two reads is no finding.
                 $this->add(self::PERIOD_NOT_PAID, (int) $line->reference_id, "runs to {$runsTo} on invoice #{$invoice->id}, which is {$invoice->status}: "
@@ -188,7 +187,7 @@ final class UnbilledServices
     /**
      * The other thing a payment gives a service (REV-783-2): an upgrade paid and done, then its payment deleted, edited
      * down or charged back. Its invoice owes again and the service keeps the bigger package, while it is still on the
-     * product that upgrade gave it. A cancelled or refunded upgrade invoice is staff's own doing and is not told.
+     * product, plan and options that upgrade gave it. A cancelled or refunded upgrade invoice is staff's own doing and is not told.
      * Cancelling it changes no package (nothing reads an upgrade's invoice once it is completed), so the advice names
      * both steps: the package changed back alone leaves an invoice that applies nothing when paid (S10-STAFF-FREEDOM-2).
      */
@@ -199,10 +198,11 @@ final class UnbilledServices
             ->where('service_upgrades.status', ServiceUpgrade::STATUS_COMPLETED)
             ->whereIn('invoices.status', Invoice::OPEN_STATUSES)
             ->whereColumn('invoices.client_id', 'services.client_id')
-            ->whereColumn('services.product_id', 'service_upgrades.product_id')
             ->whereIn('services.id', self::running()->select('services.id'))
             ->orderBy('service_upgrades.id')->with('product:id,name')
-            ->get(['service_upgrades.id', 'service_upgrades.service_id', 'service_upgrades.product_id', 'service_upgrades.invoice_id', 'service_upgrades.applied_at']);
+            ->get(['service_upgrades.id', 'service_upgrades.service_id', 'service_upgrades.product_id', 'service_upgrades.plan_id', 'service_upgrades.invoice_id', 'service_upgrades.applied_at'])
+            // Still on what it gave: the product, the plan and its options (REV-805-2), not once staff put them back.
+            ->filter(fn (ServiceUpgrade $upgrade) => ($service = Service::query()->find($upgrade->service_id)) !== null && $upgrade->heldBy($service));
         if ($upgrades->isEmpty()) {
             return;
         }
@@ -215,7 +215,7 @@ final class UnbilledServices
             }
             $this->add(self::PERIOD_NOT_PAID, (int) $upgrade->service_id, 'runs on ' . ($upgrade->product->name ?? "product #{$upgrade->product_id}")
                 . ($upgrade->applied_at !== null ? ' since ' . self::day($upgrade->applied_at) : '') . " by upgrade invoice #{$invoice->id}, which is {$invoice->status} again (owes "
-                . number_format($owes / 100, 2, '.', '') . " {$invoice->currency_code}): collect it, or cancel the invoice and change the package back");
+                . number_format($owes / 100, 2, '.', '') . " {$invoice->currency_code}): collect it, or cancel the invoice and change the package back (product, plan and price)");
         }
     }
 

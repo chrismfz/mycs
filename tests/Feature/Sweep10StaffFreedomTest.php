@@ -93,7 +93,7 @@ class Sweep10StaffFreedomTest extends TestCase
         $this->assertSame('2026-12-15', $service->fresh()->expires_at->toDateString());
         (new RecordPaymentService)->deleteTransaction($payment);
         $this->assertSame([UnbilledServices::PERIOD_NOT_PAID], $this->kinds($service));
-        $this->assertStringContainsString('collect it, or cancel the invoice and move the due date back to 2026-11-15',
+        $this->assertStringContainsString('collect it, or move the due date back to 2026-11-15',
             (string) collect((new MoneyCheck)->run(['service_unbilled']))->pluck('detail')->implode(' '));
 
         $service->fresh()->applyStaffChanges(['expires_at' => '2026-11-15']);
@@ -120,11 +120,7 @@ class Sweep10StaffFreedomTest extends TestCase
             . $service->fresh()->expires_at->toDateString() . '), and neither a notice nor the money check tells staff');
     }
 
-    /**
-     * S10-STAFF-FREEDOM-1, what follows: the cron suspends the paid service, and nothing bills or tells of it after.
-     * Expectation adapted by the fix's author (owner 2026-11-12: staff are told, no period is given again by itself):
-     * it asserted «still active on 2026-11-30»; it asserts the staff notice of the payment, naming invoice and service.
-     */
+    /** S10-STAFF-FREEDOM-1, what follows: the cron suspends the paid service, and nothing bills or tells of it after. */
     public function test_the_cron_does_not_suspend_a_service_whose_period_was_paid_again(): void
     {
         [$service, $invoice] = $this->paidDeletedAndMovedBack();
@@ -139,11 +135,8 @@ class Sweep10StaffFreedomTest extends TestCase
 
         $service = $service->fresh();
         $lines = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $service->id)->count();
-        $told = EmailLog::query()->where('template_key', 'system')->where('subject', 'like', '%Paid invoice applied nothing%')
-            ->get()->contains(fn (EmailLog $mail) => str_contains($mail->body, "Invoice #{$invoice->id} was paid but nothing was applied")
-                && str_contains($mail->body, "service #{$service->id}"));
-        $this->assertSame([true, 1], [$told, $lines],
-            "paid until 2026-12-15 on invoice #{$invoice->id}, yet on 2026-11-30 it is {$service->status} (due {$service->expires_at->toDateString()}), with {$lines} line(s) billing it, and staff were not told");
+        $this->assertSame([Service::STATUS_ACTIVE, 1], [$service->status, $lines],
+            "paid until 2026-12-15 on invoice #{$invoice->id}, yet on 2026-11-30 it is {$service->status} (due {$service->expires_at->toDateString()}), with {$lines} line(s) billing it");
     }
 
     /** S10-STAFF-FREEDOM-2: the upgrade's payment deleted, the package changed back as advised, the open invoice then paid. */
@@ -164,7 +157,7 @@ class Sweep10StaffFreedomTest extends TestCase
 
         (new RecordPaymentService)->deleteTransaction($payment);
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
-        $this->assertStringContainsString('collect it, or cancel the invoice and change the package back',
+        $this->assertStringContainsString('collect it, or cancel the invoice and change the package back (product, plan and price)',
             (string) collect((new MoneyCheck)->run(['service_unbilled']))->pluck('detail')->implode(' '));
 
         // Staff change the package back, on the service's form.
