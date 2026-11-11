@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Actions\ResolveCharge;
 use App\Admin\Resources\InvoiceResource\Pages\EditInvoice;
+use App\Enums\InvoiceTransactionStatus;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\BillingAgreement;
@@ -10,6 +12,7 @@ use App\Models\ChargeAttempt;
 use App\Models\Client;
 use App\Models\Gateway;
 use App\Models\Invoice;
+use App\Models\InvoiceTransaction;
 use App\Models\Plan;
 use App\Models\Price;
 use App\Models\Product;
@@ -23,6 +26,7 @@ use App\Services\Money\GatewayReference;
 use App\Services\Payment\AutoCharge;
 use App\Services\Payment\SavedMethodCharge;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
@@ -206,23 +210,78 @@ class UnresolvedChargesAdversarialTest extends TestCase
     }
 
     /**
-     * ADV-UNRES-4: the PR's release path «staff record the payment with the gateway's transaction id» fails when staff
-     * date it the day the gateway took it (the form's «Payment date», MT-1c): created_at gets that day at the current
-     * time, before the attempt's sent_at, and recordedSince() never matches. The invoice is paid, yet the charge stays
-     * «unsettled» forever (staff mailed every 3 days); the only way out is to mark a TAKEN charge «not taken».
+     * ADV-UNRES-4, REVERSED by the owner on 2026-11-11 (#801, REV-801-2). It asked that a payment staff record with the
+     * gateway's transaction id, dated the day the gateway took it (the form's «Payment date», MT-1c: created_at gets that
+     * day at the time they record it, which can be BEFORE the charge was sent), settle the charge; for that the hold
+     * counted any payment «from the day it was sent», and so also one made before the charge (an invoice of unknown
+     * outcome not held, and charged again with a new key). The rule now: a charge of unknown outcome is closed only by a
+     * payment created at or after its first send, or by «Resolve charge». Staff who record by hand a payment dated before
+     * the send also press «Resolve charge → taken, recorded another way», and are told so when they record it.
      */
-    public function test_adv_unres_4_staff_recording_the_payment_dated_the_day_taken_does_not_settle_it(): void
+    public function test_a_staff_payment_dated_before_the_send_does_not_settle_the_charge_and_resolve_charge_does(): void
     {
         Carbon::setTestNow('2026-11-10 20:00:00'); // the customer pays in the evening; the answer is lost
         $invoice = $this->invoice();
-        $this->unknownCharge($invoice);
+        $attempt = $this->unknownCharge($invoice);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
-        Carbon::setTestNow('2026-11-11 09:00:00'); // next morning staff find it taken at the gateway and record it
-        (new RecordPaymentService)->handle($invoice->id, $this->gateway, '10.00', null, 'ch_taken_adv4', enteredByStaff: true,
-            paidAt: Carbon::parse('2026-11-10')->setTimeFrom(now())); // as TransactionsRelationManager / MarkInvoicePaid do
+        Carbon::setTestNow('2026-11-11 09:00:00'); // next morning staff find it taken at the gateway and record it, dated the 10th
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
+            ->callAction('markPaid', data: ['amount' => '10.00', 'paid_at' => '2026-11-10', 'gateway_id' => $this->gateway->id, 'transaction_id' => 'ch_taken_adv4'])
+            ->assertNotified(Notification::make()->warning()->persistent()
+                ->title("Invoice #{$invoice->fresh()->number} still has a charge that is not settled")
+                ->body('This payment did not settle it. Check it at the gateway and close it with «Resolve charge» on the invoice.'));
         $this->assertSame(Invoice::STATUS_PAID, $invoice->fresh()->status, 'precondition: recorded');
+        $this->assertSame('2026-11-10 09:00:00', $invoice->transactions()->sole()->created_at->toDateTimeString(), 'dated before the charge was sent (20:00)');
 
-        $this->assertTrue(SavedMethodCharge::unresolved([$invoice->id])->isEmpty(), 'its payment, with the gateway\'s id, is recorded: settled');
+        $this->assertCount(1, SavedMethodCharge::unresolved([$invoice->id]), 'a payment dated before the send is not read as the charge\'s own');
+
+        $this->livewireAs($staff)->test(EditInvoice::class, ['record' => $invoice->getRouteKey()])
+            ->callAction('resolveCharge', ['attempt' => (string) $attempt->id, 'outcome' => ResolveCharge::RECORDED])->assertHasNoActionErrors();
+        $this->assertSame(ChargeAttempt::STATUS_SETTLED, $attempt->fresh()->status);
+        $this->assertTrue(SavedMethodCharge::unresolved([$invoice->id])->isEmpty(), 'closed by staff');
+    }
+
+    /** The neighbours of the rule above: a payment created at or after the first send settles the charge, as before. */
+    public function test_a_payment_recorded_from_the_first_send_on_settles_the_charge(): void
+    {
+        // One second after the first send (the gateway's webhook).
+        $webhook = $this->invoice();
+        $this->unknownCharge($webhook);
+        Carbon::setTestNow('2026-11-10 09:00:01');
+        (new RecordPaymentService)->handle($webhook->id, $this->gateway, '10.00', null, 'ch_webhook');
+        $this->assertTrue(SavedMethodCharge::unresolved([$webhook->id])->isEmpty());
+
+        // Between the first send and a later resend: the resend moves sent_at, never started_at.
+        Carbon::setTestNow('2026-11-10 09:00:00');
+        $resent = $this->invoice();
+        $attempt = $this->unknownCharge($resent);
+        Carbon::setTestNow('2026-11-10 09:10:00');
+        $payment = InvoiceTransaction::query()->create(['invoice_id' => $resent->id, 'gateway_id' => $this->gateway->id, 'amount' => '10.00',
+            'transaction_id' => 'ch_between', 'status' => InvoiceTransactionStatus::Succeeded]);
+        Carbon::setTestNow('2026-11-10 09:20:00');
+        ChargeAttempt::query()->whereKey($attempt->id)->update(['sent_at' => now()]); // as a resend with its key leaves it
+        $this->assertTrue($payment->created_at->lt($attempt->fresh()->sent_at) && $payment->created_at->gt($attempt->fresh()->started_at), 'precondition');
+        $this->assertTrue(SavedMethodCharge::unresolved([$resent->id])->isEmpty());
+
+        // Staff record it by hand dated today, after the send: created_at is after started_at.
+        Carbon::setTestNow('2026-11-10 09:00:00');
+        $byHand = $this->invoice();
+        $this->unknownCharge($byHand);
+        Carbon::setTestNow('2026-11-10 15:00:00');
+        (new RecordPaymentService)->handle($byHand->id, $this->gateway, '10.00', null, 'ch_by_hand', enteredByStaff: true,
+            paidAt: Carbon::parse('2026-11-10')->setTimeFrom(now()));
+        $this->assertTrue(SavedMethodCharge::unresolved([$byHand->id])->isEmpty());
+
+        // And one made earlier the same day, before the charge, settles nothing (REV-801-2).
+        Carbon::setTestNow('2026-11-10 08:00:00');
+        $earlier = $this->invoice();
+        $earlier->items->each->update(['price' => '30.00']);
+        (new RecordPaymentService)->handle($earlier->id, $this->gateway, '20.00', null, 'ch_morning');
+        Carbon::setTestNow('2026-11-10 09:00:00');
+        $this->unknownCharge($earlier->fresh());
+        $this->assertCount(1, SavedMethodCharge::unresolved([$earlier->id]));
     }
 
     /**

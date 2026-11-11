@@ -45,7 +45,7 @@ class ResolveCharge extends Action
             ->authorize(fn () => Gate::allows('has-permission', 'admin.invoices.update'))
             ->visible(fn (Invoice $record): bool => self::attempts($record)->isNotEmpty())
             ->modalHeading('A charge whose outcome is not settled')
-            ->modalDescription('Check it at the gateway first. If the money was taken, record its payment (Add payment, with the gateway\'s transaction id) on the invoice it was charged to: that settles it. Mark it here only if it was NOT taken, or if its payment was recorded another way.')
+            ->modalDescription('Check it at the gateway first. If the money was taken, record its payment (Add payment, with the gateway\'s transaction id) on the invoice it was charged to. A payment recorded after the charge was sent settles it on its own; one you date before the charge was sent does not: then mark it here as taken and recorded another way. Mark it as not taken only if it was NOT taken.')
             ->schema(fn (Invoice $record) => [
                 Select::make('attempt')->label('Charge')->required()
                     ->options(self::attempts($record)->mapWithKeys(fn (ChargeAttempt $attempt) => [
@@ -94,6 +94,21 @@ class ResolveCharge extends Action
                 event(new AuditCustom($record));
                 Notification::make()->success()->title($taken ? 'Settled as taken and recorded' : 'Marked as not taken: the invoice can be paid again')->send();
             });
+    }
+
+    /**
+     * After staff record a payment by hand: when a charge of these invoices is still not settled (the payment was dated
+     * before the charge was sent, is smaller, or went through another gateway), they are told to close it. A notice only.
+     */
+    public static function remind(Invoice ...$invoices): void
+    {
+        foreach ($invoices as $invoice) {
+            if (self::attempts($invoice)->isNotEmpty()) {
+                Notification::make()->warning()->persistent()
+                    ->title(__('Invoice :invoice still has a charge that is not settled', ['invoice' => '#' . ($invoice->number ?: $invoice->id)]))
+                    ->body(__('This payment did not settle it. Check it at the gateway and close it with «Resolve charge» on the invoice.'))->send();
+            }
+        }
     }
 
     /** @return Collection<int, ChargeAttempt> the unsettled charges holding it that staff may settle now */

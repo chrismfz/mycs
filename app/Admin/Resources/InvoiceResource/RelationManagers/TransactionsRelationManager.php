@@ -4,6 +4,7 @@ namespace App\Admin\Resources\InvoiceResource\RelationManagers;
 
 use App\Admin\Actions\DeleteInvoiceTransaction;
 use App\Admin\Actions\EditInvoiceTransaction;
+use App\Admin\Actions\ResolveCharge;
 use App\Admin\Actions\UndoRefundAction;
 use App\Enums\InvoiceTransactionStatus;
 use App\Helpers\ExtensionHelper;
@@ -130,7 +131,12 @@ class TransactionsRelationManager extends RelationManager
 
                         return $transaction;
                     })
-                    ->after(fn () => $this->dispatch(self::PAYMENTS_CHANGED)),
+                    ->after(function (): void {
+                        $this->dispatch(self::PAYMENTS_CHANGED);
+                        /** @var Invoice $invoice */
+                        $invoice = $this->getOwnerRecord();
+                        ResolveCharge::remind($invoice->fresh());
+                    }),
             ])
             ->recordActions([
                 Action::make('refund')

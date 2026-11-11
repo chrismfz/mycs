@@ -102,6 +102,7 @@ class MarkInvoicePaid
                 Notification::make()->success()
                     ->title($record->status === Invoice::STATUS_PAID ? __('Invoice paid') : __('Payment recorded'))
                     ->send();
+                ResolveCharge::remind($record);
             });
     }
 

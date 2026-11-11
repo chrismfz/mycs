@@ -154,9 +154,8 @@ class Sweep8OpenUnknownChargeGroupTest extends TestCase
     }
 
     /**
-     * REV-801-1: the refusal does not lean on the hold, which leaves out an unknown attempt it takes for recorded (a payment
-     * of at least its amount on the invoice earlier the same day), nor on the key's window: a group's unknown charge
-     * refuses the lead's own charge the next day too. After staff «Resolve charge» it (not taken), the new charge goes out.
+     * REV-801-1: the hold does not expire with the key's window. A group's unknown charge refuses the lead's own charge
+     * the next day too; after staff «Resolve charge» it (not taken), the new charge goes out.
      */
     public function test_another_things_unknown_charge_refuses_past_the_key_window_until_staff_resolve_it(): void
     {

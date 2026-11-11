@@ -70,45 +70,19 @@ final class SavedMethodCharge
      * finished), still within its gateway's key window: sent again with its key, not a new charge. Only a charge of the
      * same thing: of the invoice alone ($groupId null), or of that Mass Pay group. The gateway keeps a key for the request
      * it first came with, so an invoice's own charge resent as a group's of the same total (or the other way round) is
-     * answered with an error and settles nothing (sweep-8 reviews, #791). The other one is not this charge's to resend:
-     * charge() refuses while it is there.
+     * answered with an error and settles nothing (sweep-8 reviews, #791). The other one is not this charge's to resend: it
+     * holds the invoice (unresolved), and charge() refuses.
      */
     public static function unknownAttempt(int $invoiceId, int $agreementId, ?int $groupId = null): ?ChargeAttempt
     {
-        return self::resendable(self::unknownAttempts($invoiceId, $agreementId), $groupId);
-    }
-
-    /**
-     * Every charge of unknown outcome to this method of this invoice, whatever it was for (the invoice alone, or a Mass
-     * Pay group) and however old, newest first.
-     *
-     * @return Collection<int, ChargeAttempt>
-     */
-    private static function unknownAttempts(int $invoiceId, int $agreementId): Collection
-    {
-        return self::current(ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
+        $attempt = self::current(ChargeAttempt::query()->where('invoice_id', $invoiceId)->where('billing_agreement_id', $agreementId)
+            ->where('payment_group_id', $groupId)
             ->where(fn ($query) => $query->where('status', ChargeAttempt::STATUS_UNKNOWN)
                 ->orWhere(fn ($stale) => $stale->where('status', ChargeAttempt::STATUS_STARTED)
                     ->where('sent_at', '<=', now()->subMinutes(ChargeAttempt::HOLD_MINUTES))))
-            ->latest('id'))->get();
-    }
-
-    /**
-     * Of these, the one a charge of the same thing sends again with its key: the newest for $groupId (null: the invoice
-     * alone), while its gateway still keeps the key.
-     *
-     * @param  Collection<int, ChargeAttempt>  $unknown
-     */
-    private static function resendable(Collection $unknown, ?int $groupId): ?ChargeAttempt
-    {
-        $attempt = $unknown->first(fn (ChargeAttempt $attempt) => self::sameThing($attempt, $groupId));
+            ->latest('id'))->first();
 
         return $attempt !== null && $attempt->started_at->greaterThan(now()->subHours(self::keyReuseHours($attempt->billingAgreement))) ? $attempt : null;
-    }
-
-    private static function sameThing(ChargeAttempt $attempt, ?int $groupId): bool
-    {
-        return (int) $attempt->payment_group_id === (int) $groupId;
     }
 
     /**
@@ -241,16 +215,8 @@ final class SavedMethodCharge
             }
             // An earlier charge of the same amount to the same method whose outcome is unknown (a timeout, a 5xx): sent again
             // with its key, so the gateway answers with that charge instead of taking the money twice (adversarial ADV-3).
-            // A charge of unknown outcome for another thing (the invoice alone while this is a group's charge, a group's
-            // while this is the invoice's own, another group's) may have paid this invoice: refused here, whatever the
-            // hold below reads (it leaves out an attempt it takes for recorded: REV-801-1), and however old it is. Past
-            // its key window a new key for the same money is exactly the danger, so this stands until staff resolve it.
-            $unknowns = self::unknownAttempts($locked->id, $agreement->id);
-            if ($unknowns->contains(fn (ChargeAttempt $other) => !self::sameThing($other, $group?->id))) {
-                throw new DisplayException(__('A payment for this invoice is already on its way.'));
-            }
-            // Of the same thing: sent again with its key while the gateway keeps it.
-            $unknown = self::resendable($unknowns, $group?->id);
+            // Of the same thing only: the invoice alone, or this group. An unknown charge of the other kind is another charge.
+            $unknown = self::unknownAttempt($locked->id, $agreement->id, $group?->id);
             if ($unknown !== null && RecordPaymentService::toCents($unknown->amount) !== $amount) {
                 $unknown = null; // another amount is another charge: held below until its outcome is known
             }
@@ -417,9 +383,11 @@ final class SavedMethodCharge
     /**
      * The attempts whose payment was not recorded (from the gateway's answer, its webhook, or staff with its transaction
      * id): one on its invoice through its method's gateway, of at least its amount, that went through (a failed one is no
-     * money taken: ADV-UNRES-1), from the day it was sent (staff date a payment by its day, at the time they record it:
-     * ADV-UNRES-4). Credit, a transfer staff record or a smaller payment is not it (code review CR-7). In SQL, for any
-     * number of attempts at once (ADV-UNRES-6).
+     * money taken: ADV-UNRES-1), created at or after its first send (started_at: a resend does not move it). A payment
+     * made before the charge is not its payment, also one of the same day (REV-801-2). So a payment staff record by hand,
+     * dated before the send (the form's «Payment date» with the time they record it), does not settle it: they close it
+     * with «Resolve charge» (owner 2026-11-11, which reverses ADV-UNRES-4). Credit, a transfer staff record or a smaller
+     * payment is not it (code review CR-7). In SQL, for any number of attempts at once (ADV-UNRES-6).
      *
      * @param  Builder<ChargeAttempt>  $attempts
      * @return Builder<ChargeAttempt>
@@ -432,7 +400,7 @@ final class SavedMethodCharge
             ->where('invoice_transactions.is_credit_transaction', false)
             ->whereIn('invoice_transactions.status', [InvoiceTransactionStatus::Succeeded->value, InvoiceTransactionStatus::Processing->value])
             ->whereColumn('invoice_transactions.amount', '>=', 'charge_attempts.amount')
-            ->whereRaw('invoice_transactions.created_at >= DATE(charge_attempts.sent_at)'));
+            ->whereColumn('invoice_transactions.created_at', '>=', 'charge_attempts.started_at'));
     }
 
     /**

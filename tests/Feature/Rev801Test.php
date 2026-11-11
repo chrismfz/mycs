@@ -163,7 +163,6 @@ class Rev801Test extends TestCase
      */
     public function test_rev_801_2_an_unknown_charge_does_not_hold_after_an_earlier_payment_of_the_same_day(): void
     {
-        $this->markTestIncomplete('open, awaiting the owner (2026-11-11): the hold counts a same-day payment made before the charge; the fix reverses ADV-UNRES-4 for staff-dated payments');
         $invoice = $this->invoice('30.00', '2026-11-09');
         $this->paidEarlierToday($invoice, '20.00');
         $first = $this->charge($invoice);
