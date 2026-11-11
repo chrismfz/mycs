@@ -14,6 +14,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Rules\ValidTemplate;
+use App\Support\TicketText;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Contracts\Support\Jsonable;
 use Illuminate\Database\Eloquent\Model;
@@ -350,6 +351,7 @@ class TemplateRenderer
             $data['message_html'] = new Html(Str::markdown((string) $ticketMessage->message, [
                 'html_input' => 'strip',
                 'allow_unsafe_links' => false,
+                'max_nesting_level' => TicketText::MAX_NESTING,
             ]));
         }
 
