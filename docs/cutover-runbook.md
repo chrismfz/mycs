@@ -55,6 +55,22 @@ credentials. Το import της ημέρας τα φέρνει όλα:
     - **Stripe:** φτιάχνεται το webhook με τα κλειδιά του (έτσι ελέγχεται και ότι απαντούν· ένα restricted key θέλει το Webhook Endpoints). Η γραμμή «Webhook» πρέπει να γράφει ✓ (#586).
     - **PayPal:** το client id/secret παίρνει token, και φτιάχνεται (ή βρίσκεται) το webhook του MyCS στο app, με όλα τα
       events· το id του γράφεται στο `webhook_id`. Το webhook του WHMCS δεν το αγγίζει: σβήνεται με το χέρι.
+    - **PayPal, συμφωνία συναλλαγών** (`payments-tracking.md`, «Συμφωνία gateway»· μόνο διαβάζει):
+      1. **Μέρες πριν:** στο REST app του MyCS (developer.paypal.com → Apps & Credentials → το app → Features) τικ στο
+         **«Transaction Search»**. Το PayPal το δίνει στα νέα tokens με καθυστέρηση ωρών, γι' αυτό όχι την τελευταία στιγμή.
+      2. **Στο cut-over:** στο gateway PayPal (Setup → Payment Gateways), «Reconcile from» = η ώρα του cut-over
+         (`YYYY-MM-DD HH:MM`). Κενό σημαίνει ότι δεν συγκρίνεται τίποτα. Ό,τι έγινε πριν (το WHMCS) δεν κρίνεται.
+      3. **Πρώτη εκτέλεση, το επόμενο πρωί** (06:10, ή με το χέρι `php artisan gateways:reconcile`): να γράψει
+         «PayPal: N new difference(s) …» και όχι «could not be read». 403 / `NOT_AUTHORIZED` = λείπει το βήμα 1 (ή δεν
+         έχει περάσει ακόμη στο token). Μετά, **Billing → PayPal Transactions**: οι πληρωμές PayPal της πρώτης μέρας
+         να φαίνονται «Matches». Αν σχεδόν όλες βγουν «Not recorded here» μαζί με «Not at the gateway», τα ids του
+         Transaction Search δεν είναι αυτά που γράφουμε: δεν έχει ελεγχθεί σε ζωντανό λογαριασμό, να αναφερθεί αμέσως.
+      4. **Οι συνδρομές παλιού τύπου** (5 υπηρεσίες 3 πελατών): μια χρέωσή τους μετά το cut-over φαίνεται εδώ ως «Not
+         recorded here» με το id της συνδρομής. Το staff την καταγράφει (ή την επιστρέφει) και ακυρώνει τη συνδρομή στο
+         PayPal, όπως ήδη προβλέπεται μετά την πρώτη χρέωση από το vault.
+      - **Στην πρόβα** (προαιρετικά): «Reconcile from» έναν μήνα πίσω και `php artisan gateways:reconcile --days=30`, για
+        να φανεί αν τα ids των εισαγόμενων πληρωμών ταιριάζουν με του PayPal. Είναι κλήση (μόνο GET) στο ζωντανό PayPal:
+        με το OK του ιδιοκτήτη.
     - **Bank transfer:** όταν ήρθαν οι λογαριασμοί.
     - Ό,τι άλλο μένει κλειστό, με μήνυμα. **Cardlink:** τα κλειδιά και τα URLs return/notify στο vPOS της Eurobank, με το χέρι.
     Test keys του Stripe και sandbox του PayPal μένουν κλειστά (μόνο με `--allow-test`, σε δοκιμαστικό site: αλλιώς μια

@@ -113,7 +113,7 @@ class DashboardNeedsAttentionTest extends TestCase
         $this->assertSame([], $this->rows());
         Livewire::test(NeedsAttention::class)
             ->assertSee(__('Nothing needs attention.'))
-            ->assertSee(__('Checked just now: :what.', ['what' => mb_strtolower(implode(', ', [__('Charges'), __('Server actions'), __('Invoices'), __('Tickets'), __('Hosting accounts'), __('Automation'), __('Gateway events')]))]));
+            ->assertSee(__('Checked just now: :what.', ['what' => mb_strtolower(implode(', ', [__('Charges'), __('Server actions'), __('Invoices'), __('Tickets'), __('Hosting accounts'), __('Automation'), __('Gateway events'), __('PayPal transactions')]))]));
     }
 
     /** Unknown, started with no answer past HOLD_MINUTES, taken an hour ago and not recorded: per invoice, not per attempt. */

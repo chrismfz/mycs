@@ -41,9 +41,9 @@ final class RolePermissions
         26 => ['orders.viewAny', 'orders.update'], // View Order Details (accept, cancel, fraud there)
         27 => ['orders.create', 'services.create', 'domains.create'], // Add New Order
         28 => ['invoice_transactions.viewAny'], // List Transactions
-        29 => ['invoice_transactions.create'], // Add Transaction
+        29 => ['invoice_transactions.create', 'gateway_transactions.update'], // Add Transaction (and mark a gateway difference known)
         31 => ['invoice_transactions.delete', 'invoice_transactions.deleteAny'], // Delete Transaction
-        32 => ['gateway_events.viewAny'], // View Gateway Log
+        32 => ['gateway_events.viewAny', 'gateway_transactions.viewAny'], // View Gateway Log (and the gateway's own list against ours)
         33 => ['invoices.viewAny'], // List Invoices
         34 => ['invoices.create'], // Create Invoice
         35 => ['invoices.update'], // Manage Invoice

@@ -24,9 +24,13 @@ use App\Services\Invoice\RecordPaymentService;
 use App\Services\Money\GatewayLog;
 use App\Services\Money\GatewayReference;
 use App\Services\Money\PaymentsLog;
+use App\Services\Money\Reconcile\GatewayLine;
+use App\Services\Money\Reconcile\GatewayStatement;
+use App\Services\Money\Reconcile\ListsTransactions;
 use App\Services\Payment\SavedMethodCharge;
 use App\Services\Payment\SubscriptionEnded;
 use App\Support\CurrentClient;
+use Carbon\CarbonImmutable;
 use Exception;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
@@ -49,7 +53,7 @@ use Throwable;
     author: 'MyCS',
     icon: 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNTEyIDUxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICAgIDxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiBmaWxsPSIjRjVGNkY4IiAvPgogICAgPHBhdGggZD0iTTMzNi4zOTcgMTgxLjQ4QzMzNi4zOTcgMjE1LjY2NyAzMDQuODQ3IDI1NiAyNTcuMTExIDI1NkgyMTEuMTI5TDIwOC44NzIgMjcwLjI0MkwxOTguMTQ1IDMzOC44SDE0MUwxNzUuMzc4IDExOEgyNjcuOTYxQzI5OS4xMzcgMTE4IDMyMy42NjQgMTM1LjM3NiAzMzIuNjk4IDE1OS41MjNDMzM1LjMwNCAxNjYuNTQzIDMzNi41NTkgMTczLjk5MyAzMzYuMzk3IDE4MS40OFoiIGZpbGw9IiMwMDI5OTEiIC8+CiAgICA8cGF0aCBkPSJNMzY5LjMzMSAyNDQuOTZDMzYzLjAzMSAyODMuMjM3IDMyOS44OTggMzExLjI5MyAyOTEuMTA2IDMxMS4ySDI1OS4xNzZMMjQ1Ljg4NSAzOTRIMTg5LjA0N0wxOTguMTQzIDMzOC44TDIwOC44NzYgMjcwLjI0MUwyMTEuMTI3IDI1NkgyNTcuMTA5QzMwNC43ODMgMjU2IDMzNi4zOTUgMjE1LjY2NyAzMzYuMzk1IDE4MS40NzlDMzU5Ljg1NSAxOTMuNTg3IDM3My41MzIgMjE4LjA1MyAzNjkuMzMxIDI0NC45NloiIGZpbGw9IiM2MENERkYiIC8+CiAgICA8cGF0aCBkPSJNMzM2LjM5NyAxODEuNDhDMzI2LjU1OSAxNzYuMzM0IDMxNC42MjkgMTczLjIgMzAxLjY0NSAxNzMuMkgyMjQuMTE5TDIxMS4xMjkgMjU2SDI1Ny4xMTFDMzA0Ljc4NSAyNTYgMzM2LjM5NyAyMTUuNjY3IDMzNi4zOTcgMTgxLjQ4WiIgZmlsbD0iIzAwOENGRiIgLz4KPC9zdmc+Cg=='
 )]
-class PayPal extends Gateway
+class PayPal extends Gateway implements ListsTransactions
 {
     private const SETUP_KEY = 'paypal-vault-setup:';
 
@@ -372,6 +376,23 @@ class PayPal extends Gateway
                 'description' => new HtmlString('Enable this option if your PayPal account supports billing agreements.'),
                 'required' => false,
             ],
+            // The daily comparison with PayPal's own list (gateways:reconcile, docs/payments-tracking.md). Read-only.
+            [
+                'name' => 'reconcile_from',
+                'label' => 'Reconcile from',
+                'type' => 'text',
+                'placeholder' => 'YYYY-MM-DD HH:MM',
+                'description' => 'Compare PayPal\'s own list of transactions with what is recorded here, every day, from this moment on (the cut-over; the site\'s time zone). Empty: not compared. The app needs the «Transaction Search» permission. Nothing is ever recorded, refunded or cancelled by it.',
+                'required' => false,
+            ],
+            [
+                'name' => 'reconcile_days',
+                'label' => 'Reconcile: days to look back',
+                'type' => 'number',
+                'default' => 7,
+                'description' => 'How many days back each daily comparison reads (never before «Reconcile from»).',
+                'required' => false,
+            ],
         ];
     }
 
@@ -454,6 +475,86 @@ class PayPal extends Gateway
         }
 
         return $rows;
+    }
+
+    /** Transaction Search answers at most this span a call, and this many rows a page. */
+    private const SEARCH_DAYS = 31;
+
+    private const SEARCH_PAGE_SIZE = 500;
+
+    /** Its T-codes for money we gave back (T1107) and money PayPal took back: a payment's reversal, a chargeback. */
+    private const REFUND_CODES = ['T1107'];
+
+    private const REVERSAL_CODES = ['T1106', 'T1201'];
+
+    /**
+     * The account's own list (Transaction Search, `GET /v1/reporting/transactions`; the app needs its «Transaction
+     * Search» permission, which is not the «balance» one): every payment that came in, refund and reversal between the
+     * two moments, for the daily comparison (GatewayReconcile, docs/payments-tracking.md). Read-only. Only
+     * `transaction_info` is asked for: ids, dates, amounts, never the payer. PayPal fills the list some hours behind
+     * and says up to when (`last_refreshed_datetime`); a call spans at most 31 days, so a longer span is asked in parts.
+     * Fees, withdrawals, currency conversions and payments we sent are not ours to compare.
+     *
+     * @throws PayPalApiException when any page is refused (no permission, 429): a part of the list is never an answer
+     */
+    public function transactions(CarbonImmutable $from, CarbonImmutable $to): GatewayStatement
+    {
+        $url = ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/reporting/transactions';
+        $lines = [];
+        $completeUntil = null;
+        for ($start = $from->utc(); $start->lt($to); $start = $end) {
+            $end = $start->addDays(self::SEARCH_DAYS)->min($to->utc());
+            $page = 1;
+            do {
+                $response = $this->request('get', $url, [
+                    'start_date' => $start->format('Y-m-d\TH:i:s\Z'), 'end_date' => $end->format('Y-m-d\TH:i:s\Z'),
+                    'fields' => 'transaction_info', 'page_size' => self::SEARCH_PAGE_SIZE, 'page' => $page,
+                ]);
+                foreach ((array) ($response->transaction_details ?? []) as $detail) {
+                    $line = self::searchLine($detail->transaction_info ?? null);
+                    if ($line !== null) {
+                        $lines[$line->what . ':' . $line->id] = $line; // a row on the edge of two parts, once
+                    }
+                }
+                if (isset($response->last_refreshed_datetime)) {
+                    $refreshed = CarbonImmutable::parse((string) $response->last_refreshed_datetime);
+                    $completeUntil = $completeUntil === null ? $refreshed : $completeUntil->min($refreshed);
+                }
+            } while ($page++ < (int) ($response->total_pages ?? 1));
+        }
+
+        return new GatewayStatement(array_values($lines), $completeUntil);
+    }
+
+    /** One row of Transaction Search as a line to compare, or null for what is not a payment in, a refund or a reversal. */
+    private static function searchLine(mixed $info): ?GatewayLine
+    {
+        $id = (string) ($info->transaction_id ?? '');
+        $code = strtoupper((string) ($info->transaction_event_code ?? ''));
+        $value = (string) ($info->transaction_amount->value ?? '');
+        $when = (string) ($info->transaction_initiation_date ?? $info->transaction_updated_date ?? '');
+        if ($id === '' || !is_numeric($value) || $when === '') {
+            return null;
+        }
+        $what = match (true) {
+            str_starts_with($code, 'T00') && bccomp($value, '0', 2) > 0 => GatewayLine::PAYMENT,
+            in_array($code, self::REFUND_CODES, true) && bccomp($value, '0', 2) < 0 => GatewayLine::REFUND,
+            in_array($code, self::REVERSAL_CODES, true) && bccomp($value, '0', 2) < 0 => GatewayLine::REVERSAL,
+            default => null,
+        };
+        if ($what === null) {
+            return null;
+        }
+        // What it refers to: the payment a refund or reversal is of (TXN), the subscription or billing agreement that
+        // took a recurring payment (SUB, PAP): how an old-style subscription's payments are told.
+        $reference = (string) ($info->paypal_reference_id ?? '');
+        $type = strtoupper((string) ($info->paypal_reference_id_type ?? ''));
+
+        return new GatewayLine($what, $id, CarbonImmutable::parse($when), ltrim(bcadd($value, '0', 2), '-'),
+            strtoupper((string) ($info->transaction_amount->currency_code ?? '')),
+            completed: strtoupper((string) ($info->transaction_status ?? '')) === 'S',
+            parent: $reference !== '' && $type === 'TXN' ? $reference : null,
+            agreement: $reference !== '' && in_array($type, ['SUB', 'PAP'], true) ? $reference : null);
     }
 
     /** The events its webhook handles (webhook(), docs/importer.md): WHMCS's app's capture and vault ones, disputes, sales, subscriptions. */

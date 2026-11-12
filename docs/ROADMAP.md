@@ -59,6 +59,8 @@
       μόνο για κονσόλα και η δοκιμή στον devbox (`proxmox.md` → «Οδηγός εγκατάστασης του relay»). Το create και το
       reinstall χωρίς templates ξανασυζητιούνται.
 - [ ] Τράπεζες: τα στοιχεία του mailbox στο gateway Bank transfer και το auto-match (`payments-tracking.md`, WG-17).
+- [ ] PayPal: «Transaction Search» στο REST app και «Reconcile from» στο gateway στο cut-over (`payments-tracking.md`,
+      «Συμφωνία gateway»· `cutover-runbook.md`). Πρώτη πραγματική ανάγνωση: έλεγχος ότι τα ids ταιριάζουν.
 - [ ] Ο κατάλογος .gr στο MyCS: τιμές και ΦΠΑ πριν πουληθεί από εδώ.
 - [ ] SSL: live δοκιμή με πραγματική παραγγελία (PositiveSSL 6,53 €), με έγκριση του ιδιοκτήτη. Οι 12 του TheSSLStore
       γίνονται νέες παραγγελίες στο Openprovider στη λήξη τους.

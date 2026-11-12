@@ -5,6 +5,7 @@ namespace App\Services\Money;
 use App\Enums\InvoiceTransactionStatus;
 use App\Enums\MoneyEventKind;
 use App\Models\Credit;
+use App\Models\GatewayTransaction;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
@@ -13,6 +14,8 @@ use App\Models\PaymentGatewayEvent;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Money\Reconcile\GatewayReconcile;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -35,7 +38,7 @@ final class MoneyCheck
         'paid_balance', 'open_settled', 'cancelled_applied', 'cancelled_holds_money', 'paid_not_applied',
         'paid_for_cancelled', 'open_for_cancelled',
         'credit_journal', 'credit_negative', 'payment_not_journaled', 'journal_without_payment', 'refund_journal',
-        'over_refunded', 'duplicate_gateway_id', 'gateway_received', 'line_totals', 'service_unbilled',
+        'over_refunded', 'duplicate_gateway_id', 'gateway_received', 'line_totals', 'service_unbilled', 'gateway_unreconciled',
     ];
 
     /** @var list<array{rule: string, subject: string, detail: string}> */
@@ -404,6 +407,29 @@ final class MoneyCheck
         foreach ((new UnbilledServices)->find() as $finding) {
             $this->unbilled[$finding['kind']][] = $finding['service'];
             $this->add('service_unbilled', "service #{$finding['service']}", $finding['detail']);
+        }
+    }
+
+    /**
+     * What a gateway's own list of transactions and this site disagree on (owner 2026-11-12; gateways:reconcile,
+     * docs/payments-tracking.md): at the gateway and not recorded here, recorded here and not in its list, or with
+     * another amount or currency. Read from gateway_transactions only, never from the gateway: each stays, in the same
+     * words, until staff deal with it or mark it known. And a gateway whose list was not read for a day and a half:
+     * nothing is compared while that lasts.
+     */
+    private function gatewayUnreconciled(): void
+    {
+        GatewayTransaction::query()->where('status', GatewayTransaction::OPEN)->orderBy('gateway')->orderBy('occurred_at')->orderBy('id')
+            ->each(fn (GatewayTransaction $row) => $this->add('gateway_unreconciled', "{$row->gateway} {$row->what} {$row->reference}", $row->describe()));
+        $state = GatewayReconcile::state();
+        foreach (GatewayReconcile::gateways() as ['gateway' => $gateway]) {
+            $read = $state[$gateway->extension]['read_at'] ?? null;
+            if ($read === null || CarbonImmutable::parse($read)->lt(now()->subHours(GatewayReconcile::STALE_HOURS))) {
+                $this->add('gateway_unreconciled', "{$gateway->extension} transactions", 'its list was not read '
+                    . ($read === null ? 'yet' : 'since ' . CarbonImmutable::parse($read)->setTimezone((string) config('app.timezone'))->format('Y-m-d H:i'))
+                    . (($state[$gateway->extension]['error'] ?? null) !== null ? " ({$state[$gateway->extension]['error']})" : '')
+                    . ': nothing is compared (php artisan gateways:reconcile)');
+            }
         }
     }
 

@@ -13,6 +13,7 @@ use App\Console\Commands\MoneyCheckCommand;
 use App\Console\Commands\OwedCreatesCommand;
 use App\Console\Commands\ReadBankAlerts;
 use App\Console\Commands\ReadGatewayBalances;
+use App\Console\Commands\ReconcileGateways;
 use App\Console\Commands\RegistrarDebugLogPrune;
 use App\Console\Commands\ScheduleHeartbeatCommand;
 use App\Console\Commands\SyncCpanelAccounts;
@@ -52,6 +53,8 @@ Schedule::command(FetchTicketMail::class)->description('Reads the departments\' 
 // after the night's cron run and payments (cronjob_time, 00:00 on the devbox). One task of the scheduler to come (ROADMAP).
 // The daily summary email (Settings → Automation → Daily Summary Email; off by default): it checks the mode and the day.
 Schedule::command(CronSummaryCommand::class)->description('Emails staff the daily summary of the cron and what it suspends next')->dailyAt(config('settings.cron_summary_time', '10:00'))->withoutOverlapping(30)->onOneServer();
+// Before the money check, which tells staff what it found (gateway_unreconciled).
+Schedule::command(ReconcileGateways::class)->description('Compares PayPal\'s own list of transactions with what is recorded here (read-only)')->dailyAt('06:10')->withoutOverlapping(15)->onOneServer();
 Schedule::command(MoneyCheckCommand::class)->description('Checks that the money adds up (read-only)')->dailyAt('06:30')->withoutOverlapping(60)->onOneServer();
 Schedule::command(SyncDomains::class, ['--scheduled'])->description('Syncs a batch of domains with their registrars (its hours and size in Settings → Domains) and moves them by their dates')->everyTenMinutes()->withoutOverlapping(60)->onOneServer();
 Schedule::command(SyncServiceUsage::class)->description('Reads every live service\'s disk and bandwidth usage from its server (cPanel)')->cron('17 */4 * * *')->withoutOverlapping(60)->onOneServer();

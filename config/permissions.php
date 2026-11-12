@@ -304,6 +304,11 @@ return [
             'gateway_events' => [
                 'viewAny' => 'View Gateway Log',
             ],
+            // The gateway's own list against what is recorded here (gateways:reconcile, owner 2026-11-12).
+            'gateway_transactions' => [
+                'viewAny' => 'View PayPal Transactions (the daily comparison)',
+                'update' => 'Mark a PayPal Transaction Difference as Known',
+            ],
             // The MCP server's ops tools (docs/mcp.md): each also needs the permission of what it shows.
             'mcp' => [
                 'use' => 'Use the MCP Server',

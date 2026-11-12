@@ -37,6 +37,7 @@ use App\Admin\Resources\DomainResource;
 use App\Admin\Resources\DomainTldResource;
 use App\Admin\Resources\ExtensionResource;
 use App\Admin\Resources\GatewayResource;
+use App\Admin\Resources\GatewayTransactionResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\InvoiceTransactions\InvoiceTransactionResource;
 use App\Admin\Resources\IpPoolResource;
@@ -109,6 +110,7 @@ class TopMenu
             [InvoiceResource::class, 'index', 'Invoices'],
             [InvoiceResource::class, 'create', 'Create Invoice'],
             [InvoiceTransactionResource::class, 'index', 'Transactions List'],
+            [GatewayTransactionResource::class, 'index', 'PayPal Transactions'],
             [PaymentGatewayEventResource::class, 'index', 'Gateway Log'],
         ],
         'Support' => [
