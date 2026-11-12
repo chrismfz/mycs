@@ -70,8 +70,8 @@ class TicketLiveBadgeTest extends TestCase
 
         $this->assertStringContainsString('data-count="2"', $html);
         $this->assertStringContainsString('data-latest="' . $newest->id . '"', $html);
-        $this->assertStringContainsString(e(__('New ticket') . ' #' . $newest->reference), $html);
-        $this->assertStringContainsString(e('Site <down>'), $html, 'the subject escaped');
+        $this->assertStringContainsString(e(e(__('New ticket') . ' #' . $newest->reference)), $html);
+        $this->assertStringContainsString(e(e('Site <down>')), $html, 'the subject escaped for the notice, which draws HTML');
         $this->assertStringNotContainsString('Site <down>', $html);
         $this->assertStringContainsString(e(TicketResource::getUrl('edit', ['record' => $newest])), $html);
     }

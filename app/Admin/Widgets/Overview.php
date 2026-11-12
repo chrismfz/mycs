@@ -52,8 +52,9 @@ class Overview extends BaseWidget
             $this->invoiceTransaction(),
             // Fewer new tickets is the good outcome, so the trend color is inverted
             // Both open their list (owner 2026-11-12), as the other cards do.
-            $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true)->url(TicketResource::getUrl('index')),
-            $this->getData(Service::class, 'Services')->url(ServiceResource::getUrl('index')),
+            // For staff who may open the list only (review of #815, REV-815-2).
+            $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true)->url(TicketResource::canAccess() ? TicketResource::getUrl('index') : null),
+            $this->getData(Service::class, 'Services')->url(ServiceResource::canAccess() ? ServiceResource::getUrl('index') : null),
             $this->clientsWithCredit(),
             $this->pendingCancellations(),
             $this->pendingModuleActions(),

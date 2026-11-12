@@ -39,8 +39,10 @@ class TicketNotifier extends Component
             'staffId' => $staff instanceof Staff ? $staff->id : 0,
             'count' => $count,
             'latest' => $ticket !== null ? $ticket->id : 0,
-            'title' => $ticket !== null ? __('New ticket') . ' #' . $ticket->reference : '',
-            'subject' => $ticket !== null ? mb_substr((string) $ticket->subject, 0, 120) : '',
+            // Escaped here as well as by Blade: the notice draws its title and body as HTML, and a subject is the
+            // sender's own text (review of #815, REV-815-1).
+            'title' => $ticket !== null ? e(__('New ticket') . ' #' . $ticket->reference) : '',
+            'subject' => $ticket !== null ? e(mb_substr((string) $ticket->subject, 0, 120)) : '',
             'url' => $ticket !== null ? TicketResource::getUrl('edit', ['record' => $ticket]) : '',
             'index' => TicketResource::getUrl('index'),
         ]);
