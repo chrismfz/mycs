@@ -13,9 +13,9 @@ use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
- * The fix of S10-PROVISIONING-1 leaves the normal paths as they were: only «Create»/«Unsuspend» on a service that is
- * Active again brings an Expired license back, with its key and bindings; a Suspended one comes back as before, an
- * Active one is untouched, an ended service's stays Expired.
+ * The fix of S10-PROVISIONING-1 leaves the normal paths as they were: only «Create» on a service that is Active again
+ * brings an Expired license back («Unsuspend» does not: REV-808-1), with its key and bindings; a Suspended one comes
+ * back as before, an Active one is untouched, an ended service's stays Expired.
  */
 class Sweep10ProvisioningFixesTest extends TestCase
 {

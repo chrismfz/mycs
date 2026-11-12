@@ -54,6 +54,7 @@ class Licenses
             if ($license !== null) {
                 // Made Active again only for a service that runs (review ADV-L2b): «Create» on a cancelled one revives nothing.
                 // An Expired one too, for a service staff brought back after it ended (sweep 10): same key and bindings.
+                // Only here: setStatus() keeps Expired final, it cannot tell staff's «Unsuspend» from a payment's (REV-808-1).
                 if (in_array($license->status, [License::STATUS_SUSPENDED, License::STATUS_EXPIRED], true) && $service->status === Service::STATUS_ACTIVE) {
                     $license->update(['status' => License::STATUS_ACTIVE]);
                 }
@@ -94,11 +95,9 @@ class Licenses
         $license = License::query()->where('service_id', $service->id)->first();
         // Expired is final, and Active needs a running service (review ADV-L2): an «Unsuspend» of a cancelled service
         // does not revive its license. A suspended one counts: staff's «Unsuspend» asks the server before it saves the
-        // service active, and nothing resyncs the license after (sweep PROVISIONING-1). The one way back from Expired:
-        // «Unsuspend» on a service that is Active again (staff brought it back after it ended, sweep 10), as issue().
-        $serviceStatus = $status === License::STATUS_ACTIVE ? $service->fresh()?->status : null;
-        if ($license !== null && (($license->status === License::STATUS_EXPIRED && $serviceStatus !== Service::STATUS_ACTIVE)
-            || ($status === License::STATUS_ACTIVE && !in_array($serviceStatus, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)))) {
+        // service active, and nothing resyncs the license after (sweep PROVISIONING-1).
+        if ($license !== null && ($license->status === License::STATUS_EXPIRED
+            || ($status === License::STATUS_ACTIVE && !in_array($service->fresh()?->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)))) {
             return $license;
         }
         if ($license !== null && $license->status !== $status) {
