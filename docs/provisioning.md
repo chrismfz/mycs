@@ -208,6 +208,12 @@
   έλεγχος «άλλη ζωντανή υπηρεσία με τον ίδιο λογαριασμό», που πια ισχύει και στο unsuspend. Η άρνηση μένει στο staff όπως
   κάθε αποτυχία module. Ποιες υπηρεσίες θα αρνηθεί: `php artisan cpanel:sync --domains` (μόνο ids)· το staff διορθώνει το
   domain ή το username της υπηρεσίας. Δεν ελέγχονται (ακόμα): νέο mailbox, usage, λίστα domains.
+  **DirectAdmin, το ίδιο** (sweep 10, S10-PROVISIONING-2): πριν από suspend, unsuspend και terminate ρωτά το DirectAdmin
+  (`CMD_API_SHOW_USER_CONFIG`) και αρνείται αν ο λογαριασμός με αυτό το username έχει άλλο domain από της υπηρεσίας, με
+  την ίδια ανοχή (πεζά, τελεία στο τέλος, `www.`, IDN). Αν η ερώτηση αποτύχει δεν στέλνεται τίποτα· λογαριασμός που το
+  DirectAdmin δεν ξέρει ή υπηρεσία χωρίς domain: απαντά το ίδιο το DirectAdmin στην ενέργεια, όπως πριν. Το «Access
+  DirectAdmin» δεν ελέγχεται (μπαίνει με τον κωδικό του ίδιου του λογαριασμού, όχι του admin). Συνέπεια: ένα unsuspend
+  σε κοινό λογαριασμό δύο υπηρεσιών περνά μόνο για εκείνη που έχει το domain του λογαριασμού· η άλλη μένει στο staff.
   Κωδικοί λογαριασμών με CSPRNG (`Str::password`).
 - **Logs:** `App\Support\Redact`: κλειδιά που ονομάζουν μυστικό (pass, secret, token, key, authorization, cookie,
   session) σε κάθε βάθος και στο query του URL, τα cPanel `cpsess…`, και κάθε αποθηκευμένο μυστικό (τα encrypted
