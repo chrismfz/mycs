@@ -96,7 +96,8 @@ final class UsageCharge
 
     /**
      * The distinct units that were there at any moment of [$start, $end) (docs/zonecloud-bulk-license.md §6.0, the rule
-     * decided on 2026-11-12): an IP on the list for a moment counts for the whole period. Intervals of one key count once.
+     * decided on 2026-11-12): an IP on the list for a moment, even one taken off the same instant, counts for the whole
+     * period. Intervals of one key count once.
      *
      * @param  iterable<array{0: string, 1: DateTimeInterface, 2: DateTimeInterface|null}>  $intervals  [key, added, removed or null]
      */
@@ -107,8 +108,10 @@ final class UsageCharge
         }
         $keys = [];
         foreach ($intervals as [$key, $added, $removed]) {
-            // There within the period: added before its end, not removed before its start, and there at all.
-            if ($added < $end && ($removed === null || ($removed > $start && $removed > $added))) {
+            // On the list within the period: added before its end, and still there at its start or added during it. One
+            // added and removed at once counts too: a check may have been answered in between (ADV-825-1), and the agent
+            // then runs to its stored due date.
+            if ($added < $end && ($removed === null || $removed > $start || $added >= $start)) {
                 $keys[(string) $key] = true;
             }
         }

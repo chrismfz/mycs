@@ -15,6 +15,7 @@ use App\Services\Licensing\BulkLicenseIps;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -75,6 +76,42 @@ class BulkLicenseClientTest extends TestCase
         $this->assertSame(['198.51.100.7' => 'web1', '198.51.100.8' => null], LicenseIp::query()->orderBy('id')->pluck('label', 'ip')->all());
     }
 
+    public function test_add_adds_only_what_was_previewed(): void
+    {
+        $screen = $this->screen()->set('add', '198.51.100.7')->call('confirmAdd');
+        $this->assertSame(0, LicenseIp::query()->count(), 'no preview: nothing');
+
+        $screen->call('previewAdd')->set('add', "198.51.100.7\n198.51.100.8")->call('confirmAdd');
+        $this->assertSame(0, LicenseIp::query()->count(), 'changed after the preview: nothing');
+
+        $screen->call('previewAdd')->call('confirmAdd');
+        $this->assertSame(2, LicenseIp::query()->count());
+    }
+
+    public function test_a_paste_over_the_limit_is_refused_before_anything_is_looked_up(): void
+    {
+        $text = implode("\n", array_map(fn ($i) => '10.1.' . intdiv($i, 250) . '.' . ($i % 250 + 1), range(1, 50)));
+
+        $screen = $this->screen()->set('add', $text)->call('previewAdd');
+
+        $this->assertStringContainsString('50', (string) $screen->get('preview')['error']);
+    }
+
+    public function test_the_history_is_the_changes_not_the_checks(): void
+    {
+        Carbon::setTestNow('2026-11-01 10:00:00');
+        BulkLicenseIps::add($this->service->license, implode("\n", array_map(fn ($i) => '10.2.0.' . $i, range(1, 30))));
+        Carbon::setTestNow('2026-11-05 10:00:00');
+        BulkLicenseIps::remove($this->service->license, [LicenseIp::query()->where('ip', '10.2.0.1')->value('id')]);
+        Carbon::setTestNow('2026-11-12 10:00:00');
+        LicenseIp::query()->active()->update(['last_ok_at' => now()]); // every running server checks in: updated_at moves
+
+        $history = $this->screen()->viewData('history');
+
+        $this->assertFalse($history->first()['added'], 'the latest change is the removal');
+        $this->assertSame('10.2.0.1', $history->first()['ip']);
+    }
+
     public function test_a_bad_line_is_shown_and_nothing_is_added(): void
     {
         $screen = $this->screen()->set('add', "198.51.100.7\nweb-two")->call('previewAdd');
@@ -93,13 +130,13 @@ class BulkLicenseClientTest extends TestCase
         $screen->call('confirmAdd');
         $this->assertSame(4, LicenseIp::query()->active()->count(), 'the limit of 5');
 
-        $this->screen()->set('add', '198.51.100.5')->call('confirmAdd');
+        $this->screen()->set('add', '198.51.100.5')->call('previewAdd')->call('confirmAdd');
         $this->assertSame(5, LicenseIp::query()->active()->count());
         BulkLicenseIps::add($this->service->license, '198.51.100.6'); // staff
         $this->assertSame(6, LicenseIp::query()->active()->count());
 
         $this->service->license->update(['max_ips' => 10]);
-        $this->screen()->set('add', '198.51.100.7')->call('confirmAdd');
+        $this->screen()->set('add', '198.51.100.7')->call('previewAdd')->call('confirmAdd');
         $this->assertSame(7, LicenseIp::query()->active()->count(), 'its own limit set by staff');
     }
 
@@ -183,6 +220,7 @@ class BulkLicenseClientTest extends TestCase
         $invoice = $this->service->invoices()->create(['client_id' => $this->service->client_id, 'status' => 'unpaid', 'due_at' => '2026-11-01', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_id' => $this->service->id, 'reference_type' => Service::class, 'price' => 1.80, 'quantity' => 1,
             'description' => 'November', 'period_start' => '2026-11-01', 'period_end' => '2026-12-01']);
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']); // paid
 
         $this->screen()->assertSee(__('services.bulk_license.billed', ['amount' => '1.80']))
             ->assertSee(__('services.bulk_license.estimate', ['amount' => '3.60']))

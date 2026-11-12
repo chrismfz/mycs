@@ -13,6 +13,7 @@ use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use App\Services\Order\OrderPricing;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Carbon\CarbonImmutable;
 use DateTimeZone;
 use Illuminate\Support\Collection;
@@ -139,7 +140,7 @@ final class BulkUsage
                 max(1, (int) $service->plan?->billing_period), $service->billing_day)));
             $ips = UsageCharge::distinctUnits($intervals, $start, $end);
             $actual = OrderPricing::toNet(UsageCharge::periodCharge($tiers, $ips, $days, $cycleDays), $service->client, $service->product);
-            $billed = (string) BigDecimal::of(number_format((float) $line->price, 2, '.', ''))->multipliedBy(max(1, (int) $line->quantity))->toScale(2);
+            $billed = self::lineNet($line);
             $adjustment = UsageCharge::adjustment($actual, $billed);
 
             $period = LicenseUsagePeriod::query()->create([
@@ -164,7 +165,7 @@ final class BulkUsage
 
     /**
      * The period running today, for the customer's screen: what was billed for it, and what it comes to if the list stays
-     * as it is (every IP that has been or is on it in the period). Null when no live renewal line covers today.
+     * as it is (every IP that has been or is on it in the period). Null when no paid renewal line covers today.
      *
      * @return array{start: CarbonImmutable, end: CarbonImmutable, ips: int, billed: string, estimate: string, correction: string}|null
      */
@@ -180,7 +181,8 @@ final class BulkUsage
             ->whereNotNull('period_start')->whereNotNull('period_end')
             ->where(fn ($line) => $line->whereNull('kind')->orWhereNotIn('kind', [InvoiceItem::KIND_CHARGE, InvoiceItem::KIND_DISCOUNT]))
             ->whereDate('period_start', '<=', $today)->whereDate('period_end', '>', $today)
-            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))
+            // Paid, as close() takes it: an unpaid one is not «billed» yet (review of #825).
+            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_PAID))
             ->orderByDesc('period_start')->first();
         if ($line === null) {
             return null;
@@ -194,10 +196,16 @@ final class BulkUsage
             ->map(fn ($row) => [$row->ip, $row->added_at->toImmutable(), $row->removed_at?->toImmutable()])->all();
         $ips = UsageCharge::distinctUnits($intervals, $start, $end);
         $estimate = OrderPricing::toNet(UsageCharge::periodCharge(self::tiers($service), $ips, $days, $cycleDays), $service->client, $service->product);
-        $billed = (string) BigDecimal::of(number_format((float) $line->price, 2, '.', ''))->multipliedBy(max(1, (int) $line->quantity))->toScale(2);
+        $billed = self::lineNet($line);
 
         return ['start' => $start, 'end' => $end, 'ips' => $ips, 'billed' => $billed, 'estimate' => $estimate,
             'correction' => UsageCharge::adjustment($estimate, $billed)];
+    }
+
+    /** A line's net, price × quantity, from the stored decimal (never a float). */
+    private static function lineNet(InvoiceItem $line): string
+    {
+        return (string) BigDecimal::of((string) $line->getRawOriginal('price'))->multipliedBy(max(1, (int) $line->quantity))->toScale(2, RoundingMode::HalfUp);
     }
 
     /**

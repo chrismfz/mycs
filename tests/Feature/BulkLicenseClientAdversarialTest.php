@@ -15,6 +15,7 @@ use App\Services\Licensing\BulkUsage;
 use App\Support\CurrentClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -85,8 +86,10 @@ class BulkLicenseClientAdversarialTest extends TestCase
         $invoice = $this->service->invoices()->create(['client_id' => $this->service->client_id, 'status' => 'unpaid', 'due_at' => '2026-11-01', 'currency_code' => 'USD']);
         $invoice->items()->create(['reference_id' => $this->service->id, 'reference_type' => Service::class, 'price' => 0, 'quantity' => 1,
             'description' => 'November', 'period_start' => '2026-11-01', 'period_end' => '2026-12-01']);
+        DB::table('invoices')->where('id', $invoice->id)->update(['status' => 'paid']); // paid (the author's change: only a paid period counts as billed, review of #825)
 
-        $this->screen()->set('add', '198.51.100.7 web1')->call('confirmAdd');
+        // «Add» adds what was previewed (the author's change, review of #825): «Check» first, as the screen asks.
+        $this->screen()->set('add', '198.51.100.7 web1')->call('previewAdd')->call('confirmAdd');
         $answer = $this->zlic('198.51.100.7');
         $this->assertSame('Active', $answer['status'] ?? null, 'zlic answers the IP while it is on the list');
         $this->assertNotEmpty($answer['localkey'] ?? null);
