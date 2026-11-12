@@ -56,6 +56,51 @@ class Sweep10OpsTest extends TestCase
         $this->assertStringContainsString('QSTART', $log, 'the workers the killed deploy stopped were not started');
     }
 
+    // The fix (the marker written before `down`) leaves the other paths as they were.
+
+    public function test_a_clean_deploy_leaves_no_marker(): void
+    {
+        $this->prepare(downBefore: false);
+
+        [$code, $out, $log] = $this->runDeploy();
+
+        $this->assertSame(0, $code, $out);
+        $this->assertStringContainsString("ART up\n", $log);
+        $this->assertFileDoesNotExist($this->dir . '/is-down');
+        $this->assertFileDoesNotExist($this->dir . '/storage/framework/deploy-left-down');
+    }
+
+    public function test_staffs_own_window_stays_down_with_no_marker_also_when_that_deploy_is_killed(): void
+    {
+        $this->prepare(downBefore: true);
+        File::put($this->dir . '/hup-migrate', '');
+        [$code, $out] = $this->runDeploy();
+        $this->assertSame(129, $code, $out);
+        $this->assertFileDoesNotExist($this->dir . '/storage/framework/deploy-left-down', 'staff put it down, not the deploy');
+
+        File::delete([$this->dir . '/hup-migrate', $this->dir . '/log']);
+        [$code, $out, $log] = $this->runDeploy();
+
+        $this->assertSame(0, $code, $out);
+        $this->assertFileExists($this->dir . '/is-down', 'a window of staff is left down');
+        $this->assertStringNotContainsString("ART up\n", $log);
+        $this->assertFileDoesNotExist($this->dir . '/storage/framework/deploy-left-down');
+    }
+
+    public function test_a_deploy_that_stops_with_nothing_changed_and_the_site_up_again_leaves_no_marker(): void
+    {
+        $this->prepare(downBefore: false);
+        File::put($this->dir . '/fail-cron-wait', ''); // a cron run started just before maintenance
+
+        [$code, $out, $log] = $this->runDeploy();
+
+        $this->assertSame(1, $code, $out);
+        $this->assertStringContainsString('the app is up again', $out);
+        $this->assertFileDoesNotExist($this->dir . '/is-down');
+        $this->assertFileDoesNotExist($this->dir . '/storage/framework/deploy-left-down',
+            'a marker left here would bring up a window staff open within the day');
+    }
+
     /**
      * The real update.sh in a throwaway directory, with git, php artisan and curl stubbed.
      */
