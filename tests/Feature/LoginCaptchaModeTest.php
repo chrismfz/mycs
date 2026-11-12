@@ -41,14 +41,14 @@ class LoginCaptchaModeTest extends TestCase
     private function assertCaptchaHidden(string $html): void
     {
         $this->assertStringContainsString('<altcha-widget', $html);
-        $this->assertMatchesRegularExpression('/<div class="hidden" data-login-captcha>/', $html);
+        // Disabled too: its required checkbox, hidden, would stop the browser sending the form (nixpal, 2026-11-13).
+        $this->assertMatchesRegularExpression('/<fieldset class="[^"]*\\bhidden\\b[^"]*"\s+disabled\s+data-login-captcha>/', $html);
     }
 
     private function assertCaptchaShown(string $html): void
     {
         $this->assertStringContainsString('<altcha-widget', $html);
-        $this->assertStringNotContainsString('class="hidden" data-login-captcha', $html);
-        $this->assertStringContainsString('data-login-captcha', $html);
+        $this->assertMatchesRegularExpression('/<fieldset class="m-0 min-w-0 border-0 p-0"\s+data-login-captcha>/', $html, 'shown and enabled');
     }
 
     /**
