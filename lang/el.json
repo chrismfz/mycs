@@ -1838,6 +1838,8 @@
     "Bulk license usage :from – :to: :ips, :actual instead of :billed billed in advance": "Χρήση bulk άδειας :from – :to: :ips, :actual αντί για :billed που τιμολογήθηκαν προκαταβολικά",
     "A bulk license is billed monthly: its cycle does not change.": "Μια bulk άδεια χρεώνεται μηνιαία: ο κύκλος της δεν αλλάζει.",
     "Credit given for a bulk license's usage": "Πίστωση για τη χρήση bulk άδειας",
+    "Email or username": "Email ή όνομα χρήστη",
+    "Username": "Όνομα χρήστη",
     "A license may have :max IP addresses: :count would be on the list. Contact us for more.": "Μια άδεια μπορεί να έχει ως :max διευθύνσεις IP: θα ήταν :count στη λίστα. Επικοινωνήστε μαζί μας για περισσότερες.",
     "This IP address is no longer on the list.": "Αυτή η διεύθυνση IP δεν είναι πια στη λίστα.",
     "Give one IP address.": "Δώστε μία διεύθυνση IP.",

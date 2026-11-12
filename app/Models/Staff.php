@@ -45,6 +45,7 @@ class Staff extends Authenticatable implements Auditable, CanResetPasswordContra
         'first_name',
         'last_name',
         'email',
+        'username',
         'password',
         'role_id',
         'active',

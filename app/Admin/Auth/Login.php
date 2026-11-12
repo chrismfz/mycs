@@ -9,15 +9,19 @@ use App\Support\CallerIp;
 use DanHarrin\LivewireRateLimiting\Exceptions\TooManyRequestsException;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Filament\Auth\Pages\Login as FilamentLogin;
+use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Component;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
+use SensitiveParameter;
 
 /**
  * The staff login, counted by the caller's own address (an IPv6 one by its /64), never one a client names in
  * X-Forwarded-For, and by the member of staff across every address (security audit AUTHN-2): the keys to every server
  * sit behind it. Only failures count towards the member's limit, and a device a member already signed in on is never
  * held back by it: a stranger cannot lock the owner out from the office (review of #333).
+ * A member signs in with the email or the username (owner 2026-11-12: WHMCS's admins had usernames saved).
  */
 class Login extends FilamentLogin
 {
@@ -26,6 +30,46 @@ class Login extends FilamentLogin
 
     /** The cookie of a device a member of staff signed in on (encrypted, as every cookie here). */
     public const DEVICE_COOKIE = 'mycs_staff_device';
+
+    /**
+     * The member a login names (the database's collation, as before: review of #333): with an @, by email; without, by
+     * username, then by email. A username never has an @, so neither can stand for the other: an email saved without
+     * one (app:staff:create, an import) never takes another member's username (review of #826, REV-826-1).
+     */
+    public static function member(string $login): ?Staff
+    {
+        $login = trim($login);
+        if ($login === '') {
+            return null;
+        }
+        if (str_contains($login, '@')) {
+            return Staff::query()->where('email', $login)->first();
+        }
+
+        return Staff::query()->where('username', $login)->first()
+            ?? Staff::query()->where('email', $login)->first();
+    }
+
+    protected function getEmailFormComponent(): Component
+    {
+        return TextInput::make('email')
+            ->label(__('Email or username'))
+            ->required()
+            ->maxLength(255)
+            ->autocomplete('username')
+            ->autofocus();
+    }
+
+    /** A username signs in as its member's email; anything else as typed (an unknown login fails as before). */
+    protected function getCredentialsFromFormData(#[SensitiveParameter] array $data): array
+    {
+        $staff = self::member((string) $data['email']);
+
+        return [
+            'email' => $staff !== null ? $staff->email : $data['email'],
+            'password' => $data['password'],
+        ];
+    }
 
     protected function getRateLimitKey($method, $component = null): string
     {
@@ -41,7 +85,7 @@ class Login extends FilamentLogin
             parent::rateLimit($maxAttempts, $decaySeconds, $method, $component);
         } catch (TooManyRequestsException $e) {
             $email = (string) ($this->data['email'] ?? '');
-            LoginAttempt::record(LoginAttempt::STAFF, Staff::query()->where('email', trim($email))->first(), $email, LoginAttempt::THROTTLED);
+            LoginAttempt::record(LoginAttempt::STAFF, self::member($email), $email, LoginAttempt::THROTTLED);
 
             throw $e;
         }
@@ -50,7 +94,7 @@ class Login extends FilamentLogin
     public function authenticate(): ?LoginResponse
     {
         // The member the database finds (its collation matches more spellings than any normalising: review of #333).
-        $staff = Staff::query()->where('email', trim((string) ($this->data['email'] ?? '')))->first();
+        $staff = self::member((string) ($this->data['email'] ?? ''));
         $key = $staff === null ? null : 'staff-login-account:' . $staff->id;
         $known = $staff !== null && (string) request()->cookie(AuthCookies::name(self::DEVICE_COOKIE)) === (string) $staff->id;
         if ($key !== null && !$known && RateLimiter::tooManyAttempts($key, self::ACCOUNT_FAILURES)) {
