@@ -162,7 +162,9 @@ class Rev805Test extends TestCase
      */
     public function test_an_imported_line_without_period_paid_after_the_date_was_moved_back_tells_staff(): void
     {
-        $this->markTestIncomplete('known (2026-11-12): an imported line without a period cannot be given again; runbook');
+        $this->markTestIncomplete('open (2026-11-12): given again when the service has an earlier invoice '
+            . '(Sweep10UnbilledAdviceTest::test_an_imported_line_without_period_is_renewed_when_paid_after_the_date_was_moved_back); here it is '
+            . 'the service\'s only invoice, read as its first order\'s line (RenewServiceService::isFirstOrderLine): nothing given, nobody told');
         Carbon::setTestNow('2026-09-20 10:00:00');
         $this->plan->update(['name' => 'Monthly']);
         $this->whmcs($this->user->client()->id, $this->product->id);
@@ -249,8 +251,14 @@ class Rev805Test extends TestCase
         $service->applyStaffChanges(['expires_at' => '2026-11-15']);
 
         $this->cronUntil('2026-12-20');
-        $this->assertSame([Service::STATUS_TERMINATED, Invoice::STATUS_UNPAID], [$service->fresh()->status, $invoice->fresh()->status],
-            'terminated for non-payment, its invoice still open and payable');
+        // Adapted by the fix's author (second rework, owner 2026-11-12): the date moved back un-applies the line, so the
+        // termination cancels its open renewal as any other. It asserted [terminated, unpaid] here («still open and
+        // payable») and then a mail or a finding after the payment below; nothing is left to pay, and the case is cut.
+        $this->assertSame([Service::STATUS_TERMINATED, Invoice::STATUS_CANCELLED, []], [$service->fresh()->status, $invoice->fresh()->status, $this->moneyCheck()],
+            'terminated for non-payment, its open renewal cancelled with it: nothing to pay, the money check clean');
+        if ($invoice->fresh()->status === Invoice::STATUS_CANCELLED) {
+            return;
+        }
         $before = count($this->staffMails());
 
         (new RecordPaymentService)->recordByStaff($invoice->fresh(), null, '10.00', 'bank-2');

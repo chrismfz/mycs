@@ -171,8 +171,8 @@ final class UnbilledServices
                     continue; // covered, to be closed as paid: open_settled says so
                 }
                 $owes = number_format(RecordPaymentService::toCents($invoice->remaining) / 100, 2, '.', '');
-                // Either half is safe: with the date moved back, its payment gives the period again (RenewServiceService,
-                // sweep 10).
+                // Either half is safe: the date moved back by staff un-applies the line, and its payment then renews the
+                // service as any open renewal (Service::applyStaffChanges, sweep 10).
                 $this->add(self::PERIOD_NOT_PAID, (int) $line->reference_id, "runs to {$runsTo} on invoice #{$invoice->id}, which is {$invoice->status} again"
                     . (isset($since[$invoice->id]) ? ' since ' . self::day($since[$invoice->id]) : '')
                     . " (owes {$owes} {$invoice->currency_code}): collect it, or move the due date back" . ($start !== null ? " to {$start}" : ''));
@@ -200,7 +200,7 @@ final class UnbilledServices
             ->whereColumn('invoices.client_id', 'services.client_id')
             ->whereIn('services.id', self::running()->select('services.id'))
             ->orderBy('service_upgrades.id')->with('product:id,name')
-            ->get(['service_upgrades.id', 'service_upgrades.service_id', 'service_upgrades.product_id', 'service_upgrades.plan_id', 'service_upgrades.invoice_id', 'service_upgrades.applied_at'])
+            ->get(['service_upgrades.id', 'service_upgrades.service_id', 'service_upgrades.product_id', 'service_upgrades.plan_id', 'service_upgrades.from_product_id', 'service_upgrades.invoice_id', 'service_upgrades.applied_at'])
             // Still on what it gave: the product, the plan and its options (REV-805-2), not once staff put them back.
             ->filter(fn (ServiceUpgrade $upgrade) => ($service = Service::query()->find($upgrade->service_id)) !== null && $upgrade->heldBy($service));
         if ($upgrades->isEmpty()) {

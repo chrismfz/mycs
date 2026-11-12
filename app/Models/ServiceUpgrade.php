@@ -134,10 +134,15 @@ class ServiceUpgrade extends Model implements Auditable
         return $this->morphMany(ServiceConfig::class, 'configurable');
     }
 
-    /** The service is still on what this upgrade gave it: its product, its plan, and each option it set. */
+    /**
+     * The service is still on what this upgrade gave it: its product and each option it set. The plan only when the
+     * upgrade kept the product (another plan of it was what it gave); else a plan of that product is its cycle
+     * (REV-805-R2-4).
+     */
     public function heldBy(Service $service): bool
     {
-        if ((int) $service->product_id !== (int) $this->product_id || (int) $service->plan_id !== (int) $this->plan_id) {
+        $sameProduct = $this->from_product_id !== null && (int) $this->from_product_id === (int) $this->product_id;
+        if ((int) $service->product_id !== (int) $this->product_id || ($sameProduct && (int) $service->plan_id !== (int) $this->plan_id)) {
             return false;
         }
         $on = $service->configs()->pluck('config_value_id', 'config_option_id');

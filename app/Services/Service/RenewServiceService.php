@@ -45,15 +45,6 @@ class RenewServiceService
             // Re-read the line under the service lock: a concurrent payment may have given it its period.
             $item = $item ? (InvoiceItem::query()->whereKey($item->getKey())->first() ?? $item) : null;
 
-            // Applied before, and its invoice paid again since (not a replay of the same payment), while its service
-            // ended or no longer holds the period it gave (owner 2026-11-12, sweep 10: the payment deleted, the due date
-            // moved back into the period, the open invoice paid): as a line not applied yet, below. The period is given
-            // again, to its end and over the paid periods that follow, with all a renewal brings; an ended service is
-            // not revived and staff are told. Once: the line is applied now, and the service holds the period.
-            $again = $item?->applied_at !== null && $this->lostItsPeriod($locked, $item) && $this->paidAgainSince($item);
-            if ($again) {
-                $item->applied_at = null;
-            }
             // A replay never overrides staff corrections, even if paidThrough could move forward.
             if ($item?->applied_at !== null) {
                 // A server job the commit that applied it decided and the queue never took (predeploy S4): its marker
@@ -73,9 +64,6 @@ class RenewServiceService
                     DB::afterCommit(fn () => NotificationHelper::sendSystemEmailNotification('Payment for an ended service: needs staff attention', e(
                         "Invoice #{$item->invoice_id} paid a renewal of service #{$locked->id}, which is {$locked->status}: it was not revived. Refund the payment or move it to credit."
                     )));
-                }
-                if ($again) {
-                    $item->forceFill(['applied_at' => now()])->save(); // told once, whatever replays this payment
                 }
 
                 return;
@@ -162,7 +150,8 @@ class RenewServiceService
      */
     private function paidAgain(Service $service, InvoiceItem $item): void
     {
-        if (!$this->paidAgainSince($item)) {
+        $paidSince = Invoice::query()->whereKey($item->invoice_id)->where('status', Invoice::STATUS_PAID)->value('apply_pending_since');
+        if ($paidSince === null || !$item->applied_at->lessThan(CarbonImmutable::parse($paidSince))) {
             return;
         }
         if ($service->isEnded() || $service->status !== Service::STATUS_SUSPENDED || $service->dunning_suspended_at === null
@@ -171,31 +160,6 @@ class RenewServiceService
         }
         $item->forceFill(['applied_at' => now()])->save();
         $this->activate($service, CarbonImmutable::parse($service->expires_at)->startOfDay());
-    }
-
-    /** Its invoice became paid after the line was applied: paid again, not the payment that applied it replayed. */
-    private function paidAgainSince(InvoiceItem $item): bool
-    {
-        $paidSince = Invoice::query()->whereKey($item->invoice_id)->where('status', Invoice::STATUS_PAID)->value('apply_pending_since');
-
-        return $paidSince !== null && $item->applied_at->lessThan(CarbonImmutable::parse($paidSince));
-    }
-
-    /**
-     * A recurring service whose due date lies inside the line's period: it was moved back since the line gave it. Not
-     * before the period's start (a period paid ahead of an unpaid one waits, as ever), nor at its end or later (it
-     * holds the period: the ordinary «paid again»). A line with no period names none. An ended service: any date
-     * before the period's end (it ended without the whole of it).
-     */
-    private function lostItsPeriod(Service $service, InvoiceItem $item): bool
-    {
-        if ($item->period_start === null || $item->period_end === null || $service->expires_at === null
-            || $service->plan === null || in_array($service->plan->type, ['one-time', 'free'], true)) {
-            return false;
-        }
-        $due = CarbonImmutable::parse($service->expires_at)->toDateString();
-
-        return $due < $item->period_end->toDateString() && ($service->isEnded() || $item->period_start->toDateString() <= $due);
     }
 
     private function activate(Service $service, ?CarbonImmutable $paidUntil, ?CarbonImmutable $periodStart = null): void

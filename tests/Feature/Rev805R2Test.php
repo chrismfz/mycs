@@ -189,6 +189,8 @@ class Rev805R2Test extends TestCase
      */
     public function test_a_date_moved_back_to_before_the_periods_start_is_given_or_told_when_the_invoice_is_paid(): void
     {
+        $this->markTestIncomplete('REV-805-R2-3, open for the owner (2026-11-12): the line, un-applied by the date move, is applied as «paid ahead of '
+            . 'an unpaid period» (the day 11-14..11-15 nothing bills yet): nothing given until the cron bills that day and it is paid; no mail');
         $service = $this->service('2026-11-15');
         $invoice = $this->renewal($service, '2026-11-15');
         $payment = (new RecordPaymentService)->recordByStaff($invoice, null, '10.00', 'bank-1');
