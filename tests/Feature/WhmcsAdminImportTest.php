@@ -2,18 +2,25 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\ImportFromWhmcs;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Services\Whmcs\AdminImport;
+use Illuminate\Console\OutputStyle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use PDO;
+use ReflectionMethod;
+use ReflectionProperty;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\TestCase;
 
 /**
  * WHMCS admins into a live MyCS (app:import-whmcs-admins): matched by email, staff already here untouched, the WHMCS
- * bcrypt hash logs in as it is, roles as the full importer makes them, a dry run writes nothing. Fixtures only.
+ * bcrypt hash logs in as it is (its `passwordhash`), roles as the full importer makes them, a dry run writes nothing. Fixtures only.
  */
 class WhmcsAdminImportTest extends TestCase
 {
@@ -111,5 +118,39 @@ class WhmcsAdminImportTest extends TestCase
         (new AdminImport)->run($this->admins(), true);
 
         $this->assertSame($before, [Role::query()->count(), DB::table('audits')->count()]);
+    }
+
+    /**
+     * WHMCS 8 keeps two hashes per admin: `passwordhash` (bcrypt of the password, what its login checks) and `password`
+     * (bcrypt of the password's md5). The nixpal copy (2026-11-12): the owner's password matched only `passwordhash`,
+     * and the staff row made from `password` refused it.
+     */
+    public function test_an_admin_logs_in_with_the_whmcs_password_through_its_passwordhash(): void
+    {
+        $rows = [['id' => 4, 'firstname' => 'Chr', 'lastname' => 'Is', 'email' => 'chr@example.test', 'password' => password_hash(md5('whmcs-pass'), PASSWORD_BCRYPT, ['cost' => 10]),
+            'passwordhash' => password_hash('whmcs-pass', PASSWORD_BCRYPT, ['cost' => 10]), 'roleid' => 1, 'rolename' => 'Full Administrator', 'disabled' => 0]];
+
+        (new AdminImport)->run($rows);
+
+        $this->assertTrue(Auth::guard('staff')->attempt(['email' => 'chr@example.test', 'password' => 'whmcs-pass']));
+    }
+
+    public function test_the_full_import_logs_an_admin_in_with_the_whmcs_password_through_its_passwordhash(): void
+    {
+        $whmcs = new PDO('sqlite::memory:');
+        $whmcs->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $whmcs->exec('CREATE TABLE tbladmins (id INTEGER PRIMARY KEY, firstname TEXT, lastname TEXT, email TEXT, password TEXT, passwordhash TEXT, roleid INTEGER, disabled INTEGER, created_at TEXT)');
+        $insert = $whmcs->prepare('INSERT INTO tbladmins VALUES (?, ?, ?, ?, ?, ?, 1, 0, NULL)');
+        $insert->execute([1, 'Chr', 'Is', 'chr@example.test', password_hash(md5('whmcs-pass'), PASSWORD_BCRYPT, ['cost' => 10]), password_hash('whmcs-pass', PASSWORD_BCRYPT, ['cost' => 10])]);
+        $insert->execute([2, 'Old', 'One', 'old@example.test', password_hash('older-whmcs', PASSWORD_BCRYPT, ['cost' => 10]), '']);
+        $command = app(ImportFromWhmcs::class);
+        (new ReflectionProperty($command, 'pdo'))->setValue($command, $whmcs);
+        $command->setOutput(new OutputStyle(new ArrayInput([]), new BufferedOutput));
+
+        (new ReflectionMethod($command, 'importAdmins'))->invoke($command);
+
+        $this->assertTrue(Auth::guard('staff')->attempt(['email' => 'chr@example.test', 'password' => 'whmcs-pass']));
+        Auth::guard('staff')->logout();
+        $this->assertTrue(Auth::guard('staff')->attempt(['email' => 'old@example.test', 'password' => 'older-whmcs']), 'no passwordhash: its password, as before');
     }
 }

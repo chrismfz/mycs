@@ -52,6 +52,7 @@ use App\Services\Import\WhmcsWelcomeSnippetImport;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Licensing\WhmcsLicensingImport;
 use App\Services\Tax\EuVat;
+use App\Services\Whmcs\AdminImport;
 use App\Services\Whmcs\CatalogImport;
 use App\Services\Whmcs\RolePermissions;
 use App\Support\Locales;
@@ -1217,8 +1218,10 @@ class ImportFromWhmcs extends Command
                     'first_name' => $record['firstname'],
                     'last_name' => $record['lastname'],
                     'email' => $email,
-                    // A WHMCS bcrypt hash logs in as it is; anything older needs «Forgot password».
-                    'password' => $record['password'],
+                    // WHMCS checks an admin's password against `passwordhash` (bcrypt of the password); `password` is a
+                    // bcrypt of its md5, which never logs in here (found on the nixpal copy, 2026-11-12). Anything
+                    // older needs «Forgot password».
+                    'password' => AdminImport::whmcsHash($record),
                     'role_id' => $this->staffRoleId((int) $record['roleid']),
                     'active' => (int) $record['disabled'] !== 1,
                     'created_at' => $this->validateDate($record['created_at'] ?? null) ?? now(),

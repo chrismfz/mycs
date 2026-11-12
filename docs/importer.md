@@ -330,7 +330,7 @@
   πλήθη (233, Paid 5.870 / Unpaid 21 / Cancelled 198, 1.370 υπηρεσίες, 14 domains, 640 tickets).
 - **`mycs:credits-check`:** καθαρό. **`mycs:money-check`:** 13 ευρήματα, δεδομένα του WHMCS (8 πληρωμένα πάνω από το ποσό,
   2 ακυρωμένα που κρατούν χρήματα, 3 ανοιχτά για υπηρεσίες που έληξαν).
-- **Admins:** 4 (Full Administrator → `admin` ×3, Sales Operator), bcrypt όπως ήταν.
+- **Admins:** 4 (Full Administrator → `admin` ×3, Sales Operator), bcrypt όπως ήταν (από το `passwordhash`: βλ. «Admins» πιο κάτω).
 - **Δεν έτρεξαν:** αποθηκευμένες μέθοδοι (0 από 67) και κωδικοί υπηρεσιών (0 από 357), γιατί θέλουν API credentials· τα συνημμένα
   των tickets.
 
@@ -609,6 +609,11 @@ ADV-A5-1), με μία σημείωση ανά TLD και πράξη, με τα 
 disabled μένουν disabled. Ταίριασμα **με email**, ποτέ με id· staff που ήδη υπάρχει
 μένει όπως είναι (κωδικός, ρόλος, status). Το bcrypt hash του WHMCS κρατιέται όπως είναι (μπαίνουν με τον κωδικό του
 WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction, `--dry-run`.
+- **Ποιο hash (2026-11-12, στο αντίγραφο της nixpal):** το WHMCS 8 κρατά δύο ανά admin. Το `passwordhash` είναι bcrypt του
+  κωδικού και αυτό ελέγχει το login του· το `password` είναι bcrypt του md5 του κωδικού και εδώ δεν ανοίγει ποτέ. Και ο
+  πλήρης importer και το `app:import-whmcs-admins` παίρνουν το `passwordhash` (`AdminImport::whmcsHash`), το `password`
+  μόνο όταν εκείνο λείπει. Το αρχείο JSON θέλει λοιπόν και τη στήλη `passwordhash`. Οι πελάτες (`tblusers`) έχουν ένα
+  hash, χωρίς αυτή τη διπλή μορφή (ελέγχεται με ένα πραγματικό login πελάτη πριν το cut-over).
 - **Είσοδος:** αρχείο JSON με γραμμές του `tbladmins` και `rolename`. Τα hashes **δεν** περνούν ποτέ σε καθαρό κείμενο
   από κανάλι που καταγράφεται: στον server του WHMCS κρυπτογραφούνται (`openssl cms`, AES-256) με δημόσιο κλειδί που
   φτιάχτηκε στον host του MyCS, ο οποίος μόνο τα αποκρυπτογραφεί σε αρχείο root-only, το εισάγει και το σβήνει μαζί με

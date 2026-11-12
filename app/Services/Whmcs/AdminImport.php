@@ -18,6 +18,20 @@ use Throwable;
  */
 final class AdminImport
 {
+    /**
+     * The hash WHMCS checks an admin's password against: `passwordhash` (bcrypt of the password). Its `password` is a
+     * bcrypt of the password's md5, which never logs in here; it is taken only when there is no `passwordhash` (a file
+     * made without it, an older WHMCS).
+     *
+     * @param  array<string, mixed>  $admin  a tbladmins row
+     */
+    public static function whmcsHash(array $admin): string
+    {
+        $hash = trim((string) ($admin['passwordhash'] ?? ''));
+
+        return $hash !== '' ? $hash : (string) ($admin['password'] ?? '');
+    }
+
     /** @var array{added: int, existing: int, without_password: int, roles: int} */
     private array $counts = ['added' => 0, 'existing' => 0, 'without_password' => 0, 'roles' => 0];
 
@@ -86,7 +100,7 @@ final class AdminImport
 
         // The hash as WHMCS keeps it, written past the model's `hashed` cast (it would re-check its cost): bcrypt only, as
         // $2y$ (PHP's own; $2a$/$2b$ are the same hash, but Laravel would refuse them at login: review).
-        $hash = (string) ($admin['password'] ?? '');
+        $hash = self::whmcsHash($admin);
         if (preg_match('/^\$2[ab]\$/', $hash) === 1) {
             $hash = '$2y$' . substr($hash, 4);
         }
