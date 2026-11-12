@@ -16,22 +16,8 @@
     </div>
     @php($bulk = \App\Services\Licensing\Licenses::isBulk($service))
     @if($bulk)
-    {{-- A bulk license (docs/zonecloud-bulk-license.md): its list, read only until the customer's own screen (PR 5). --}}
-    <p class="text-sm text-base/50">{{ __('services.license.bulk_help') }}</p>
-    <div class="text-base">
-        <span>{{ __('services.license.bulk_ips') }}:</span>
-        @php($ips = $license->ips()->active()->orderBy('ip')->get())
-        @forelse($ips as $row)
-        <div class="flex flex-wrap gap-x-3 ml-4 text-base/50">
-            <code class="text-base/80">{{ $row->ip }}</code>
-            @if(filled($row->label))<span>{{ $row->label }}</span>@endif
-            <span>{{ __('services.license.bulk_since', ['date' => $row->added_at->translatedFormat('d M Y')]) }}</span>
-            <span>{{ __('services.license.last_check') }}: {{ $row->last_ok_at?->diffForHumans() ?? __('services.license.never_checked') }}</span>
-        </div>
-        @empty
-        <span class="text-base/50">{{ __('services.license.bulk_no_ips') }}</span>
-        @endforelse
-    </div>
+    {{-- A bulk license (docs/zonecloud-bulk-license.md §7.1): its own screen. --}}
+    <livewire:services.bulk-license :service="$service" :key="'bulk-license-' . $service->id" />
     @else
     <div class="flex items-start text-base">
         <span class="mr-2">{{ __('services.license.valid_ips') }}:</span>

@@ -20,6 +20,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string|null $valid_ip
  * @property string|null $valid_directory
  * @property int $reissues
+ * @property int|null $max_ips a bulk license's own limit for its customer (Ε4), else its product's
  * @property string|null $tiers a bulk license's own prices per IP (Ε6), else its product's
  * @property Carbon|null $last_access
  */
@@ -41,10 +42,10 @@ class License extends Model implements Auditable
      * checking it and the WHMCS row stay staff's and the client area's. Its valid IP does reach a mail, as part of its
      * service's name only (Service::mailName, owner 2026-11-03), never as a field of its own.
      */
-    public const TEMPLATE_HIDDEN = ['valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'whmcs_id', 'last_access', 'last_ok_at',
+    public const TEMPLATE_HIDDEN = ['valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'max_ips', 'whmcs_id', 'last_access', 'last_ok_at',
         'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];
 
-    protected $fillable = ['service_id', 'license_key', 'status', 'valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'last_access', 'whmcs_id',
+    protected $fillable = ['service_id', 'license_key', 'status', 'valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'max_ips', 'last_access', 'whmcs_id',
         'last_ok_at', 'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];
 
     protected $casts = [
@@ -52,6 +53,7 @@ class License extends Model implements Auditable
         'last_ok_at' => 'datetime',
         'last_failure_at' => 'datetime',
         'reissues' => 'integer',
+        'max_ips' => 'integer',
     ];
 
     /** Checks touch last_access on every call: not an audited change. */

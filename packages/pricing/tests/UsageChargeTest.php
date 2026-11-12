@@ -206,8 +206,9 @@ final class UsageChargeTest extends TestCase
         $this->assertSame(0, self::distinct([
             ['10.0.0.2', self::at('2026-09-01'), self::at('2026-10-01')], // left at the period's first instant
             ['10.0.0.3', self::at('2026-11-01'), null],                   // came at its end
-            ['10.0.0.4', self::at('2026-10-05 10:00'), self::at('2026-10-05 10:00')], // never there
         ], '2026-10-01', '2026-11-01'));
+        // On and off the same instant (a check may have been answered in between, ADV-825-1): it counts.
+        $this->assertSame(1, self::distinct([['10.0.0.4', self::at('2026-10-05 10:00'), self::at('2026-10-05 10:00')]], '2026-10-01', '2026-11-01'));
         $this->assertSame(1, self::distinct([['10.0.0.5', self::at('2026-09-01'), self::at('2026-10-01 00:00:01')]], '2026-10-01', '2026-11-01'));
     }
 

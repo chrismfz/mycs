@@ -694,7 +694,7 @@ class EditService extends EditRecord
                 Action::make('editLicense')->label('Edit license')->icon('ri-key-2-line')->color('gray')
                     ->visible(fn (Service $record) => $record->license !== null)
                     ->authorize('update')
-                    ->fillForm(fn (Service $record) => $record->license->only(['status', 'valid_ip', 'valid_domain', 'valid_directory', 'tiers']))
+                    ->fillForm(fn (Service $record) => $record->license->only(['status', 'valid_ip', 'valid_domain', 'valid_directory', 'tiers', 'max_ips']))
                     ->schema([
                         Select::make('status')->required()->options(array_combine($s = [License::STATUS_ACTIVE, License::STATUS_REISSUED, License::STATUS_SUSPENDED, License::STATUS_EXPIRED], $s)),
                         // Text columns, as WHMCS's (a list can be long: review R4).
@@ -708,6 +708,9 @@ class EditService extends EditRecord
                         TextInput::make('tiers')->label('Tiers (this service)')->placeholder('1=1.50')->maxLength(255)
                             ->helperText('Monthly price per IP, graduated: «from=price», e.g. «1=1.50» for all at 1.50. Empty: the product\'s. From the next period closed.')
                             ->visible(fn (Service $record) => Licenses::isBulk($record)),
+                        TextInput::make('max_ips')->label('Max IPs (this service)')->numeric()->minValue(1)->maxValue(100000)
+                            ->helperText('How many IPs the customer may keep on the list. Empty: the product\'s (200). Staff add without a limit.')
+                            ->visible(fn (Service $record) => Licenses::isBulk($record)),
                     ])
                     ->action(function (Service $record, array $data) {
                         if (Licenses::isBulk($record)) {
@@ -719,7 +722,8 @@ class EditService extends EditRecord
 
                                 return;
                             }
-                            $record->license->update(['status' => $data['status'], 'tiers' => $tiers === '' ? null : $tiers]); // audited
+                            $record->license->update(['status' => $data['status'], 'tiers' => $tiers === '' ? null : $tiers,
+                                'max_ips' => filled($data['max_ips'] ?? null) ? (int) $data['max_ips'] : null]); // audited
 
                             Notification::make()->success()->title('License saved')->send();
                             $this->refreshFormData(['license']);
