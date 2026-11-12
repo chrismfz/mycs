@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ServiceResource\ChangePackage;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\Credit;
@@ -238,6 +239,9 @@ class BulkLicenseBillingTest extends TestCase
         $this->assertSame(__('A bulk license is billed monthly: its cycle does not change.'),
             ChangeCycle::refusal($this->service->fresh(), $this->service->plan, ChangeCycle::NOW));
         $this->assertFalse($this->service->fresh()->upgradable);
+        // Staff's «Change package» too (review of the fixes): refused before anything is placed.
+        $refusal = new \ReflectionMethod(ChangePackage::class, 'refusalNow');
+        $this->assertSame(__('services.change_package.refused.bulk'), $refusal->invoke(null, $this->service->fresh()));
     }
 
     public static function provideSeeds(): array
