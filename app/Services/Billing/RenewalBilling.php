@@ -9,12 +9,15 @@ use App\Helpers\NotificationHelper;
 use App\Models\Domain;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Plan;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\Setting;
 use App\Services\Domains\DomainRenewalService;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Licensing\BulkUsage;
+use App\Services\Licensing\Licenses;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Order\OrderPricing;
 use App\Services\Payment\AutoCharge;
@@ -222,7 +225,22 @@ final class RenewalBilling
             $service->price = $service->calculatePrice(applyCoupon: false);
             $service->coupon_expired_at = CarbonImmutable::now();
         }
-        if ($service->isDirty(['price', 'coupon_started_at', 'coupon_expired_at'])) {
+        // A bulk license (docs/zonecloud-bulk-license.md §6.0): its paid periods that are over closed first (less than
+        // billed: credit now), then this one priced at the IPs on its list now, its tiers' cost (no coupon, one unit).
+        $bulk = null;
+        if (Licenses::isBulk($service)) {
+            try {
+                BulkUsage::close($service);
+                $bulk = BulkUsage::advance($service);
+            } catch (DisplayException $e) {
+                $this->notices["invoices_created #{$id}"] = $e;
+
+                return 0;
+            }
+            $service->price = (float) $bulk['price'];
+            $service->quantity = 1;
+        }
+        if ($service->isDirty(['price', 'quantity', 'coupon_started_at', 'coupon_expired_at'])) {
             $service->save();
         }
 
@@ -291,12 +309,27 @@ final class RenewalBilling
             'price' => $price,
             'quantity' => $service->quantity,
             // With its options (PR C, as WHMCS): one invoice can bill several services of the same product.
-            'description' => $service->describeLine($periodStart, $periodEnd) . self::groupNote($service),
+            'description' => $service->describeLine($periodStart, $periodEnd) . ($bulk !== null ? ' · ' . $bulk['note'] : self::groupNote($service)),
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
             // Its way as billed: a saved method of another gateway never charges this invoice (#541).
             'payment_gateway_id' => ItemPaymentMethod::live($service),
         ]);
+        // A bulk license's periods that cost more than billed: on this invoice, each a charge of its own (never a period).
+        if ($bulk !== null && $service->license !== null) {
+            foreach (BulkUsage::owed($service->license) as $period) {
+                $item = $invoice->items()->create([
+                    'reference_id' => $service->id,
+                    'reference_type' => Service::class,
+                    'kind' => InvoiceItem::KIND_CHARGE,
+                    'price' => $period->adjustment,
+                    'quantity' => 1,
+                    'description' => BulkUsage::correctionLine($period),
+                    'payment_gateway_id' => ItemPaymentMethod::live($service),
+                ]);
+                $period->update(['adjustment_item_id' => $item->id]);
+            }
+        }
 
         return 1;
     }

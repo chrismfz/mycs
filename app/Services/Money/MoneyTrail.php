@@ -67,6 +67,9 @@ class MoneyTrail
     /** The unused part of a period when staff change a service's billing cycle «now» (SVC-14b). */
     public const CAUSE_CYCLE_CHANGE = 'cycle_change';
 
+    /** A bulk license's period cost less than billed for it in advance (docs/zonecloud-bulk-license.md §6.0, Ε5). */
+    public const CAUSE_USAGE_CORRECTION = 'usage_correction';
+
     public const CAUSE_AFFILIATE_REWARD = 'affiliate_reward';
 
     /** An open invoice came down below what was paid on it and was closed: the part over became credit (2b). */

@@ -95,6 +95,41 @@ final class UsageCharge
     }
 
     /**
+     * The distinct units that were there at any moment of [$start, $end) (docs/zonecloud-bulk-license.md §6.0, the rule
+     * decided on 2026-11-12): an IP on the list for a moment counts for the whole period. Intervals of one key count once.
+     *
+     * @param  iterable<array{0: string, 1: DateTimeInterface, 2: DateTimeInterface|null}>  $intervals  [key, added, removed or null]
+     */
+    public static function distinctUnits(iterable $intervals, DateTimeInterface $start, DateTimeInterface $end): int
+    {
+        if ($end <= $start) {
+            throw new InvalidArgumentException('A period must have at least one day.');
+        }
+        $keys = [];
+        foreach ($intervals as [$key, $added, $removed]) {
+            // There within the period: added before its end, not removed before its start, and there at all.
+            if ($added < $end && ($removed === null || ($removed > $start && $removed > $added))) {
+                $keys[(string) $key] = true;
+            }
+        }
+
+        return count($keys);
+    }
+
+    /**
+     * $units for $days of a cycle of $cycleDays: cost(units) × days / cycleDays, rounded half-up to cents once (a whole
+     * period: cost(units)).
+     */
+    public static function periodCharge(Tiers $tiers, int $units, int $days, int $cycleDays): string
+    {
+        if ($days < 1 || $cycleDays < $days) {
+            throw new InvalidArgumentException('A period has at least one day and no more than its cycle.');
+        }
+
+        return (string) $tiers->cost($units)->multipliedBy($days)->dividedBy($cycleDays, 2, RoundingMode::HalfUp);
+    }
+
+    /**
      * The correction a period gets once it is over: what it cost less what was billed for it in advance (negative: the
      * customer had fewer units than billed).
      */

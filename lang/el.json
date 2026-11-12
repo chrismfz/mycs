@@ -1831,5 +1831,9 @@
     ":ip is already in use by another license. Please contact support.": "Η :ip χρησιμοποιείται ήδη από άλλη άδεια. Επικοινωνήστε με την υποστήριξη.",
     "«:entry» is not an IP address.": "Το «:entry» δεν είναι διεύθυνση IP.",
     "This license is not a bulk license.": "Αυτή η άδεια δεν είναι bulk.",
-    ":ip is also on license :service (service #:id): both are paid for until it ends.": "Η :ip είναι και στην άδεια :service (υπηρεσία #:id): πληρώνονται και οι δύο ώσπου να λήξει εκείνη."
+    ":ip is also on license :service (service #:id): both are paid for until it ends.": "Η :ip είναι και στην άδεια :service (υπηρεσία #:id): πληρώνονται και οι δύο ώσπου να λήξει εκείνη.",
+    "«:step» is not a tier: write «from=price», e.g. «1=1.80, 51=1.50».": "Το «:step» δεν είναι κλίμακα: γράψτε «από=τιμή», π.χ. «1=1.80, 51=1.50».",
+    "The tiers start at 1 and each starts higher than the last.": "Οι κλίμακες ξεκινούν από το 1 και η καθεμία ψηλότερα από την προηγούμενη.",
+    ":count IP|:count IPs": ":count IP|:count IPs",
+    "Bulk license usage :from – :to: :ips, :actual instead of :billed billed in advance": "Χρήση bulk άδειας :from – :to: :ips, :actual αντί για :billed που τιμολογήθηκαν προκαταβολικά"
 }

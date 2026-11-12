@@ -96,9 +96,9 @@ final class IncomeReport
             $add(self::row($note->invoice, CarbonImmutable::instance($note->created_at), $net, $amount, __('Refund or credit note')));
         }
 
-        // The credit a downgrade or a change of cycle gave in the year: taken off, as the invoice it pays counts it again.
+        // The credit a downgrade, a change of cycle or a bulk license's correction gave in the year: taken off, as the invoice it pays counts it again.
         $credits = MoneyEvent::query()->where('kind', MoneyEventKind::CreditIn->value)->where('currency_code', $currency)
-            ->whereIn('cause', [MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::CAUSE_CYCLE_CHANGE])->where('source', '!=', MoneyTrail::SOURCE_IMPORT)
+            ->whereIn('cause', [MoneyTrail::CAUSE_DOWNGRADE, MoneyTrail::CAUSE_CYCLE_CHANGE, MoneyTrail::CAUSE_USAGE_CORRECTION])->where('source', '!=', MoneyTrail::SOURCE_IMPORT)
             ->where('occurred_at', '>=', $from)->where('occurred_at', '<', $until)->whereDoesntHave('reversal')
             ->with(['client.primaryContact', 'client.ownerGrant.user'])->orderBy('occurred_at')->orderBy('id')->get();
         foreach ($credits as $event) {
