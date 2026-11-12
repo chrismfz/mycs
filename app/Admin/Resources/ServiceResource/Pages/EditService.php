@@ -28,6 +28,7 @@ use App\Models\SslOrder;
 use App\Models\Staff;
 use App\Services\Clients\MoveToClient;
 use App\Services\Licensing\BulkLicenseIps;
+use App\Services\Licensing\BulkUsage;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\AppliedOpenInvoices;
@@ -693,7 +694,7 @@ class EditService extends EditRecord
                 Action::make('editLicense')->label('Edit license')->icon('ri-key-2-line')->color('gray')
                     ->visible(fn (Service $record) => $record->license !== null)
                     ->authorize('update')
-                    ->fillForm(fn (Service $record) => $record->license->only(['status', 'valid_ip', 'valid_domain', 'valid_directory']))
+                    ->fillForm(fn (Service $record) => $record->license->only(['status', 'valid_ip', 'valid_domain', 'valid_directory', 'tiers']))
                     ->schema([
                         Select::make('status')->required()->options(array_combine($s = [License::STATUS_ACTIVE, License::STATUS_REISSUED, License::STATUS_SUSPENDED, License::STATUS_EXPIRED], $s)),
                         // Text columns, as WHMCS's (a list can be long: review R4).
@@ -703,10 +704,22 @@ class EditService extends EditRecord
                         Textarea::make('valid_domain')->label('Valid domains')->rows(2)->helperText('Information only (bound by IP).')
                             ->hidden(fn (Service $record) => Licenses::isBulk($record)),
                         Textarea::make('valid_directory')->label('Valid directory')->rows(1)->hidden(fn (Service $record) => Licenses::isBulk($record)),
+                        // A bulk license's own prices (agreed with the customer, Ε6): empty, its product's.
+                        TextInput::make('tiers')->label('Tiers (this service)')->placeholder('1=1.50')->maxLength(255)
+                            ->helperText('Monthly price per IP, graduated: «from=price», e.g. «1=1.50» for all at 1.50. Empty: the product\'s. From the next period closed.')
+                            ->visible(fn (Service $record) => Licenses::isBulk($record)),
                     ])
                     ->action(function (Service $record, array $data) {
                         if (Licenses::isBulk($record)) {
-                            $record->license->update(['status' => $data['status']]); // audited
+                            $tiers = trim((string) ($data['tiers'] ?? ''));
+                            try {
+                                $tiers === '' || BulkUsage::parseTiers($tiers);
+                            } catch (DisplayException $e) {
+                                Notification::make()->danger()->title('Not saved')->body(e($e->getMessage()))->send();
+
+                                return;
+                            }
+                            $record->license->update(['status' => $data['status'], 'tiers' => $tiers === '' ? null : $tiers]); // audited
 
                             Notification::make()->success()->title('License saved')->send();
                             $this->refreshFormData(['license']);

@@ -53,6 +53,7 @@ return [
         'refused' => [
             'no_plan' => 'It has no product or plan: set them on the form first.',
             'not_running' => 'It is :status, and a package change is priced on the days left of a running period (active or suspended). Change its product, plan and price on the form instead.',
+            'bulk' => 'A bulk license is billed monthly at its IPs: its package does not change. End it and order the other product.',
             'pending_change' => 'A change is waiting for payment: record the payment of its invoice, or cancel the change under «Package changes» first.',
             'cancelling' => 'A cancellation is requested: an upgrade of a service about to end would only be refunded. Delete the cancellation request first, or change its product, plan and price on the form.',
             'order_unpaid' => 'Its order is unpaid: an upgrade would reprice the order\'s line. Record the payment of its first invoice first, or change its product, plan and price on the form.',

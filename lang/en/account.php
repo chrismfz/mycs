@@ -94,6 +94,7 @@ return [
         'adjustment' => 'Adjustment',
         'downgrade' => 'Plan downgrade',
         'cycle_change' => 'Billing cycle change',
+        'usage_correction' => 'Usage correction (bulk license)',
         'affiliate_reward' => 'Affiliate reward',
         'invoice_reduced' => 'Invoice reduced after payment',
         'refund_to_credit' => 'Refund to account credit',

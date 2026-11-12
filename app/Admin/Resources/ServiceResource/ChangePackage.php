@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceConfig;
 use App\Models\ServiceUpgrade;
+use App\Services\Licensing\Licenses;
 use App\Services\ServiceUpgrade\PlaceUpgrade;
 use App\Services\ServiceUpgrade\UpgradeQuote;
 use Brick\Math\BigDecimal;
@@ -181,6 +182,11 @@ final class ChangePackage
         }
         if (!in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
             return __('services.change_package.refused.not_running', ['status' => $service->status]);
+        }
+        // A bulk license is billed monthly at its IPs: a change would credit its period twice, or leave it never closed
+        // (review of #823's fixes).
+        if (Licenses::isBulk($service)) {
+            return __('services.change_package.refused.bulk');
         }
         if ($service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->exists()) {
             return __('services.change_package.refused.pending_change');

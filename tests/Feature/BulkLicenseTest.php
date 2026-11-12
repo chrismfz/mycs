@@ -155,7 +155,7 @@ class BulkLicenseTest extends TestCase
             $this->fail('one IP on two clients\' bulk licenses');
         } catch (DisplayException $e) {
             $this->assertStringContainsString('contact support', $e->getMessage());
-            $this->assertStringNotContainsString((string) $other->id, $e->getMessage(), 'nothing of the other client');
+            $this->assertStringNotContainsString('#', $e->getMessage(), 'nothing of the other client (no service number)');
         }
 
         $mine = $this->alsoBulk($this->service->client_id);

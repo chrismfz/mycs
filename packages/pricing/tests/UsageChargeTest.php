@@ -168,6 +168,63 @@ final class UsageChargeTest extends TestCase
         $this->assertSame('201.00', self::month(self::units(124, '2026-12-01'), '2026-12-01', '2027-01-01'));
     }
 
+    // --- Distinct IPs of the period (the rule decided on 2026-11-12, §6.0) ------------------------------------------
+
+    private static function distinct(array $intervals, string $start, string $end): int
+    {
+        return UsageCharge::distinctUnits($intervals, self::at($start), self::at($end));
+    }
+
+    public function test_the_decided_examples_count_every_ip_that_was_on_the_list(): void
+    {
+        $tiers = self::tiers();
+        $ips = fn (int $n, string $from, ?string $to = null, int $offset = 0) => array_map(
+            fn ($i) => ['10.0.0.' . ($i + $offset), self::at($from), $to === null ? null : self::at($to)], range(1, $n));
+
+        // 1: 60 all October. 2: 20 more from the 11th. 3: 40 of 80 leave on the 16th.
+        $this->assertSame(60, self::distinct($ips(60, '2026-10-01'), '2026-10-01', '2026-11-01'));
+        $this->assertSame('135.00', UsageCharge::periodCharge($tiers,
+            self::distinct(array_merge($ips(60, '2026-10-01'), $ips(20, '2026-10-11', null, 60)), '2026-10-01', '2026-11-01'), 31, 31));
+        $this->assertSame('135.00', UsageCharge::periodCharge($tiers,
+            self::distinct(array_merge($ips(40, '2026-11-01'), $ips(40, '2026-11-01', '2026-11-16', 40)), '2026-11-01', '2026-12-01'), 30, 30));
+        // 4 and 5: one more for a day, a server replaced: 61.
+        $this->assertSame('106.50', UsageCharge::periodCharge($tiers,
+            self::distinct(array_merge($ips(60, '2026-10-01'), [['10.9.9.9', self::at('2026-10-20 09:00'), self::at('2026-10-20 17:00')]]), '2026-10-01', '2026-11-01'), 31, 31));
+        $this->assertSame(61, self::distinct(array_merge($ips(59, '2026-10-01'),
+            [['10.9.9.1', self::at('2026-10-01'), self::at('2026-10-15 12:00')], ['10.9.9.2', self::at('2026-10-15 12:05'), null]]), '2026-10-01', '2026-11-01'));
+        // 6: a first period of 12 days of a 31-day cycle.
+        $this->assertSame('6.97', UsageCharge::periodCharge($tiers, self::distinct($ips(10, '2026-10-20'), '2026-10-20', '2026-11-01'), 12, 31));
+    }
+
+    public function test_an_ip_counts_once_however_often_it_came_and_went_and_never_outside_the_period(): void
+    {
+        $this->assertSame(1, self::distinct([
+            ['10.0.0.1', self::at('2026-10-02'), self::at('2026-10-03')],
+            ['10.0.0.1', self::at('2026-10-10'), self::at('2026-10-11')],
+            ['10.0.0.1', self::at('2026-10-20'), null],
+        ], '2026-10-01', '2026-11-01'));
+        $this->assertSame(0, self::distinct([
+            ['10.0.0.2', self::at('2026-09-01'), self::at('2026-10-01')], // left at the period's first instant
+            ['10.0.0.3', self::at('2026-11-01'), null],                   // came at its end
+            ['10.0.0.4', self::at('2026-10-05 10:00'), self::at('2026-10-05 10:00')], // never there
+        ], '2026-10-01', '2026-11-01'));
+        $this->assertSame(1, self::distinct([['10.0.0.5', self::at('2026-09-01'), self::at('2026-10-01 00:00:01')]], '2026-10-01', '2026-11-01'));
+    }
+
+    public function test_a_period_charge_refuses_what_cannot_be_a_period(): void
+    {
+        foreach ([[0, 31], [32, 31]] as [$days, $cycle]) {
+            try {
+                UsageCharge::periodCharge(self::tiers(), 1, $days, $cycle);
+                $this->fail("{$days} of {$cycle}");
+            } catch (InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        $this->expectException(InvalidArgumentException::class);
+        self::distinct([], '2026-10-01', '2026-10-01');
+    }
+
     // --- Days ------------------------------------------------------------------------------------------------------
 
     public function test_a_day_counts_if_the_ip_was_there_at_all_and_never_if_it_never_was(): void

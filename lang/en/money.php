@@ -14,6 +14,7 @@ return [
         'staff_adjustment' => 'staff adjustment',
         'downgrade' => 'downgrade',
         'cycle_change' => 'cycle change',
+        'usage_correction' => 'usage correction',
         'affiliate_reward' => 'affiliate reward',
         'invoice_reduced' => 'invoice reduced',
         'refund_to_credit' => 'refund to credit',
