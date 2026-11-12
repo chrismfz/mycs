@@ -47,6 +47,14 @@ final class License
     public $allowIpConflict = false;
 
     /**
+     * A bulk license's IPs (docs/zonecloud-bulk-license.md): null for a single license. A bulk one never binds and never
+     * skips the IP check; validIp/validDomain are not its bindings.
+     *
+     * @var string[]|null
+     */
+    public $ipList;
+
+    /**
      * Service/product tags exactly as verify.php names them, in its order:
      * registeredname, companyname, email, serviceid, productid, productname,
      * regdate, nextduedate, billingcycle, and customfields only when the
@@ -55,6 +63,12 @@ final class License
      * @var array<string,string>
      */
     public $serviceTags = [];
+
+    /** @return bool */
+    public function isBulk()
+    {
+        return $this->ipList !== null;
+    }
 
     /** @return string[] */
     public function validIps()

@@ -90,6 +90,9 @@ final class Zlic
         }
 
         $pskValid = hash_equals((string) $license->secret, $psk);
+        if ($license->isBulk()) {
+            return $this->bulk($license, $clientIp, $psk, $pskValid, $now);
+        }
         $needsBind = $license->status === License::REISSUED || $license->validIps() === [];
         $boundNow = false;
 
@@ -131,6 +134,49 @@ final class Zlic
         return $this->signed($license, License::ACTIVE, $psk, date('Ymd', $now));
     }
 
+    /**
+     * A bulk license (docs/zonecloud-bulk-license.md §5): the caller's IP must be on its list. Never a bind (an empty list
+     * answers like a foreign IP) and no "Allow IP Conflict". Same order and answers as a single license; the signed one
+     * carries the caller's IP alone as validip, so the local key does not grow with the list, and no validdomain (no
+     * reverse DNS on the hot path).
+     */
+    private function bulk(License $license, $clientIp, $psk, $pskValid, $now)
+    {
+        $this->repository->touch($license, $now);
+        if (!self::listed($clientIp, $license->ipList)) {
+            $this->log($license, $clientIp, self::MSG_IP);
+
+            return $this->remote(['status' => 'Invalid', 'message' => self::MSG_IP]);
+        }
+        if (!$pskValid) {
+            $this->log($license, $clientIp, self::MSG_MD5);
+        }
+
+        $answer = clone $license;
+        $answer->validIp = $clientIp;
+        $answer->validDomain = '';
+        $answer->validDirectory = $this->directory;
+
+        return $this->signed($answer, License::ACTIVE, $psk, date('Ymd', $now));
+    }
+
+    /** The same address however it is written (IPv6 zeros and case); never anything that is not an address. */
+    private static function listed($ip, array $list)
+    {
+        if (filter_var($ip, FILTER_VALIDATE_IP) === false) {
+            return false;
+        }
+        $packed = inet_pton($ip);
+        foreach ($list as $entry) {
+            $entry = trim((string) $entry);
+            if (filter_var($entry, FILTER_VALIDATE_IP) !== false && inet_pton($entry) === $packed) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isInactive(License $license)
     {
         return $license->status === License::SUSPENDED || $license->status === License::EXPIRED;
@@ -141,6 +187,11 @@ final class Zlic
     {
         $this->repository->touch($license, $now);
         $this->log($license, $clientIp, 'License ' . $license->status);
+        // A bulk license has no bindings to report: neither its list nor whatever its own columns hold.
+        if ($license->isBulk()) {
+            $license = clone $license;
+            $license->validIp = $license->validDomain = '';
+        }
 
         return $this->signed($license, $license->status, $psk);
     }

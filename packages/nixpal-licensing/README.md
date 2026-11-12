@@ -6,7 +6,7 @@
 | Κλάση | Τι κάνει |
 |---|---|
 | `LocalKey` | encode/decode του WHMCS-compatible localkey, byte-for-byte ίδιο με το `reference/whmcs/zlic.php` |
-| `Zlic` | ό,τι κάνουν σήμερα μαζί zlic.php + verify.php, in-process: έλεγχος κλειδιού/status/IP/PSK, auto-bind, log, απάντηση JSON |
+| `Zlic` | ό,τι κάνουν σήμερα μαζί zlic.php + verify.php, in-process: έλεγχος κλειδιού/status/IP/PSK, auto-bind, log, απάντηση JSON· και η bulk άδεια (`License::$ipList`, χωρίς bind, `docs/zonecloud-bulk-license.md` του MyCS) |
 | `License`, `LicenseRepository` | το μοντέλο και το interface αποθήκευσης· το plugin δίνει την υλοποίηση πάνω στη DB του Blesta |
 | `ZlicResponse` | HTTP status + body, `json()` με τα ίδια flags με το zlic.php |
 | `WhmcsLicenseRepository` | το repository πάνω στους πίνακες του WHMCS Licensing Addon· `read_only` για shadow-run |

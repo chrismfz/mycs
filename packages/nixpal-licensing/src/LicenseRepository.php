@@ -4,7 +4,11 @@ namespace Nixpal\Licensing;
 
 interface LicenseRepository
 {
-    /** @return License|null */
+    /**
+     * A bulk license comes with its active IPs in License::$ipList (null for a single one).
+     *
+     * @return License|null
+     */
     public function findByKey($licenseKey);
 
     /**

@@ -135,7 +135,7 @@ findByKey(key) ─ άγνωστο ───────────────�
 - **Ίδιο JSON, ίδιο σχήμα, ίδιος αλγόριθμος** md5hash/localkey (`LocalKey`). Τα πεδία είναι τα ίδια με του verify.php.
 - **`validip` = μόνο η IP του καλούντα.** Κανένας client δεν το διαβάζει (§3)· έτσι το localkey δεν μεγαλώνει με τη
   λίστα (124 IPs ≈ 2 KB σε κάθε απάντηση), και ένας server δεν μαθαίνει τις IPs των άλλων.
-- `validdomain` = το reverse DNS του καλούντα, όπως στο bind σήμερα· `validdirectory` όπως σήμερα.
+- **Χωρίς `validdomain`** (καμία αναζήτηση reverse DNS σε κάθε έλεγχο, όπως και στις single που είναι ήδη δεμένες)· `validdirectory` όπως σήμερα. Suspended/Expired: ίδια απάντηση με μια single, χωρίς `validip` (καμία λίστα στην απάντηση).
 - **Contract:** οι υπάρχουσες άδειες δεν αγγίζονται. Τα fixtures, το `ZlicReference` oracle και το `LicensingParityTest`
   τρέχουν χωρίς αλλαγή· το PR του package προσθέτει μόνο tests για το bulk κλαδί. Μια άδεια που **συγχωνεύεται** (§8)
   απαντά πλέον με τα tags της bulk υπηρεσίας (`serviceid`, `productname`, `nextduedate`): είναι αλλαγή της άδειας, όχι
