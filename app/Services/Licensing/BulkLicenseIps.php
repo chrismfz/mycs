@@ -3,9 +3,11 @@
 namespace App\Services\Licensing;
 
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Models\License;
 use App\Models\LicenseIp;
 use App\Models\Product;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -20,23 +22,30 @@ final class BulkLicenseIps
     /**
      * Adds the addresses in $text, one an entry (new lines or commas between them), each with an optional name after a
      * space: «198.51.100.7 web1». All or nothing: a bad entry, or an address another bulk license has, adds none.
-     * Already on this list: left as it is.
+     * Already on this list: left as it is. $max: the customer's limit of IPs on the list (staff: none).
      *
      * @return array{added: list<string>, kept: list<string>, warnings: list<string>}
      */
-    public static function add(License $license, string $text): array
+    public static function add(License $license, string $text, ?int $max = null): array
     {
         $entries = self::parse($text);
         if ($entries === []) {
             throw new DisplayException(__('No IP address given.'));
         }
+        // More than the limit in one go: refused before any lock or lookup (review of #825: a paste of thousands held the
+        // product's lock, which orders and upgrades wait on).
+        if ($max !== null && count($entries) > $max) {
+            throw new DisplayException(__('A license may have :max IP addresses: :count would be on the list. Contact us for more.',
+                ['max' => $max, 'count' => count($entries)]));
+        }
 
-        return DB::transaction(function () use ($license, $entries) {
+        return DB::transaction(function () use ($license, $entries, $max) {
             // One add of the product at a time: the check that no other bulk license of it has the IP holds until we insert
             // (review of #821: two licenses' own locks let both in). The product first, then the license, always.
             Product::query()->whereKey($license->service?->product_id)->lockForUpdate()->first();
             $locked = self::lockBulk($license);
             $active = $locked->ips()->active()->pluck('ip')->all();
+            $singles = self::singles($locked);
             $added = $kept = $warnings = [];
             foreach ($entries as $ip => $label) {
                 if (in_array($ip, $active, true)) {
@@ -56,7 +65,11 @@ final class BulkLicenseIps
                         : __(':ip is already in use by another license. Please contact support.', ['ip' => $ip]));
                 }
                 $added[] = $ip;
-                $warnings = array_merge($warnings, self::singlesOf($locked, $ip));
+                $warnings = array_merge($warnings, self::singlesOf($singles, $ip));
+            }
+            if ($max !== null && count($active) + count($added) > $max) {
+                throw new DisplayException(__('A license may have :max IP addresses: :count would be on the list. Contact us for more.',
+                    ['max' => $max, 'count' => count($active) + count($added)]));
             }
             $now = now();
             foreach ($added as $ip) {
@@ -65,6 +78,67 @@ final class BulkLicenseIps
 
             return ['added' => $added, 'kept' => $kept, 'warnings' => $warnings];
         });
+    }
+
+    /**
+     * What add() would do, written nothing: for the customer's preview.
+     *
+     * @return array{added: list<string>, kept: list<string>, warnings: list<string>}
+     */
+    public static function preview(License $license, string $text, ?int $max = null): array
+    {
+        DB::beginTransaction();
+        try {
+            return self::add($license, $text, $max);
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    /**
+     * Another server in the place of one on the list: the old one off, the new one on with the old one's name, both now or
+     * neither. The list does not grow, so the customer's limit is not asked again (ADV-825-3); the name is kept as it is,
+     * never read again as text (ADV-825-2).
+     */
+    public static function replace(License $license, int $id, string $ip): void
+    {
+        $address = LicenseIp::normalize($ip);
+        if ($address === null) {
+            throw new DisplayException(__('Give one IP address.'));
+        }
+        DB::transaction(function () use ($license, $id, $address) {
+            $label = $license->ips()->active()->whereKey($id)->value('label');
+            // Removed meanwhile (another tab): nothing is added in its place.
+            if (self::remove($license, [$id]) !== 1) {
+                throw new DisplayException(__('This IP address is no longer on the list.'));
+            }
+            if (self::add($license, $address)['added'] === []) {
+                throw new DisplayException(__('This IP address is already on the list.'));
+            }
+            $license->ips()->active()->where('ip', $address)->update(['label' => $label]);
+        });
+    }
+
+    /** A row's name, as the customer calls the server (empty: none). */
+    public static function rename(License $license, int $id, ?string $label): void
+    {
+        $label = trim((string) $label);
+        $row = $license->ips()->active()->whereKey($id)->first();
+        if ($row === null) {
+            throw new DisplayException(__('This IP address is no longer on the list.'));
+        }
+        $row->update(['label' => $label === '' ? null : mb_substr($label, 0, self::LABEL_LENGTH)]); // audited
+    }
+
+    /** How many IPs its customer may keep on it (Ε4): the license's own, else its product's «max_ips», else 200. */
+    public static function maxIps(License $license): int
+    {
+        if ($license->max_ips !== null) {
+            return (int) $license->max_ips;
+        }
+        $setting = ExtensionHelper::settingsToArray($license->service?->product->settings ?? collect())['max_ips'] ?? null;
+
+        return is_numeric($setting) && (int) $setting > 0 ? (int) $setting : 200;
     }
 
     /**
@@ -125,24 +199,35 @@ final class BulkLicenseIps
     }
 
     /**
-     * The same client's single licenses bound to $ip (§8.2): allowed, but both would be paid for. Compared as addresses
-     * (a WHMCS import may spell an IPv6 one otherwise), on the client's licenses that have bindings at all.
+     * The same client's single licenses that have bindings (§8.2), read once per add.
      *
-     * @return list<string>
+     * @return Collection<int, License>
      */
-    private static function singlesOf(License $bulk, string $ip): array
+    private static function singles(License $bulk)
     {
         $clientId = $bulk->service?->client_id;
         if ($clientId === null) {
-            return [];
+            return collect();
         }
 
         return License::query()->where('id', '!=', $bulk->id)->whereNotNull('valid_ip')
             ->whereHas('service', fn ($query) => $query->where('client_id', $clientId))
             ->whereIn('status', [License::STATUS_ACTIVE, License::STATUS_REISSUED, License::STATUS_SUSPENDED])
             ->with('service.product.settings')->get()
-            ->filter(fn (License $single) => !Licenses::isBulk($single->service)
-                && in_array($ip, array_map(fn ($one) => LicenseIp::normalize($one), preg_split('/[\s,]+/', (string) $single->valid_ip) ?: []), true))
+            ->filter(fn (License $single) => !Licenses::isBulk($single->service))->values();
+    }
+
+    /**
+     * Those bound to $ip: allowed, but both would be paid for. Compared as addresses (a WHMCS import may spell an IPv6
+     * one otherwise).
+     *
+     * @param  Collection<int, License>  $singles
+     * @return list<string>
+     */
+    private static function singlesOf($singles, string $ip): array
+    {
+        return $singles
+            ->filter(fn (License $single) => in_array($ip, array_map(fn ($one) => LicenseIp::normalize($one), preg_split('/[\s,]+/', (string) $single->valid_ip) ?: []), true))
             ->map(fn (License $single) => __(':ip is also on license :service (service #:id): both are paid for until it ends.',
                 ['ip' => $ip, 'service' => $single->license_key, 'id' => $single->service_id]))
             ->values()->all();
