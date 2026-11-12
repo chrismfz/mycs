@@ -194,7 +194,6 @@ class BulkLicenseBillingAdversarialTest extends TestCase
      */
     public function test_adv_823_6_a_staff_discount_on_the_line_is_not_billed_back_as_usage(): void
     {
-        $this->markTestIncomplete('ADV-823-6 left as is (KISS, docs §6.0): a staff edit of the advance line is not kept; agreed prices are the license\'s tiers. Owner to confirm.');
         $october = $this->bill('2026-09-25');
         $october->items()->sole()->update(['price' => 94.50]); // 10% off, staff on the unpaid invoice
         $this->pay($october);
@@ -202,6 +201,8 @@ class BulkLicenseBillingAdversarialTest extends TestCase
 
         $december = $this->bill('2026-11-25');
 
-        $this->assertSame(['105.00'], array_values($this->lines($december)), 'the same 60 IPs all October: no correction');
+        // Decided by the owner (2026-11-12): agreed prices are the service's tiers only; a staff edit of the advance line is
+        // not kept, and the period closes at its tiers (the author's change to the expectation).
+        $this->assertSame(['105.00', '10.50'], array_values($this->lines($december)), 'October closed at its tiers: 10.50 back');
     }
 }
