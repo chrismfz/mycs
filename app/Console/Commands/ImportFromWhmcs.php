@@ -63,6 +63,7 @@ use Illuminate\Contracts\Queue\ClearableQueue;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -1218,10 +1219,10 @@ class ImportFromWhmcs extends Command
                     'first_name' => $record['firstname'],
                     'last_name' => $record['lastname'],
                     'email' => $email,
-                    // WHMCS checks an admin's password against `passwordhash` (bcrypt of the password); `password` is a
-                    // bcrypt of its md5, which never logs in here (found on the nixpal copy, 2026-11-12). Anything
-                    // older needs «Forgot password».
-                    'password' => AdminImport::whmcsHash($record),
+                    // WHMCS's `passwordhash`, as `app:import-whmcs-admins` takes it (found on the nixpal copy,
+                    // 2026-11-12: its `password` never logs in here). Anything else: an unusable password, «Forgot
+                    // password» (never a hash Laravel cannot read, which made the login a 500: review of #824).
+                    'password' => AdminImport::loginHash($record) ?? Hash::make(Str::random(40)),
                     'role_id' => $this->staffRoleId((int) $record['roleid']),
                     'active' => (int) $record['disabled'] !== 1,
                     'created_at' => $this->validateDate($record['created_at'] ?? null) ?? now(),

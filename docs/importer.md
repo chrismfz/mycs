@@ -611,7 +611,7 @@ disabled μένουν disabled. Ταίριασμα **με email**, ποτέ με
 WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction, `--dry-run`.
 - **Ποιο hash (2026-11-12, στο αντίγραφο της nixpal):** το WHMCS 8 κρατά δύο ανά admin. Το `passwordhash` είναι bcrypt του
   κωδικού και αυτό ελέγχει το login του· το `password` είναι bcrypt του md5 του κωδικού και εδώ δεν ανοίγει ποτέ. Και ο
-  πλήρης importer και το `app:import-whmcs-admins` παίρνουν το `passwordhash` (`AdminImport::whmcsHash`), το `password`
+  πλήρης importer και το `app:import-whmcs-admins` παίρνουν το `passwordhash` (`AdminImport::loginHash`), το `password`
   μόνο όταν εκείνο λείπει. Το αρχείο JSON θέλει λοιπόν και τη στήλη `passwordhash`. Οι πελάτες (`tblusers`) έχουν ένα
   hash, χωρίς αυτή τη διπλή μορφή (ελέγχεται με ένα πραγματικό login πελάτη πριν το cut-over).
 - **Είσοδος:** αρχείο JSON με γραμμές του `tbladmins` και `rolename`. Τα hashes **δεν** περνούν ποτέ σε καθαρό κείμενο
