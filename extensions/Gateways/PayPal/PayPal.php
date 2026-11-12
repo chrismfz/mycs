@@ -763,10 +763,12 @@ class PayPal extends Gateway
             $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature',
                 substr($fields, 0, -1) . ',"webhook_event":' . $body . '}');
         } catch (PayPalApiException $e) {
-            if ($e->status >= 500) {
-                throw $e; // PayPal unavailable: a 500 here makes PayPal retry the webhook
+            // No answer about the signature (PayPal unavailable, a rate limit, our credentials refused) is not «forged»:
+            // thrown, so the webhook fails, staff hear of it and PayPal sends the event again (REV-807-3, as the order read).
+            if ($e->status >= 500 || in_array($e->status, [401, 403, 429], true)) {
+                throw $e;
             }
-            $verification = null;
+            $verification = null; // PayPal refused what was sent as the event (400, 422): not one it sent
         }
 
         $verified = ($verification->verification_status ?? null) === 'SUCCESS';
