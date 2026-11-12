@@ -14,17 +14,37 @@
             x-on:click="navigator.clipboard.writeText(@js($license->license_key)); copied = true; setTimeout(() => copied = false, 2000)"
             x-text="copied ? @js(__('services.license.copied')) : @js(__('services.license.copy'))"></button>
     </div>
+    @php($bulk = \App\Services\Licensing\Licenses::isBulk($service))
+    @if($bulk)
+    {{-- A bulk license (docs/zonecloud-bulk-license.md): its list, read only until the customer's own screen (PR 5). --}}
+    <p class="text-sm text-base/50">{{ __('services.license.bulk_help') }}</p>
+    <div class="text-base">
+        <span>{{ __('services.license.bulk_ips') }}:</span>
+        @php($ips = $license->ips()->active()->orderBy('ip')->get())
+        @forelse($ips as $row)
+        <div class="flex flex-wrap gap-x-3 ml-4 text-base/50">
+            <code class="text-base/80">{{ $row->ip }}</code>
+            @if(filled($row->label))<span>{{ $row->label }}</span>@endif
+            <span>{{ __('services.license.bulk_since', ['date' => $row->added_at->translatedFormat('d M Y')]) }}</span>
+            <span>{{ __('services.license.last_check') }}: {{ $row->last_ok_at?->diffForHumans() ?? __('services.license.never_checked') }}</span>
+        </div>
+        @empty
+        <span class="text-base/50">{{ __('services.license.bulk_no_ips') }}</span>
+        @endforelse
+    </div>
+    @else
     <div class="flex items-start text-base">
         <span class="mr-2">{{ __('services.license.valid_ips') }}:</span>
         <span class="text-base/50">{{ filled($license->valid_ip) ? str_replace(',', ', ', $license->valid_ip) : __('services.license.not_bound') }}</span>
     </div>
-    @if($domains = $license->domainNames())
+    @endif
+    @if(!$bulk && ($domains = $license->domainNames()))
     <div class="flex items-start text-base">
         <span class="mr-2 shrink-0">{{ __('services.license.valid_domains') }}:</span>
         <span class="text-base/50 break-all">{{ implode(', ', $domains) }}</span>
     </div>
     @endif
-    @if(filled($license->valid_directory) && $license->valid_directory !== \App\Http\Controllers\ZlicController::DIRECTORY)
+    @if(!$bulk && filled($license->valid_directory) && $license->valid_directory !== \App\Http\Controllers\ZlicController::DIRECTORY)
     <div class="flex items-start text-base">
         <span class="mr-2 shrink-0">{{ __('services.license.valid_directory') }}:</span>
         <code class="text-base/50 break-all">{{ $license->valid_directory }}</code>
@@ -47,13 +67,13 @@
         «allow IP conflict», any caller with it and the product's PSK. Not while reissued (review of #493): the server it
         left, or a previous owner's after a move, until the next check binds it.
     --}}
-    @if(filled($license->last_seen_ip) && $license->status !== \App\Models\License::STATUS_REISSUED)
+    @if(!$bulk && filled($license->last_seen_ip) && $license->status !== \App\Models\License::STATUS_REISSUED)
     <div class="flex items-start text-base">
         <span class="mr-2 shrink-0">{{ __('services.license.last_seen_from') }}:</span>
         <span class="text-base/50 break-all">{{ $license->last_seen_ip }}</span>
     </div>
     @endif
-    @if($license->status !== \App\Models\License::STATUS_REISSUED && $license->last_failure_at && (!$license->last_ok_at || $license->last_failure_at->gt($license->last_ok_at)))
+    @if(!$bulk && $license->status !== \App\Models\License::STATUS_REISSUED && $license->last_failure_at && (!$license->last_ok_at || $license->last_failure_at->gt($license->last_ok_at)))
     <div class="flex items-start text-base">
         <span class="mr-2">{{ __('services.license.last_failure') }}:</span>
         {{-- A fixed reason, not the recorded text (staff's); after a reissue the next check binds it, so nothing to show. --}}

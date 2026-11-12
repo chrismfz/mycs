@@ -16,6 +16,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Licensing\BulkLicenseIps;
 use App\Services\Licensing\Licenses;
+use App\Support\CurrentClient;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -40,6 +41,16 @@ class BulkLicenseTest extends TestCase
         $this->service = $this->licensed(bulk: true);
         ExtensionHelper::createServer($this->service);
         $this->service->load('license', 'product.settings');
+    }
+
+    /** Another service of this test's bulk product (a new client's, or $clientId's), its license created. */
+    private function alsoBulk(?int $clientId = null): Service
+    {
+        $service = Service::factory()->create(['client_id' => $clientId ?? User::factory()->create()->client()->id, 'plan_id' => $this->service->plan_id,
+            'product_id' => $this->service->product_id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 0, 'quantity' => 1, 'expires_at' => now()->addMonth()]);
+        ExtensionHelper::createServer($service);
+
+        return $service->load('license', 'product.settings');
     }
 
     /** A service of a new licensing product (bulk or single) of a new client, or of $client's. */
@@ -136,9 +147,8 @@ class BulkLicenseTest extends TestCase
 
     public function test_an_ip_on_another_bulk_license_is_refused_and_one_on_the_same_clients_single_is_a_warning(): void
     {
-        $other = $this->licensed(bulk: true);
-        ExtensionHelper::createServer($other);
-        BulkLicenseIps::add($other->load('license')->license, '198.51.100.7');
+        $other = $this->alsoBulk();
+        BulkLicenseIps::add($other->license, '198.51.100.7');
 
         try {
             BulkLicenseIps::add($this->service->license, '198.51.100.7');
@@ -148,10 +158,9 @@ class BulkLicenseTest extends TestCase
             $this->assertStringNotContainsString((string) $other->id, $e->getMessage(), 'nothing of the other client');
         }
 
-        $mine = $this->licensed(bulk: true, clientId: $this->service->client_id);
-        ExtensionHelper::createServer($mine);
+        $mine = $this->alsoBulk($this->service->client_id);
         try {
-            BulkLicenseIps::add($mine->load('license')->license, '198.51.100.8');
+            BulkLicenseIps::add($mine->license, '198.51.100.8');
             BulkLicenseIps::add($this->service->license, '198.51.100.8');
             $this->fail('one IP on two bulk licenses of one client');
         } catch (DisplayException $e) {
@@ -174,9 +183,28 @@ class BulkLicenseTest extends TestCase
         BulkLicenseIps::add($this->service->license, '198.51.100.7');
         BulkLicenseIps::remove($this->service->license, [LicenseIp::query()->sole()->id]);
 
-        $other = $this->licensed(bulk: true);
-        ExtensionHelper::createServer($other);
-        $this->assertSame(['198.51.100.7'], BulkLicenseIps::add($other->load('license')->license, '198.51.100.7')['added']);
+        $this->assertSame(['198.51.100.7'], BulkLicenseIps::add($this->alsoBulk()->license, '198.51.100.7')['added']);
+    }
+
+    public function test_another_bulk_product_has_its_own_list(): void
+    {
+        // A server with both an Agent and a Node (§4.1): one IP on each product's list, the same client's.
+        BulkLicenseIps::add($this->service->license, '198.51.100.7');
+        $node = $this->licensed(bulk: true, clientId: $this->service->client_id);
+        ExtensionHelper::createServer($node);
+
+        $this->assertSame(['198.51.100.7'], BulkLicenseIps::add($node->load('license')->license, '198.51.100.7')['added']);
+    }
+
+    public function test_staff_free_the_ips_of_a_license_whose_product_stopped_being_bulk(): void
+    {
+        BulkLicenseIps::add($this->service->license, '198.51.100.7');
+        Setting::query()->where('key', 'bulk')->where('settingable_id', $this->service->product_id)->update(['value' => '0']);
+        $this->service->load('product.settings');
+
+        $this->assertSame('IP Address Invalid', $this->check('203.0.113.9')['message'] ?? null, 'still its list, no stranger binds it');
+        $this->assertSame(1, BulkLicenseIps::remove($this->service->license, [LicenseIp::query()->sole()->id]));
+        $this->assertSame('Active', $this->check('203.0.113.9')['status'], 'a single one again: the first check binds it');
     }
 
     public function test_a_single_license_takes_no_list_and_is_answered_as_before(): void
@@ -221,6 +249,19 @@ class BulkLicenseTest extends TestCase
         $this->assertSame('Active', $this->check('198.51.100.7')['status']);
         ExtensionHelper::terminateServer($this->service);
         $this->assertSame('Expired', $this->check('198.51.100.7')['status']);
+    }
+
+    public function test_the_customer_sees_the_list_not_a_binding(): void
+    {
+        $user = $this->service->client->ownerGrant->user;
+        $page = fn () => $this->actingAs($user)->withSession($this->loginUser($user, [CurrentClient::SESSION_KEY => $this->service->client_id]))
+            ->get(route('services.show', $this->service));
+
+        $page()->assertOk()->assertSee(__('services.license.bulk_no_ips'))->assertDontSee(__('services.license.not_bound'));
+
+        BulkLicenseIps::add($this->service->license, '198.51.100.7 web1');
+        $page()->assertSee('198.51.100.7')->assertSee('web1')->assertSee(__('services.license.never_checked'))
+            ->assertDontSee(__('services.license.reissue_help'));
     }
 
     public function test_staff_add_and_remove_ips_from_the_service_page(): void

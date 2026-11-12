@@ -5,6 +5,7 @@ namespace App\Services\Licensing;
 use App\Exceptions\DisplayException;
 use App\Models\License;
 use App\Models\LicenseIp;
+use App\Models\Product;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -31,6 +32,9 @@ final class BulkLicenseIps
         }
 
         return DB::transaction(function () use ($license, $entries) {
+            // One add of the product at a time: the check that no other bulk license of it has the IP holds until we insert
+            // (review of #821: two licenses' own locks let both in). The product first, then the license, always.
+            Product::query()->whereKey($license->service?->product_id)->lockForUpdate()->first();
             $locked = self::lockBulk($license);
             $active = $locked->ips()->active()->pluck('ip')->all();
             $added = $kept = $warnings = [];
@@ -40,8 +44,11 @@ final class BulkLicenseIps
 
                     continue;
                 }
-                // On another bulk license (anyone's): it would be billed twice, or answer for someone else's key.
+                // On another live bulk license of this product (anyone's): it would be billed twice, or answer for someone
+                // else's key. An ended one's IPs are free; another product (a Node next to an Agent) has its own list.
                 $other = LicenseIp::query()->active()->where('ip', $ip)->where('license_id', '!=', $locked->id)
+                    ->whereHas('license', fn ($query) => $query->where('status', '!=', License::STATUS_EXPIRED)
+                        ->whereHas('service', fn ($service) => $service->where('product_id', $locked->service?->product_id)))
                     ->with('license.service')->first();
                 if ($other !== null) {
                     throw new DisplayException($other->license?->service?->client_id === $locked->service?->client_id
@@ -68,8 +75,9 @@ final class BulkLicenseIps
      */
     public static function remove(License $license, array $ids): int
     {
+        // Also from a license whose product is no longer bulk: staff free what it held.
         return DB::transaction(function () use ($license, $ids) {
-            $locked = self::lockBulk($license);
+            $locked = License::query()->whereKey($license->id)->lockForUpdate()->firstOrFail();
             $removed = 0;
             foreach ($locked->ips()->active()->whereIn('id', $ids)->get() as $row) {
                 $row->update(['removed_at' => now()]); // audited, one by one
@@ -117,7 +125,8 @@ final class BulkLicenseIps
     }
 
     /**
-     * The same client's single licenses bound to $ip (§8.2): allowed, but both would be paid for.
+     * The same client's single licenses bound to $ip (§8.2): allowed, but both would be paid for. Compared as addresses
+     * (a WHMCS import may spell an IPv6 one otherwise), on the client's licenses that have bindings at all.
      *
      * @return list<string>
      */
@@ -128,11 +137,12 @@ final class BulkLicenseIps
             return [];
         }
 
-        return License::query()->where('id', '!=', $bulk->id)
+        return License::query()->where('id', '!=', $bulk->id)->whereNotNull('valid_ip')
             ->whereHas('service', fn ($query) => $query->where('client_id', $clientId))
             ->whereIn('status', [License::STATUS_ACTIVE, License::STATUS_REISSUED, License::STATUS_SUSPENDED])
-            ->where('valid_ip', 'like', '%' . str_replace(['%', '_'], ['\%', '\_'], $ip) . '%')->get()
-            ->filter(fn (License $single) => in_array($ip, array_map(fn ($one) => LicenseIp::normalize($one), preg_split('/[\s,]+/', (string) $single->valid_ip) ?: []), true))
+            ->with('service.product.settings')->get()
+            ->filter(fn (License $single) => !Licenses::isBulk($single->service)
+                && in_array($ip, array_map(fn ($one) => LicenseIp::normalize($one), preg_split('/[\s,]+/', (string) $single->valid_ip) ?: []), true))
             ->map(fn (License $single) => __(':ip is also on license :service (service #:id): both are paid for until it ends.',
                 ['ip' => $ip, 'service' => $single->license_key, 'id' => $single->service_id]))
             ->values()->all();
