@@ -173,7 +173,7 @@ class CronJob extends Command
             $this->error("A WHMCS import started at {$import} has not ended: not started.");
             if (!$this->option('dunning-only')) {
                 NotificationHelper::sendSystemEmailNotification('Cron Job: the daily run did not start', e(sprintf(
-                    'The daily run found a WHMCS import that started at %s and has not ended (still running, or it failed half way) and did nothing. Once an import ends, the cron runs again; after one that failed, run the import again.',
+                    'The daily run found a WHMCS import that started at %s and has not ended (still running, or it failed half way) and did nothing. Once an import ends, the cron runs again; the import did not finish and must be run again BEFORE the site is opened to customers: if the site was opened since, do not run it again, ask first.',
                     $import)));
             }
 

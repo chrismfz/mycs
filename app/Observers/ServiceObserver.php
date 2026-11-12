@@ -10,6 +10,7 @@ use App\Models\IpAddress;
 use App\Models\ModuleAction;
 use App\Models\Order;
 use App\Models\Service;
+use App\Models\ServiceCancellation;
 use App\Services\Billing\RenewalBilling;
 use App\Services\Payment\ItemPaymentMethod;
 use App\Services\Service\AddonCascade;
@@ -267,6 +268,18 @@ class ServiceObserver
             if ($running && ($was === Service::STATUS_PENDING || in_array($was, Service::ENDED_STATUSES, true))) {
                 OptionTasks::changed($service, [], OptionTasks::on($service));
                 ModuleAction::closeByHandTerminations($service); // «destroy the machine» is no longer to be done (S8-PROVISIONING-2)
+                // One that ended and runs again has no cancellation request any more: the old one was carried out (or
+                // staff ended it), and left on it the cron never bills it and ends it again (sweep 11, S11-CRON-BILLING-1).
+                // The request's own delete, audited as any; one on a service that never ended is not looked at. An
+                // addon's request made with its parent's stays while the parent's stands: it still leaves with it, and
+                // is not billed past its parent's end (review of #811, REV-811-4).
+                if (in_array($was, Service::ENDED_STATUSES, true)) {
+                    $request = $service->cancellation()->first();
+                    if ($request !== null && !($request->with_parent && ServiceCancellation::query()->where('service_id', $service->parent_service_id)->exists())) {
+                        $request->delete();
+                    }
+                    $service->unsetRelation('cancellation');
+                }
             } elseif (!in_array($was, Service::ENDED_STATUSES, true) && $was !== Service::STATUS_PENDING && $service->isEnded()) {
                 OptionTasks::changed($service, OptionTasks::on($service), []);
             }
