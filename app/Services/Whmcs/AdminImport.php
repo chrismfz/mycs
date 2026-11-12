@@ -40,6 +40,24 @@ final class AdminImport
         return preg_match('/^\$2y\$(0[4-9]|[12]\d|3[01])\$[.\/A-Za-z0-9]{53}\z/', $hash) === 1 ? $hash : null;
     }
 
+    /**
+     * WHMCS's username, which a member signs in with here as with the email (owner 2026-11-12), or null: empty, with an
+     *
+     * @ (it would read as an email), or already another member's.
+     *
+     * @param  array<string, mixed>  $admin  a tbladmins row
+     */
+    public static function username(array $admin): ?string
+    {
+        $username = trim((string) ($admin['username'] ?? ''));
+        if ($username === '' || mb_strlen($username) > 100 || preg_match('/[@\s]/', $username) === 1
+            || Staff::query()->where('username', $username)->exists()) {
+            return null;
+        }
+
+        return $username;
+    }
+
     /** @var array{added: int, existing: int, without_password: int, roles: int} */
     private array $counts = ['added' => 0, 'existing' => 0, 'without_password' => 0, 'roles' => 0];
 
@@ -97,6 +115,7 @@ final class AdminImport
             'first_name' => (string) ($admin['firstname'] ?? ''),
             'last_name' => (string) ($admin['lastname'] ?? ''),
             'email' => $email,
+            'username' => self::username($admin),
             // GROUP_CONCAT gives NULL for a role with none: the key there is a role without permissions, not an old file.
             'role_id' => $this->role((int) ($admin['roleid'] ?? 0), (string) ($admin['rolename'] ?? ''),
                 array_key_exists('permids', $admin) ? ($admin['permids'] ?? []) : null),

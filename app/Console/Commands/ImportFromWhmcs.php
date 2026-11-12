@@ -1231,6 +1231,10 @@ class ImportFromWhmcs extends Command
             }
             if ($data !== []) {
                 DB::table('staff')->insert($data);
+                // The usernames after the rows: AdminImport::username asks the table which are taken.
+                foreach ($records as $record) {
+                    DB::table('staff')->where('id', $record['id'])->update(['username' => AdminImport::username($record)]);
+                }
             }
         });
     }

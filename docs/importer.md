@@ -614,6 +614,9 @@ WHMCS)· οτιδήποτε άλλο → «Forgot password». Ένα transaction
   πλήρης importer και το `app:import-whmcs-admins` παίρνουν το `passwordhash` (`AdminImport::loginHash`), το `password`
   μόνο όταν εκείνο λείπει. Το αρχείο JSON θέλει λοιπόν και τη στήλη `passwordhash`. Οι πελάτες (`tblusers`) έχουν ένα
   hash, χωρίς αυτή τη διπλή μορφή (ελέγχεται με ένα πραγματικό login πελάτη πριν το cut-over).
+- **Username (ιδιοκτήτης 2026-11-12):** το staff μπαίνει με το email **ή** με το username, όπως ήταν αποθηκευμένα τα
+  logins των admins του WHMCS. Και οι δύο importers φέρνουν το `tbladmins.username` (`AdminImport::username`), εκτός αν
+  είναι κενό, έχει `@` ή κενό διάστημα, ή το έχει ήδη άλλο μέλος εδώ. Στη φόρμα του staff είναι προαιρετικό, μοναδικό, χωρίς `@`.
 - **Είσοδος:** αρχείο JSON με γραμμές του `tbladmins` και `rolename`. Τα hashes **δεν** περνούν ποτέ σε καθαρό κείμενο
   από κανάλι που καταγράφεται: στον server του WHMCS κρυπτογραφούνται (`openssl cms`, AES-256) με δημόσιο κλειδί που
   φτιάχτηκε στον host του MyCS, ο οποίος μόνο τα αποκρυπτογραφεί σε αρχείο root-only, το εισάγει και το σβήνει μαζί με
