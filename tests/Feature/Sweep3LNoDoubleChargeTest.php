@@ -147,6 +147,8 @@ class Sweep3LNoDoubleChargeTest extends TestCase
         $this->assertSame(InvoiceTransactionStatus::Processing, $invoice->transactions()->sole()->status, 'precondition: the debit is on its way');
 
         Carbon::setTestNow('2026-11-14 10:00:00');
+        // Stripe is asked what the intent is now before a processing payment is failed (S10-PAYMENTS-1).
+        Http::fake(['api.stripe.com/v1/payment_intents/pi_sepa' => Http::response(['id' => 'pi_sepa', 'object' => 'payment_intent', 'status' => 'requires_payment_method'])]);
         $this->stripeWebhook('payment_intent.payment_failed', $intent + ['status' => 'requires_payment_method'])->assertOk();
         $this->assertSame(InvoiceTransactionStatus::Failed, $invoice->transactions()->sole()->status, 'precondition: the debit bounced, no money came');
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->fresh()->status);
