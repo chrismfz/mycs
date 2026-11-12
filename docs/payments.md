@@ -962,6 +962,14 @@ context του συγγραφέα), οκτώ ευρήματα, όλα επιβε
     ίδιο κώδικα όπως το Stripe (`SavedMethodCharge::tellCredentialsRefused`): αν η ειδοποίηση αποτύχει, καταγράφεται και η
     χρέωση μένει «δεν στάλθηκε» (REV-791-3). Διακοπή του PayPal (5xx, καμία σύνδεση, 429) ή άλλο σφάλμα του token: καμία
     ειδοποίηση, μόνο η γραμμή στο digest του cron (`Sweep8OpenPayPalCredentialsTest`).
+  - **Το PayPal αρνείται το order για δικό μας λόγο (sweep 11, S11-PAYMENTS-1):** το token δόθηκε και το
+    `POST /v2/checkout/orders` απαντά **403 με issue `PERMISSION_DENIED`** (το REST app δεν έχει το δικαίωμα, π.χ. το
+    vault) ή **422 με issue `PAYEE_ACCOUNT_RESTRICTED` / `PAYEE_ACCOUNT_LOCKED_OR_CLOSED`** (ο δικός μας λογαριασμός
+    PayPal έχει περιορισμό). Το order απορρίφθηκε, άρα δεν πάρθηκε τίποτα, και δεν είναι απόρριψη του πελάτη: `not_sent`
+    όπως πάνω, και το staff παίρνει mail «PayPal: our account refuses charges» (δικό του κλειδί, μία φορά την ώρα, με το
+    `tellCredentialsRefused`). **Μόνο αυτά τα τρία** (`PayPal::OUR_REFUSALS`, status και issue μαζί): κάθε άλλη άρνηση
+    του order μένει αποτυχημένη χρέωση του πελάτη όπως πριν (`INSTRUMENT_DECLINED`, `PAYER_ACCOUNT_RESTRICTED`,
+    `PAYER_CANNOT_PAY`, 403 με άλλο ή κανένα issue), και 5xx ή timeout στο order μένει `unknown` (`PayPalOrderRefusedTest`).
   - **Η επανάληψη μόνο επιβεβαιώνει πληρωμή (S8-PAYMENTS-1, REV-791-1/-2):** όταν μια χρέωση `unknown` ξαναστέλνεται με
     το κλειδί της, **μόνο η επιτυχία την κλείνει** (`succeeded`). Ό,τι άλλο φέρει η επανάληψη (δεν στάλθηκε, άρνηση πριν
     από τη χρέωση όπως customer 404 ή μέθοδος που αφαιρέθηκε, 409 `idempotency_key_in_use`, απόρριψη, ξανά timeout) δεν
