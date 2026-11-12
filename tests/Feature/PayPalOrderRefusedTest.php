@@ -112,6 +112,8 @@ class PayPalOrderRefusedTest extends TestCase
             'the payer\'s account locked or closed' => [422, $refused('PAYER_ACCOUNT_LOCKED_OR_CLOSED')],
             'the payer cannot pay' => [422, $refused('PAYER_CANNOT_PAY')],
             'a 422 with no issue' => [422, ['name' => 'UNPROCESSABLE_ENTITY']],
+            // Maybe one vault token our app may not use: the customer is told and saves the method again (review of #811).
+            '403 permission denied' => [403, ['name' => 'NOT_AUTHORIZED', 'details' => [['issue' => 'PERMISSION_DENIED']]]],
             'a 403 with another issue' => [403, ['name' => 'NOT_AUTHORIZED', 'details' => [['issue' => 'CONSENT_NEEDED']]]],
             'a 403 with no issue' => [403, ['name' => 'NOT_AUTHORIZED']],
             'our issue under another status' => [400, ['name' => 'INVALID_REQUEST', 'details' => [['issue' => 'PAYEE_ACCOUNT_RESTRICTED']]]],
@@ -170,7 +172,7 @@ class PayPalOrderRefusedTest extends TestCase
 
     public function test_a_staff_notice_that_fails_does_not_change_the_outcome(): void
     {
-        $this->order = [403, ['name' => 'NOT_AUTHORIZED', 'details' => [['issue' => 'PERMISSION_DENIED']]]];
+        $this->order = [422, ['name' => 'UNPROCESSABLE_ENTITY', 'details' => [['issue' => 'PAYEE_ACCOUNT_LOCKED_OR_CLOSED']]]];
         MailFacade::shouldReceive('to')->andThrow(new RuntimeException('queue connection refused'));
         $invoice = $this->invoice();
 

@@ -64,7 +64,9 @@ class Sweep11PaymentsTest extends TestCase
     public static function ourRefusals(): array
     {
         return [
-            '403 permission denied' => [403, ['name' => 'NOT_AUTHORIZED', 'details' => [['issue' => 'PERMISSION_DENIED']]]],
+            // Review of #811: the «403 permission denied» data set was removed. PayPal may answer it for ONE vault token our
+            // REST app may not use (a token another app made), so it stays the customer's failed charge: they are told and
+            // save the method again (PayPalOrderRefusedTest).
             '422 payee account restricted' => [422, ['name' => 'UNPROCESSABLE_ENTITY', 'details' => [['issue' => 'PAYEE_ACCOUNT_RESTRICTED']]]],
             '422 payee account locked or closed' => [422, ['name' => 'UNPROCESSABLE_ENTITY', 'details' => [['issue' => 'PAYEE_ACCOUNT_LOCKED_OR_CLOSED']]]],
         ];

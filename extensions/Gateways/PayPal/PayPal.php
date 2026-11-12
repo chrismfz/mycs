@@ -175,13 +175,14 @@ class PayPal extends Gateway implements ListsTransactions
     }
 
     /**
-     * The order's refusals that are about US, by HTTP status and PayPal's issue (Orders v2): the REST app's permissions
-     * (403 NOT_AUTHORIZED, PERMISSION_DENIED) and our own, the payee's, account (422). Nothing about the payer is here
-     * (PAYER_ACCOUNT_RESTRICTED, INSTRUMENT_DECLINED, PAYER_CANNOT_PAY…): those are the customer's decline.
+     * The order's refusals that are about OUR account, the payee's, by HTTP status and PayPal's issue (Orders v2). Nothing
+     * about the payer is here (PAYER_ACCOUNT_RESTRICTED, INSTRUMENT_DECLINED, PAYER_CANNOT_PAY…): those are the customer's
+     * decline. Nor 403 PERMISSION_DENIED: it may be about ONE vault token our REST app may not use (one made by another
+     * app), and that customer must be told so they save the method again (review of #811).
      *
      * @var list<array{0: int, 1: string}>
      */
-    private const OUR_REFUSALS = [[403, 'PERMISSION_DENIED'], [422, 'PAYEE_ACCOUNT_RESTRICTED'], [422, 'PAYEE_ACCOUNT_LOCKED_OR_CLOSED']];
+    private const OUR_REFUSALS = [[422, 'PAYEE_ACCOUNT_RESTRICTED'], [422, 'PAYEE_ACCOUNT_LOCKED_OR_CLOSED']];
 
     public function charge(Invoice $invoice, $total, BillingAgreement $billingAgreement)
     {
@@ -231,14 +232,13 @@ class PayPal extends Gateway implements ListsTransactions
                 throw new ChargeNotSent(__('Could not process payment. Please try again or use a different payment method.'), 0, $e);
             }
 
-            // PayPal refused the order because of OUR side (the REST app's permissions, our own account limited): no order
-            // was made, so nothing was charged, and it is not the customer's decline. Not sent; staff are told, once an hour
-            // (sweep 11, S11-PAYMENTS-1). Only these issues: every other refusal stays the decline it was.
+            // PayPal refused the order because OUR account is limited: no order was made, so nothing was charged, and it is
+            // not the customer's decline. Not sent; staff are told, once an hour (sweep 11, S11-PAYMENTS-1). Only these
+            // issues: every other refusal stays the decline it was.
             if (in_array([$e->status, $e->issue], self::OUR_REFUSALS, true)) {
                 SavedMethodCharge::tellCredentialsRefused('paypal-charge-account-refused', 'PayPal: our account refuses charges',
-                    'PayPal refused the order of a saved method\'s charge for a reason that is ours, not the customer\'s (HTTP ' . $e->status . ' ' . $e->issue . ', invoice #' . $invoice->id . '): '
-                    . ($e->status === 403 ? 'the REST app of the PayPal gateway may not do this (its permissions, the vault feature).' : 'our PayPal account is limited, locked or closed: see its Resolution Centre.')
-                    . ' This charge was not sent now and no customer was told it failed; saved PayPal methods are not charged until PayPal accepts orders again, and the cron tries again as set.', $invoice);
+                    'PayPal refused the order of a saved method\'s charge for a reason that is ours, not the customer\'s (HTTP ' . $e->status . ' ' . $e->issue . ', invoice #' . $invoice->id . '): our PayPal account is limited, locked or closed, see its Resolution Centre.'
+                    . ' No customer was told a payment failed; saved PayPal methods cannot be charged until PayPal accepts our orders again.', $invoice);
 
                 throw new ChargeNotSent(__('Could not process payment. Please try again or use a different payment method.'), 0, $e);
             }

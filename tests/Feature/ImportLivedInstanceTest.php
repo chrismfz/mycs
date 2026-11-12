@@ -63,10 +63,13 @@ class ImportLivedInstanceTest extends TestCase
         return [$code, $said];
     }
 
-    /** A row of this instance's own: gone once the import emptied the database. */
+    /** A row of this instance's own (a login and its client): gone once the import emptied the database. */
     private function mark(): int
     {
-        return User::factory()->create()->id;
+        $user = User::factory()->create();
+        $this->assertNotNull($user->client());
+
+        return $user->id;
     }
 
     private function emptied(int $mark): bool
@@ -122,6 +125,20 @@ class ImportLivedInstanceTest extends TestCase
             $this->assertStringContainsString('--replace-live-data', $said);
             $this->assertStringContainsString('Nothing done', $said);
         }
+    }
+
+    /** Review of #811, REV-811-2: installed days before its cut-over, its scheduler ran the daily cron over nothing. */
+    public function test_an_instance_with_no_client_is_not_lived_whatever_ran_over_it(): void
+    {
+        $this->live();
+        $this->assertSame(0, DB::table('clients')->count());
+
+        [$code, $said] = $this->import(['--dry-run' => true]);
+        $this->assertSame(0, $code);
+        $this->assertStringNotContainsString('--replace-live-data', $said);
+
+        $this->import();
+        $this->assertNotNull(ImportFromWhmcs::running(), 'its first import started');
     }
 
     public function test_with_the_option_a_lived_instance_is_replaced(): void

@@ -132,4 +132,32 @@ class BroughtBackCancellationTest extends TestCase
         $this->cronOn('2026-12-20');
         $this->assertSame(Service::STATUS_ACTIVE, $active->fresh()->status);
     }
+
+    /**
+     * Review of #811, REV-811-4: an addon's request made with its parent's stays while the parent's stands; once the
+     * parent's is gone (the parent was brought back), the addon brought back loses its own as any service.
+     */
+    public function test_an_addons_request_made_with_its_parents_goes_only_once_the_parents_is_gone(): void
+    {
+        Carbon::setTestNow('2026-11-20 10:00:00');
+        $parent = $this->service('2026-10-01', Service::STATUS_CANCELLED);
+        $addon = $this->service('2026-10-01', Service::STATUS_CANCELLED);
+        $addon->forceFill(['parent_service_id' => $parent->id, 'client_id' => $parent->client_id])->saveQuietly();
+        $this->request($parent);
+        $with = (new ServiceCancellation(['service_id' => $addon->id, 'type' => 'end_of_period', 'reason' => 'Leaving']))->forceFill(['with_parent' => true]);
+        $with->save();
+
+        // The addon alone, its parent's request standing: kept.
+        $addon->fresh()->applyStaffChanges(['status' => Service::STATUS_ACTIVE, 'expires_at' => '2026-12-20 00:00:00']);
+        $this->assertNotNull($with->fresh());
+
+        // The parent is brought back (its request goes), then the addon again.
+        $addon->fresh()->applyStaffChanges(['status' => Service::STATUS_CANCELLED]);
+        $parent->fresh()->applyStaffChanges(['status' => Service::STATUS_ACTIVE, 'expires_at' => '2026-12-20 00:00:00']);
+        $this->assertFalse($parent->cancellation()->exists());
+        if ($with->fresh() !== null) {
+            $addon->fresh()->applyStaffChanges(['status' => Service::STATUS_ACTIVE, 'expires_at' => '2026-12-20 00:00:00']);
+        }
+        $this->assertNull($with->fresh(), 'nothing of the first life is left on the addon');
+    }
 }

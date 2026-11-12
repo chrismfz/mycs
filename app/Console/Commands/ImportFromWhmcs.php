@@ -300,7 +300,7 @@ class ImportFromWhmcs extends Command
         }
         if ($lived !== null && !$this->option('replace-live-data')) {
             $this->error("{$lived}: what it billed, charged and was paid since would be lost with everything staff and customers did here."
-                . ' Nothing done. Only if that is meant (a test copy that ran its cron), run it again with --replace-live-data as well.');
+                . ' Nothing done. Only if that is meant (a test copy that ran its cron, or the final import over an instance that ran it with test data), run it again with --replace-live-data as well.');
 
             return self::FAILURE;
         }
@@ -521,12 +521,15 @@ class ImportFromWhmcs extends Command
     /**
      * This instance has lived since its last import (sweep 11 S11-IMPORT-2): a daily run of its own left a trace, the same
      * ones CronJob::ranBefore reads. The import's reset removes them and the cron does nothing while an import is half
-     * way (RUNNING), so a new instance, a rehearsal that never ran its cron and an import that failed have none. What was
-     * found, for the refusal; null when nothing was.
+     * way (RUNNING), so a new instance, a rehearsal that never ran its cron and an import that failed have none. An
+     * instance with no client at all has nothing to lose, whatever ran over it (installed days before its cut-over, its
+     * scheduler on: review of #811, REV-811-2). The guard starts with the first daily run: the hours between opening the
+     * site and that run are the runbook's (REV-811-1). What was found, for the refusal; null when nothing was.
      */
     private function lived(): ?string
     {
-        if (self::running() !== null || !Schema::hasTable('settings') || !Schema::hasTable('cron_stats')) {
+        if (self::running() !== null || !Schema::hasTable('settings') || !Schema::hasTable('cron_stats')
+            || !Schema::hasTable('clients') || !DB::table('clients')->exists()) {
             return null;
         }
         $last = DB::table('settings')->where('settingable_type', CronStat::class)
