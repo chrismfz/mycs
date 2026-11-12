@@ -111,6 +111,8 @@ class ImportLivedInstanceTest extends TestCase
 
     public function test_a_lived_instance_is_refused_with_what_was_found_and_the_way_through(): void
     {
+        // The trace is written before the import and its time read after it: one clock, or a second boundary fails it.
+        $this->freezeTime();
         foreach ([CronJob::STARTED, CronJob::DUNNING_READY, 'last_cron_run'] as $trace) {
             DB::table('settings')->where('settingable_type', CronStat::class)->delete();
             DB::table('cron_stats')->delete();
