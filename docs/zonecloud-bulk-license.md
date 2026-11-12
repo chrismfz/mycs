@@ -243,8 +243,10 @@ actual(περίοδος) = round_half_up( Σ_{d ∈ περίοδος} cost(c_d) 
   ανανέωση της τρέχουσας περιόδου (ήδη τιμολογημένη με τις παλιές) διορθώνεται με τις κλίμακες που ίσχυαν στην αρχή της.
 - Group discounts (`client_groups`) και ΦΠΑ: όπως σε κάθε γραμμή. Κουπόνια: όχι σε bulk στην αρχή (Ε15).
 
-Ο υπολογισμός (κλίμακες, IP-ημέρες από διαστήματα, διόρθωση) είναι καθαρή λογική: `packages/pricing` (νέα κλάση
-`TieredUsage`), με δικά του tests, χωρίς Laravel.
+Ο υπολογισμός (κλίμακες, IP-ημέρες από διαστήματα, διόρθωση) είναι καθαρή λογική: `packages/pricing` (`Tiers` και
+`UsageCharge`, PR 3), με δικά του tests, χωρίς Laravel. Με volume κλίμακες το κόστος δεν ανεβαίνει πάντα με τις IPs
+(ο γκρεμός του παραδ. 7), οπότε εκεί και το *peak* μπορεί να βγει φθηνότερο από τις IP-ημέρες: ακόμα ένας λόγος για
+graduated.
 
 ### 6.6 Locks
 - Προσθήκη/αφαίρεση IP: υπό lock της γραμμής της άδειας (ίδιο με το `bind` σήμερα), ώστε δύο αιτήματα να μη βάλουν την
@@ -352,7 +354,7 @@ actual(περίοδος) = round_half_up( Σ_{d ∈ περίοδος} cost(c_d) 
 |---|---|---|---|
 | 1 | **package `nixpal-licensing`:** `License::$ipList`, το bulk κλαδί του `Zlic` (χωρίς auto-bind, `validip` = καλών). Τα υπάρχοντα tests/fixtures/oracle χωρίς αλλαγή + νέα για bulk | όχι | code + adversarial (contract, ασφάλεια) |
 | 2 | **Σχήμα και άδεια:** `license_ips`, `licenses.mode`/`bulk_license_id`/`merged_at`, License mode στο extension, `MycsLicenseRepository` (λίστα, ψευδώνυμα, touch ανά IP), lifecycle, staff add/remove με audit | όχι | code + adversarial (lifecycle) |
-| 3 | **package `pricing`: `TieredUsage`**: κλίμακες graduated/volume, IP-ημέρες από διαστήματα, peak, διόρθωση· decimal, fuzz | **ναι** | code + adversarial |
+| 3 | **package `pricing`: `Tiers`, `UsageCharge`**: κλίμακες graduated/volume, IP-ημέρες από διαστήματα, peak, διόρθωση· decimal, fuzz | **ναι** | code + adversarial |
 | 4 | **Χρέωση:** `price_tiers`/`service_price_tiers`, bulk στο `RenewalPrice`, kind `usage`, `license_usage_periods`, κλείσιμο και διόρθωση στο cron, αρνητική → πίστωση, ακύρωση, παραγγελία με αρχικές IPs· MariaDB concurrency | **ναι** | code + adversarial + `Concurrency` σε MariaDB |
 | 5 | **Client area:** πίνακας IPs, μαζική προσθήκη, προεπισκόπηση κόστους, «αυτόν τον μήνα», ιστορικό· el/en | όχι (εμφανίζει ποσά από το 3/4) | code |
 | 6 | **Staff:** κλίμακες στο προϊόν και στην υπηρεσία, προεπισκόπηση διόρθωσης, κονσόλα (και οι σιωπηλές IPs) | ναι (τιμές) | code + adversarial |
