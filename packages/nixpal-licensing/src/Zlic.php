@@ -112,6 +112,10 @@ final class Zlic
                 if ($this->isInactive($license)) {
                     return $this->inactive($license, $clientIp, $psk, $now);
                 }
+                // Turned bulk meanwhile (staff, a merge): its list decides, never the single rules (ADV-819-1).
+                if ($license->isBulk()) {
+                    return $this->bulk($license, $clientIp, $psk, $pskValid, $now);
+                }
                 $needsBind = false;
             }
         }
