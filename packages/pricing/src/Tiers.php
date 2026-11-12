@@ -34,15 +34,18 @@ final class Tiers
         $parsed = [];
         $last = 0;
         foreach (array_values($steps) as $i => $step) {
-            $from = filter_var($step['from'] ?? null, FILTER_VALIDATE_INT);
-            if ($from === false || ($i === 0 && $from !== 1) || $from <= $last) {
+            // Whole numbers and amounts in cents only, as int or string: no booleans, floats or anything brick would
+            // read some other way (ADV-820-3, -4).
+            $from = $step['from'] ?? null;
+            $from = is_int($from) || (is_string($from) && preg_match('/^[1-9]\d*$/', $from) === 1) ? (int) $from : null;
+            if ($from === null || ($i === 0 && $from !== 1) || $from <= $last) {
                 throw new InvalidArgumentException('Tier steps start at 1 and each starts higher than the last.');
             }
-            $price = BigDecimal::of((string) ($step['price'] ?? ''));
-            if ($price->isNegative() || $price->getScale() > 2) {
+            $price = $step['price'] ?? null;
+            if (!(is_int($price) && $price >= 0) && !(is_string($price) && preg_match('/^\d+(\.\d{1,2})?$/', $price) === 1)) {
                 throw new InvalidArgumentException('A tier price is a non-negative amount in cents.');
             }
-            $parsed[] = ['from' => $from, 'price' => $price->toScale(2)];
+            $parsed[] = ['from' => $from, 'price' => BigDecimal::of((string) $price)->toScale(2)];
             $last = $from;
         }
 

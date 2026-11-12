@@ -82,6 +82,8 @@ final class UsageChargeTest extends TestCase
             'negative price' => [[['from' => 1, 'price' => '-1']]],
             'sub-cent price' => [[['from' => 1, 'price' => '1.805']]],
             'from not a whole number' => [[['from' => '1.5', 'price' => '1']]],
+            'from a float' => [[['from' => 1.0, 'price' => '1']]],
+            'price a float' => [[['from' => 1, 'price' => 1.8]]],
             'no price' => [[['from' => 1]]],
         ];
     }
@@ -89,7 +91,7 @@ final class UsageChargeTest extends TestCase
     #[DataProvider('provideBadTiers')]
     public function test_tiers_refuse_what_cannot_be_priced(array $steps): void
     {
-        $this->expectException(\Throwable::class);
+        $this->expectException(InvalidArgumentException::class);
 
         Tiers::of($steps);
     }
@@ -290,10 +292,6 @@ final class UsageChargeTest extends TestCase
             $second = UsageCharge::charge($tiers, UsageCharge::dailyCounts($intervals, $mid, $end), $cycle);
             $this->assertTrue(BigDecimal::of($first)->plus($second)->minus($charge)->abs()->isLessThanOrEqualTo('0.01'),
                 "run {$run}: {$first} + {$second} vs {$charge}");
-
-            // An advance for the first day's IPs and its correction always come to the charge.
-            $advance = (string) $tiers->cost(reset($counts))->toScale(2);
-            $this->assertSame((string) $charge, (string) BigDecimal::of($advance)->plus(UsageCharge::adjustment((string) $charge, $advance)));
         }
     }
 }

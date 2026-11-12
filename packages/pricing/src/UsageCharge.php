@@ -33,8 +33,12 @@ final class UsageCharge
      */
     public static function dailyCounts(iterable $intervals, DateTimeImmutable $start, DateTimeImmutable $end): array
     {
-        if ($start->format('H:i:s') !== '00:00:00' || $end->format('H:i:s') !== '00:00:00') {
+        // To the microsecond, and in one timezone: else a day of the next period is counted in this one (ADV-820-1, -2).
+        if ($start->format('H:i:s.u') !== '00:00:00.000000' || $end->format('H:i:s.u') !== '00:00:00.000000') {
             throw new InvalidArgumentException('A period runs from midnight to midnight.');
+        }
+        if ($start->getTimezone()->getName() !== $end->getTimezone()->getName()) {
+            throw new InvalidArgumentException('A period starts and ends in the same timezone.');
         }
         if ($end <= $start) {
             throw new InvalidArgumentException('A period must have at least one day.');
@@ -96,6 +100,12 @@ final class UsageCharge
      */
     public static function adjustment(string $actual, string $billed): string
     {
+        foreach ([$actual, $billed] as $amount) {
+            if (preg_match('/^-?\d+(\.\d{1,2})?$/', $amount) !== 1) {
+                throw new InvalidArgumentException("Not an amount in cents: «{$amount}».");
+            }
+        }
+
         return (string) BigDecimal::of($actual)->minus(BigDecimal::of($billed))->toScale(2);
     }
 
