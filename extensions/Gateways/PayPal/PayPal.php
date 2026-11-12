@@ -763,10 +763,12 @@ class PayPal extends Gateway
             $verification = $this->request('post', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v1/notifications/verify-webhook-signature',
                 substr($fields, 0, -1) . ',"webhook_event":' . $body . '}');
         } catch (PayPalApiException $e) {
-            if ($e->status >= 500) {
-                throw $e; // PayPal unavailable: a 500 here makes PayPal retry the webhook
+            // No answer about the signature (PayPal unavailable, a rate limit, our credentials refused) is not «forged»:
+            // thrown, so the webhook fails, staff hear of it and PayPal sends the event again (REV-807-3, as the order read).
+            if ($e->status >= 500 || in_array($e->status, [401, 403, 429], true)) {
+                throw $e;
             }
-            $verification = null;
+            $verification = null; // PayPal refused what was sent as the event (400, 422): not one it sent
         }
 
         $verified = ($verification->verification_status ?? null) === 'SUCCESS';
@@ -836,10 +838,12 @@ class PayPal extends Gateway
             try {
                 $order = $this->request('get', ($this->config('test_mode') ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com') . '/v2/checkout/orders/' . $orderID);
             } catch (PayPalApiException $e) {
-                if ($e->status >= 500) {
-                    throw $e; // PayPal unavailable: retried
+                // Only «no such order» (404: another app's on the same account, a deleted one) is final. Anything else is
+                // no answer about the order (5xx, a rate limit's 429, our credentials refused: 401/403): thrown, so the
+                // webhook fails and PayPal sends the event again; ignored, the capture was never recorded (S10-PAYMENTS-2).
+                if ($e->status !== 404) {
+                    throw $e;
                 }
-                // An order this app cannot read (another app on the same account, a deleted order): retrying never helps.
                 Log::warning('PayPal capture webhook for an order this app cannot read', ['order_id' => $orderID, 'error' => $e->getMessage()]);
 
                 return response()->json(['status' => 'ignored']);

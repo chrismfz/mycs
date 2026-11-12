@@ -1344,7 +1344,11 @@ class ExtensionHelper
             }
             $events[] = (new MoneyTrail)->refund($payment, $invoice, $part, $source, $refundCause ?? $cause)->id; // all of it went back, taken or spent
         }
-        $payment->update(['credited_amount' => (RecordPaymentService::toCents($payment->credited_amount) - $claim) / 100,
+        // Quietly: a step in the middle of the refund that changes nothing for the invoice (credited down, refunded up by
+        // the same amount). Told as «a payment changed», the listener closed an open invoice its payments cover, or
+        // exceed, half-way: paid, its line applied or its service renewed, more of the payment credited behind this
+        // refund's back (S10-MONEY-LEDGER-1, REV-807-1/2). The refund's own save tells it, with the final amounts.
+        $payment->updateQuietly(['credited_amount' => (RecordPaymentService::toCents($payment->credited_amount) - $claim) / 100,
             'refunded_amount' => (RecordPaymentService::toCents($payment->refunded_amount) + $claim) / 100]);
 
         return ['taken' => $take, 'spent' => $claim - $take, 'events' => $events];
