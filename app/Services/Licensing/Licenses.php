@@ -53,7 +53,9 @@ class Licenses
             $license = License::query()->where('service_id', $service->id)->lockForUpdate()->first();
             if ($license !== null) {
                 // Made Active again only for a service that runs (review ADV-L2b): «Create» on a cancelled one revives nothing.
-                if ($license->status === License::STATUS_SUSPENDED && $service->status === Service::STATUS_ACTIVE) {
+                // An Expired one too, for a service staff brought back after it ended (sweep 10): same key and bindings.
+                // Only here: setStatus() keeps Expired final, it cannot tell staff's «Unsuspend» from a payment's (REV-808-1).
+                if (in_array($license->status, [License::STATUS_SUSPENDED, License::STATUS_EXPIRED], true) && $service->status === Service::STATUS_ACTIVE) {
                     $license->update(['status' => License::STATUS_ACTIVE]);
                 }
                 self::keyAsDomain($service, $license->license_key);

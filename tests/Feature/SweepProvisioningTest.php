@@ -181,7 +181,9 @@ class SweepProvisioningTest extends TestCase
     public function test_an_imported_directadmin_service_with_its_native_username_can_be_suspended(): void
     {
         Http::preventStrayRequests();
-        Http::fake(['https://da.test:2222/CMD_API_SELECT_USERS*' => Http::response('error=0&text=OK')]);
+        Http::fake(['https://da.test:2222/CMD_API_SELECT_USERS*' => Http::response('error=0&text=OK'),
+            // whose account it is, asked first (sweep 10, S10-PROVISIONING-2)
+            'https://da.test:2222/CMD_API_SHOW_USER_CONFIG*' => Http::response('username=importd&domain=imported.example.test&suspended=no')]);
         $server = Server::query()->create(['name' => 'DA', 'extension' => 'DirectAdmin', 'type' => 'server', 'enabled' => true]);
         foreach (['host' => 'https://da.test:2222', 'username' => 'admin', 'password' => 'secret'] as $key => $value) {
             $server->settings()->create(['key' => $key, 'value' => $value]);

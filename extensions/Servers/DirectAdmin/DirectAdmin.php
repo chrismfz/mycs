@@ -301,6 +301,7 @@ class DirectAdmin extends Server
     public function suspendServer(Service $service, $settings, $properties)
     {
         $properties = self::account($service, $properties);
+        $this->ownAccount($service, $properties);
 
         $response = $this->request('/CMD_API_SELECT_USERS', 'post', [
             'location' => 'CMD_SELECT_USERS',
@@ -326,6 +327,7 @@ class DirectAdmin extends Server
     {
         // Not refused for an account another service shares (as cPanel's): an unsuspension never takes one away.
         $properties = self::account($service, $properties, shared: true);
+        $this->ownAccount($service, $properties); // nor a stranger's, suspended in DirectAdmin for its own reason (as cPanel's)
 
         $response = $this->request('/CMD_API_SELECT_USERS', 'post', [
             'location' => 'CMD_SELECT_USERS',
@@ -350,6 +352,7 @@ class DirectAdmin extends Server
     public function terminateServer(Service $service, $settings, $properties)
     {
         $properties = self::account($service, $properties);
+        $this->ownAccount($service, $properties);
 
         $response = $this->request('/CMD_API_SELECT_USERS', 'post', [
             'confirmed' => 'Confirm',
@@ -448,6 +451,29 @@ class DirectAdmin extends Server
         }
 
         return $properties;
+    }
+
+    /**
+     * DirectAdmin's account by that name is this service's: its domain is the service's (sweep 10, S10-PROVISIONING-2, as
+     * cPanel's ownAccount and mailcow's ownedAdmin). A username kept from WHMCS, or of an account removed and made again
+     * in DirectAdmin for someone else, names a stranger's account: never suspended, unsuspended or removed from here;
+     * staff check it (the job's refusal is their task). A lookup that fails throws, before anything is sent. No account
+     * by that name, or none DirectAdmin names a domain for, or a service with no domain: DirectAdmin's own answer to the
+     * action tells, as before. The same domain written another way (case, «www.», a dot at its end, an IDN) is the same.
+     */
+    private function ownAccount(Service $service, array $properties): void
+    {
+        $username = $properties['directadmin_username'];
+        $config = $this->request('/CMD_API_SHOW_USER_CONFIG', 'get', ['user' => $username], parse: true);
+        $theirs = is_array($config) ? ($config['domain'] ?? null) : null;
+        $ours = filled($service->domain) ? $service->domain : ($properties['domain'] ?? null);
+        if (!is_string($theirs) || trim($theirs) === '' || !is_string($ours) || trim($ours) === '') {
+            return;
+        }
+        $plain = fn (string $domain): string => preg_replace('/^www\./', '', self::comparableDomain($domain)) ?? '';
+        if ($plain($theirs) !== $plain($ours)) {
+            throw new Exception("DirectAdmin: the account «{$username}» on this server is for {$theirs}, not this service's domain ({$ours}): check the service's username and domain before anything is done to it (by hand)");
+        }
     }
 
     private static function password(array $properties): ?string

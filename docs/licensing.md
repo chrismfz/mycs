@@ -39,7 +39,13 @@ Conflict, Free Trial και Support/Updates Addon δεν μεταφέροντα�
 Create → κλειδί `prefix + hex` (ίδια μορφή με σήμερα), Active· δεύτερο create κρατά το κλειδί. Το κλειδί γράφεται
 και ως **domain της υπηρεσίας**, όπως στο WHMCS (1.340/1.341 της nixpal): φαίνεται στις λίστες, στον πελάτη και στην
 αναζήτηση· ένα domain που έχει ήδη η υπηρεσία κρατιέται. Suspend → Suspended,
-unsuspend → Active (ένα Reissued μένει Reissued), terminate → Expired. Reissue (πελάτης: Active, το προϊόν το επιτρέπει,
+unsuspend → Active (ένα Reissued μένει Reissued), terminate → Expired. Το Expired είναι τελικό, με μία εξαίρεση (sweep 10,
+S10-PROVISIONING-1): το **«Create»** του staff σε υπηρεσία που ξανάγινε Active μετά το τέλος της κάνει την άδεια πάλι
+Active, με το ίδιο κλειδί και τα ίδια bindings· σε υπηρεσία που δεν τρέχει μένει Expired. Άρα: αφού φέρεις πίσω μια
+υπηρεσία licensing που είχε λήξει, πάτα «Create» (όχι «Unsuspend»)· αν την έβαλες Pending, το πρώτο «Create» την ξεκινά
+και χρειάζεται **δεύτερο** για την άδεια. Το «Unsuspend» δεν την επαναφέρει (review του #808, REV-808-1): δεν ξεχωρίζει
+το staff από το unsuspend μιας πληρωμής, και μια άδεια που το staff έκανε Expired με το χέρι (ή ήρθε Expired από το
+WHMCS) δεν πρέπει να ζωντανέψει με μια καθυστερημένη πληρωμή. Reissue (πελάτης: Active, το προϊόν το επιτρέπει,
 κάτω από το όριο· staff: πάντα): καθαρίζει τα bindings, status Reissued, +1, log «License Reissued»· το επόμενο check
 δένει την άδεια στη νέα IP.
 

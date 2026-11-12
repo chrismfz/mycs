@@ -273,9 +273,14 @@ fi
 log "Maintenance mode ON"
 # Not down, nothing proves a cron run can't start under the migrations: stop, nothing changed (R2-2). Already down is
 # no failure (`down` says so and exits 0).
-$ART down --retry=15 || { fail "Could not enter maintenance mode — nothing changed (is storage/ writable, the disk full?)."; exit 1; }
+# The marker is written before `down`, not only by the ERR trap (sweep 10, S10-OPS-1): a deploy killed by a signal (the
+# SSH session dropped, a kill, the OOM killer: no trap runs on SIGKILL) leaves the site down and the workers stopped, and
+# the re-run must know that outage is the deploy's, not staff's window. Removed where this deploy brings the site up
+# again: at its end, and at the «nothing changed» exits below (kept if `up` fails there: the site is still down).
+[[ $_stay_down == 1 ]] || : > "$_LEFT_DOWN" || true
+$ART down --retry=15 || { [[ $_was_down == 1 ]] || rm -f "$_LEFT_DOWN" || true; fail "Could not enter maintenance mode — nothing changed (is storage/ writable, the disk full?)."; exit 1; }
 cron_wait || {
-  [[ $_was_down == 0 ]] && { $ART up || true; }
+  [[ $_was_down == 0 ]] && { { $ART up && rm -f "$_LEFT_DOWN"; } || true; }
   fail "A cron run started just before maintenance and is still running — nothing changed$([[ $_was_down == 0 ]] && echo ', the app is up again'). Re-run the deploy once it is over."
   exit 1
 }
@@ -288,7 +293,7 @@ if [[ $_stay_down == 1 ]]; then
   [[ -z "${QUEUE_STOP_CMD:-}" ]] && _have_unit && systemctl is-active --quiet "${QUEUE_SERVICE}" 2>/dev/null && _had_workers=1
 fi
 stop_queue_worker || {
-  [[ $_was_down == 0 ]] && { $ART up || true; }
+  [[ $_was_down == 0 ]] && { { $ART up && rm -f "$_LEFT_DOWN"; } || true; }
   fail "The queue workers did not stop (a job still running?) — nothing changed$([[ $_was_down == 0 ]] && echo ', the app is up again'). Re-run the deploy once it is over."
   exit 1
 }
