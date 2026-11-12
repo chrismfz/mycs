@@ -429,7 +429,17 @@ class Stripe extends Gateway
                 }
                 // A late or repeated copy of an old failure, while a later attempt on the same intent is on its way (or
                 // came): the payment stays as it is, and the hold on its invoice with it (S10-PAYMENTS-1).
-                if (in_array($this->intentNow((string) $paymentIntent->id, InvoiceTransactionStatus::Processing), ['processing', 'succeeded'], true)) {
+                // An intent Stripe does not know (404: deleted, the other mode's) is not on its way: failed, as the event
+                // says; thrown, every such event would fail for ever and the payment hold its invoice for good.
+                try {
+                    $now = $this->intentNow((string) $paymentIntent->id, InvoiceTransactionStatus::Processing);
+                } catch (RequestException $e) {
+                    if ($e->response->status() !== 404) {
+                        throw $e;
+                    }
+                    $now = null;
+                }
+                if (in_array($now, ['processing', 'succeeded'], true)) {
                     GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'intent_not_failed', ['external_id' => $paymentIntent->id, 'invoice_id' => $paymentIntent->metadata->invoice_id]);
                     break;
                 }

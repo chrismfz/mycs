@@ -174,6 +174,31 @@ class Sweep10PaymentsLedgerFixTest extends TestCase
         $this->assertTrue(SavedMethodCharge::onItsWay($invoice->fresh()));
     }
 
+    /** An intent Stripe no longer knows (404) is not on its way: the failure is applied, not retried for ever. */
+    public function test_a_failure_for_an_intent_stripe_does_not_know_fails_the_processing_payment(): void
+    {
+        $invoice = $this->stripeInvoice();
+        $this->stripeWebhook('evt_fix_1', 'payment_intent.processing', $this->intent($invoice, 'processing'))->assertOk();
+        Http::fake(['api.stripe.com/v1/payment_intents/pi_s10fix' => Http::response(['error' => ['code' => 'resource_missing', 'message' => 'No such payment_intent']], 404)]);
+
+        $this->stripeWebhook('evt_fix_2', 'payment_intent.payment_failed', $this->intent($invoice, 'requires_payment_method'))->assertOk();
+
+        $this->assertSame(InvoiceTransactionStatus::Failed, $invoice->transactions()->sole()->status);
+        $this->assertFalse(SavedMethodCharge::onItsWay($invoice->fresh()));
+    }
+
+    /** Stripe refuses our key (401): no answer about the intent, so nothing changes and the event is retried. */
+    public function test_a_failure_while_stripe_refuses_our_key_changes_nothing_and_is_retried(): void
+    {
+        $invoice = $this->stripeInvoice();
+        $this->stripeWebhook('evt_fix_1', 'payment_intent.processing', $this->intent($invoice, 'processing'))->assertOk();
+        $this->stripeSays(401);
+
+        $this->stripeWebhook('evt_fix_2', 'payment_intent.payment_failed', $this->intent($invoice, 'requires_payment_method'))->assertStatus(500);
+
+        $this->assertSame(InvoiceTransactionStatus::Processing, $invoice->transactions()->sole()->status);
+    }
+
     /** The mirror (S6-PAYMENTS-1) reads the intent the same way: a late «processing» on a failed payment stays failed. */
     public function test_a_late_processing_on_a_failed_payment_stays_failed_unless_stripe_says_processing(): void
     {
