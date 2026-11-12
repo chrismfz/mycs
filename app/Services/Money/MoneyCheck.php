@@ -126,13 +126,27 @@ final class MoneyCheck
      * A paid invoice owes nothing and holds nothing over (an overpayment becomes credit). Staff may leave one otherwise
      * on purpose (owner 2026-11-10: marked paid with no payment, a line changed after it was paid): still listed, never
      * an error of the code, and said as what it is so they can tell it from one that is.
+     *
+     * A WHMCS invoice whose total came below zero gave that to its customer as credit, with no payment: the importer
+     * journals it as an `invoice_reduced` credit_in on the invoice, with no payment (WhmcsMoneyJournal::negativeInvoices).
+     * The part of «paid over» that credit covers is not reported; what it leaves uncovered is. (MyCS's own
+     * `invoice_reduced` always names the payment it came from, and is already in the remaining through its
+     * credited_amount: not counted again.)
      */
     private function paidBalance(): void
     {
         Invoice::query()->whereIn('status', [Invoice::STATUS_PAID, Invoice::STATUS_REFUNDED])->with(['items', 'adjustmentNotes', 'transactions'])
             ->chunkById(500, function ($invoices) {
+                $credited = MoneyEvent::query()->whereIn('invoice_id', $invoices->modelKeys())
+                    ->where('kind', MoneyEventKind::CreditIn->value)->where('cause', MoneyTrail::CAUSE_INVOICE_REDUCED)
+                    ->whereNull('invoice_transaction_id')->whereDoesntHave('reversal')
+                    ->get(['invoice_id', 'amount'])->groupBy('invoice_id')
+                    ->map(fn ($events) => $events->sum(fn (MoneyEvent $event) => RecordPaymentService::toCents($event->amount)));
                 foreach ($invoices as $invoice) {
                     $remaining = self::remainingCents($invoice);
+                    if ($remaining < 0 && RecordPaymentService::toCents($invoice->total) < 0) {
+                        $remaining = min(0, $remaining + (int) ($credited[$invoice->id] ?? 0));
+                    }
                     if ($remaining !== 0) {
                         $this->add('paid_balance', "invoice #{$invoice->id}", ($invoice->paid_by_staff_at !== null ? 'marked paid by staff, no payment: ' : '')
                             . ($remaining > 0 ? 'still to pay ' : 'paid over ') . self::money(abs($remaining)) . " {$invoice->currency_code}");

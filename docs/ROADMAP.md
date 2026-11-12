@@ -127,7 +127,9 @@
 - [ ] Η κονσόλα του πελάτη δεμένη με το session της σύνδεσής του (S10-ACCESS-1· μαζί με τη δουλειά του relay).
 
 ### Χρέωση
-- [ ] Promotions: test ανανέωσης για Price Override και δοκιμαστική περίοδο (#274).
+- [x] Promotions: test ανανέωσης για Price Override (#274· 2026-11-12, `PriceOverrideProrataTest`: pro rata πρώτη περίοδος
+  με την τιμή του override αναλογικά, ποτέ κάτω από το μηδέν, ανανέωση στην τιμή του override).
+- [ ] Promotions: test ανανέωσης για δοκιμαστική περίοδο (#274).
 - [ ] Πληρωμές: fallback του Stripe· SEPA (υπάρχει κώδικας, όχι δοκιμή).
 - [ ] Reports: σελίδα «Reports» με κατηγορίες όπως του WHMCS, όταν χρειαστεί.
 - [ ] Αργότερα ή χειροκίνητα ως τότε: quotes (3 τον χρόνο), downloads (4), unblockip.
