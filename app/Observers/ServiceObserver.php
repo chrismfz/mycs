@@ -267,6 +267,13 @@ class ServiceObserver
             if ($running && ($was === Service::STATUS_PENDING || in_array($was, Service::ENDED_STATUSES, true))) {
                 OptionTasks::changed($service, [], OptionTasks::on($service));
                 ModuleAction::closeByHandTerminations($service); // «destroy the machine» is no longer to be done (S8-PROVISIONING-2)
+                // One that ended and runs again has no cancellation request any more: the old one was carried out (or
+                // staff ended it), and left on it the cron never bills it and ends it again (sweep 11, S11-CRON-BILLING-1).
+                // The request's own delete, audited as any; one on a service that never ended is not looked at.
+                if (in_array($was, Service::ENDED_STATUSES, true)) {
+                    $service->cancellation()->first()?->delete();
+                    $service->unsetRelation('cancellation');
+                }
             } elseif (!in_array($was, Service::ENDED_STATUSES, true) && $was !== Service::STATUS_PENDING && $service->isEnded()) {
                 OptionTasks::changed($service, OptionTasks::on($service), []);
             }
