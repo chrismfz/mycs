@@ -20,6 +20,17 @@
         <h3 class="px-3 mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('To handle') }}</h3>
         <ul class="flex flex-col">
             @foreach ($queues as $queue)
+            @if ($queue['live'])
+            {{-- Kept live by the ticket notifier (livewire/admin/ticket-notifier), which sends the count every 45 seconds. --}}
+            <li x-data="{ n: {{ (int) $queue['badge'] }} }" x-on:mycs-tickets-awaiting.window="n = $event.detail">
+                <a href="{{ $queue['url'] }}" wire:navigate
+                    class="flex items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-white/5"
+                    x-bind:class="n > 0 ? 'font-medium text-gray-700 dark:text-gray-200' : 'text-gray-400 dark:text-gray-500'">
+                    <span>{{ __($queue['label']) }}</span>
+                    <span x-show="n > 0" @if ($queue['badge'] === null) x-cloak @endif><x-filament::badge color="danger" size="sm"><span x-text="n">{{ $queue['badge'] }}</span></x-filament::badge></span>
+                </a>
+            </li>
+            @else
             <li>
                 <a href="{{ $queue['url'] }}" wire:navigate
                     @class([
@@ -33,6 +44,7 @@
                     @endif
                 </a>
             </li>
+            @endif
             @endforeach
         </ul>
     </section>

@@ -8,6 +8,8 @@ use App\Models\Ticket;
 use App\Models\TicketMailId;
 use App\Models\TicketMessage;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Number;
 use MyCS\TicketMail\MessageId;
 
 /**
@@ -138,11 +140,19 @@ final class TicketMailer
             ? e($message->sender_email) . ' (CC)'
             : e($ticket->requesterName()) . ($ticket->isGuest() ? ' (' . e((string) $ticket->guest_email) . ', ' . e(__('guest')) . ')' : '');
         $body = '<p><strong>' . $who . '</strong> · ' . e((string) $ticket->department?->name) . '</p>'
-            . '<pre style="white-space:pre-wrap">' . e(mb_substr((string) $message->message, 0, 3000)) . '</pre>'
-            . '<p><a href="' . e(route('filament.admin.resources.tickets.edit', $ticket)) . '">' . e(__('Open the ticket')) . '</a></p>';
-        foreach ($staff as $member) {
-            NotificationHelper::sendSystemEmailNotification($subject, $body, email: $member->email);
-        }
+            . '<pre style="white-space:pre-wrap">' . e(mb_substr((string) $message->message, 0, 3000)) . '</pre>';
+        $link = '<p><a href="' . e(route('filament.admin.resources.tickets.edit', $ticket)) . '">' . e(__('Open the ticket')) . '</a></p>';
+        // After the transaction that stores the message's files (InboundRouter, Create, Show): their names and sizes,
+        // never the files themselves, which open in the admin only (owner 2026-11-12).
+        DB::afterCommit(function () use ($message, $subject, $body, $link, $staff) {
+            $files = $message->attachments()->get()
+                ->map(fn ($file) => '<li>' . e((string) $file->filename) . ' (' . e(Number::fileSize((int) $file->filesize)) . ')</li>')
+                ->implode('');
+            $body .= ($files !== '' ? '<p>' . e(__('Attachments')) . ':</p><ul>' . $files . '</ul>' : '') . $link;
+            foreach ($staff as $member) {
+                NotificationHelper::sendSystemEmailNotification($subject, $body, email: $member->email);
+            }
+        });
     }
 
     private function newId(Ticket $ticket, ?TicketMessage $message, string $kind, ?string $to): string

@@ -77,15 +77,18 @@ class Show extends Component
 
         // Written by staff logged in as the client (AUTH-19): the staff member's reply, not the customer's words.
         $actor = Actor::current();
-        $message = $this->ticket->messages()->create([
-            ...($actor instanceof Staff ? ['staff_id' => $actor->id] : ['user_id' => Auth::id()]),
-            'message' => $this->message,
-        ]);
+        // One transaction with its files, as a new ticket (Create::save): staff are told after it, with the files' names.
+        TicketFiles::transaction(function () use ($actor) {
+            $message = $this->ticket->messages()->create([
+                ...($actor instanceof Staff ? ['staff_id' => $actor->id] : ['user_id' => Auth::id()]),
+                'message' => $this->message,
+            ]);
 
-        // The same rules as by email (docs/tickets.md §3 ΣΤ): a type judged by its bytes, a name of ours.
-        foreach (array_slice($this->attachments, 0, Attachments::MAX_COUNT) as $attachment) {
-            TicketFiles::storeUpload($message, $attachment);
-        }
+            // The same rules as by email (docs/tickets.md §3 ΣΤ): a type judged by its bytes, a name of ours.
+            foreach (array_slice($this->attachments, 0, Attachments::MAX_COUNT) as $attachment) {
+                TicketFiles::storeUpload($message, $attachment);
+            }
+        });
 
         $this->notify(__('Message sent successfully'));
 
