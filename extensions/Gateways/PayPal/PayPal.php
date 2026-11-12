@@ -510,7 +510,11 @@ class PayPal extends Gateway implements ListsTransactions
                     'start_date' => $start->format('Y-m-d\TH:i:s\Z'), 'end_date' => $end->format('Y-m-d\TH:i:s\Z'),
                     'fields' => 'transaction_info', 'page_size' => self::SEARCH_PAGE_SIZE, 'page' => $page,
                 ]);
-                foreach ((array) ($response->transaction_details ?? []) as $detail) {
+                // A 200 that is not PayPal's answer (an HTML page, an empty body) is not an empty list (ADV-810-3, 4).
+                if (!is_object($response) || !is_array($response->transaction_details ?? null)) {
+                    throw new PayPalApiException(200, 'UNREADABLE_ANSWER', null, null, [], 'Transaction Search answered without transaction_details');
+                }
+                foreach ($response->transaction_details as $detail) {
                     $line = self::searchLine($detail->transaction_info ?? null);
                     if ($line !== null) {
                         $lines[$line->what . ':' . $line->id] = $line; // a row on the edge of two parts, once
@@ -533,7 +537,8 @@ class PayPal extends Gateway implements ListsTransactions
         $code = strtoupper((string) ($info->transaction_event_code ?? ''));
         $value = (string) ($info->transaction_amount->value ?? '');
         $when = (string) ($info->transaction_initiation_date ?? $info->transaction_updated_date ?? '');
-        if ($id === '' || !is_numeric($value) || $when === '') {
+        // A denied one never happened: not «listed», so a payment recorded here as taken shows as not at PayPal (ADV-810-5).
+        if ($id === '' || !is_numeric($value) || $when === '' || strtoupper((string) ($info->transaction_status ?? '')) === 'D') {
             return null;
         }
         $what = match (true) {

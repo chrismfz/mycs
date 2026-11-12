@@ -95,7 +95,8 @@ final class GatewayReconcile
         $was = $state[$name] ?? ['read_at' => null, 'error' => null, 'told' => false];
         try {
             $from = self::moment($gateway->settings->firstWhere('key', 'reconcile_from')?->value);
-            $days ??= (int) ($gateway->settings->firstWhere('key', 'reconcile_days')?->value ?: self::DEFAULT_DAYS);
+            $set = (int) $gateway->settings->firstWhere('key', 'reconcile_days')?->value;
+            $days ??= $set > 0 ? $set : self::DEFAULT_DAYS; // empty or not a number: the default, never one day
             $days = max(1, min(self::MAX_DAYS, $days));
             $start = $now->subDays($days)->startOfDay()->max($from);
             if ($start->gte($now)) { // «from» is still to come (set ahead of the cut-over): nothing to compare yet
@@ -105,6 +106,8 @@ final class GatewayReconcile
                 return ['read' => true, 'error' => null, 'first_failure' => false, 'new' => 0, 'resolved' => 0, 'open' => $this->open($name)];
             }
             $statement = $extension->transactions($start->subDays(self::LOOKUP_MARGIN_DAYS), $now);
+            // Within the same catch: a comparison that breaks half way is said to staff as a list not read.
+            [$new, $resolved] = $this->compare($name, $statement, $start, $now);
         } catch (Throwable $e) {
             report($e);
             $state[$name] = ['read_at' => $was['read_at'] ?? null, 'error' => self::short($e), 'told' => true];
@@ -114,7 +117,6 @@ final class GatewayReconcile
                 'new' => 0, 'resolved' => 0, 'open' => $this->open($name)];
         }
 
-        [$new, $resolved] = $this->compare($name, $statement, $start, $now);
         $state[$name] = ['read_at' => $now->toIso8601String(), 'error' => null, 'told' => false];
         Cache::forever(self::STATE_KEY, $state);
 
@@ -131,14 +133,15 @@ final class GatewayReconcile
     {
         $zone = (string) config('app.timezone');
         $settled = $now->subMinutes(self::WEBHOOK_GRACE_MINUTES);
-        $until = ($statement->completeUntil ?? $now->subHours(self::UNSAID_LAG_HOURS))->min($now)->subMinutes(self::REPORT_MARGIN_MINUTES);
+        // In the site's zone: created_at is compared as its wall clock, and PayPal says its moment in its own (ADV-810-6).
+        $until = ($statement->completeUntil ?? $now->subHours(self::UNSAID_LAG_HOURS))->setTimezone($zone)->min($now)->subMinutes(self::REPORT_MARGIN_MINUTES);
         $new = $resolved = 0;
         $seen = [];
         $listed = []; // every payment the gateway lists, completed or not
 
         foreach ($statement->lines as $line) {
             if ($line->what === GatewayLine::PAYMENT) {
-                $listed[$line->id] = true;
+                $listed[self::key($line->id)] = true;
             }
             if (!$line->completed || $line->at->lt($start) || $line->at->gt($settled)) {
                 continue;
@@ -153,8 +156,15 @@ final class GatewayReconcile
         }
 
         if ($until->gt($start)) {
+            // A row the gateway's own list once gave is at the gateway, whatever this run's span reaches: its payment was
+            // taken days before it was recorded here (recorded late by staff, an eCheck), and created_at only stands in
+            // for the gateway's date (ADV-810-1, ADV-810-2).
+            $onceListed = GatewayTransaction::query()->where('gateway', $gateway)->where('what', GatewayLine::PAYMENT)
+                ->where('kind', '!=', GatewayTransaction::NOT_AT_GATEWAY)->pluck('reference')
+                ->mapWithKeys(fn ($reference) => [self::key((string) $reference) => true])->all();
             foreach ($this->recordedPayments($gateway)->whereBetween('created_at', [$start, $until])->with('invoice:id,currency_code')->get() as $payment) {
-                if (!isset($listed[(string) $payment->transaction_id])) {
+                $key = self::key((string) $payment->transaction_id);
+                if (!isset($listed[$key]) && !isset($onceListed[$key])) {
                     $seen[] = $this->keep($gateway, GatewayLine::PAYMENT, (string) $payment->transaction_id, [
                         'kind' => GatewayTransaction::NOT_AT_GATEWAY, 'occurred_at' => $payment->created_at, 'amount' => $payment->amount,
                         'currency_code' => $payment->invoice?->currency_code, 'agreement' => null, 'parent_reference' => null,
@@ -298,6 +308,12 @@ final class GatewayReconcile
         $id = $refund->invoice_transaction_id === null ? null : InvoiceTransaction::query()->whereKey($refund->invoice_transaction_id)->value('invoice_id');
 
         return $id === null ? null : (int) $id;
+    }
+
+    /** An id as the database compares it (MariaDB: whatever its case, and the spaces after it). */
+    private static function key(string $id): string
+    {
+        return strtoupper(trim($id));
     }
 
     private static function money(int $cents): string
