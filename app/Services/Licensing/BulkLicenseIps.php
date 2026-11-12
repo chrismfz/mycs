@@ -3,6 +3,7 @@
 namespace App\Services\Licensing;
 
 use App\Exceptions\DisplayException;
+use App\Helpers\ExtensionHelper;
 use App\Models\License;
 use App\Models\LicenseIp;
 use App\Models\Product;
@@ -20,18 +21,18 @@ final class BulkLicenseIps
     /**
      * Adds the addresses in $text, one an entry (new lines or commas between them), each with an optional name after a
      * space: «198.51.100.7 web1». All or nothing: a bad entry, or an address another bulk license has, adds none.
-     * Already on this list: left as it is.
+     * Already on this list: left as it is. $max: the customer's limit of IPs on the list (staff: none).
      *
      * @return array{added: list<string>, kept: list<string>, warnings: list<string>}
      */
-    public static function add(License $license, string $text): array
+    public static function add(License $license, string $text, ?int $max = null): array
     {
         $entries = self::parse($text);
         if ($entries === []) {
             throw new DisplayException(__('No IP address given.'));
         }
 
-        return DB::transaction(function () use ($license, $entries) {
+        return DB::transaction(function () use ($license, $entries, $max) {
             // One add of the product at a time: the check that no other bulk license of it has the IP holds until we insert
             // (review of #821: two licenses' own locks let both in). The product first, then the license, always.
             Product::query()->whereKey($license->service?->product_id)->lockForUpdate()->first();
@@ -58,6 +59,10 @@ final class BulkLicenseIps
                 $added[] = $ip;
                 $warnings = array_merge($warnings, self::singlesOf($locked, $ip));
             }
+            if ($max !== null && count($active) + count($added) > $max) {
+                throw new DisplayException(__('A license may have :max IP addresses: :count would be on the list. Contact us for more.',
+                    ['max' => $max, 'count' => count($active) + count($added)]));
+            }
             $now = now();
             foreach ($added as $ip) {
                 $locked->ips()->create(['ip' => $ip, 'label' => $entries[$ip], 'added_at' => $now]); // audited
@@ -65,6 +70,62 @@ final class BulkLicenseIps
 
             return ['added' => $added, 'kept' => $kept, 'warnings' => $warnings];
         });
+    }
+
+    /**
+     * What add() would do, written nothing: for the customer's preview.
+     *
+     * @return array{added: list<string>, kept: list<string>, warnings: list<string>}
+     */
+    public static function preview(License $license, string $text, ?int $max = null): array
+    {
+        DB::beginTransaction();
+        try {
+            return self::add($license, $text, $max);
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    /** Another server in the place of one on the list: the old one off, the new one on with its name, both now or neither. */
+    public static function replace(License $license, int $id, string $ip, ?int $max = null): void
+    {
+        DB::transaction(function () use ($license, $id, $ip, $max) {
+            $row = $license->ips()->active()->whereKey($id)->first();
+            if ($row === null) {
+                throw new DisplayException(__('This IP address is no longer on the list.'));
+            }
+            if (count(self::parse($ip)) !== 1) {
+                throw new DisplayException(__('Give one IP address.'));
+            }
+            self::remove($license, [$id]);
+            $result = self::add($license, trim($ip) . ($row->label !== null ? ' ' . $row->label : ''), $max);
+            if ($result['added'] === []) {
+                throw new DisplayException(__('This IP address is already on the list.'));
+            }
+        });
+    }
+
+    /** A row's name, as the customer calls the server (empty: none). */
+    public static function rename(License $license, int $id, ?string $label): void
+    {
+        $label = trim((string) $label);
+        $row = $license->ips()->active()->whereKey($id)->first();
+        if ($row === null) {
+            throw new DisplayException(__('This IP address is no longer on the list.'));
+        }
+        $row->update(['label' => $label === '' ? null : mb_substr($label, 0, self::LABEL_LENGTH)]); // audited
+    }
+
+    /** How many IPs its customer may keep on it (Ε4): the license's own, else its product's «max_ips», else 200. */
+    public static function maxIps(License $license): int
+    {
+        if ($license->max_ips !== null) {
+            return (int) $license->max_ips;
+        }
+        $setting = ExtensionHelper::settingsToArray($license->service?->product->settings ?? collect())['max_ips'] ?? null;
+
+        return is_numeric($setting) && (int) $setting > 0 ? (int) $setting : 200;
     }
 
     /**

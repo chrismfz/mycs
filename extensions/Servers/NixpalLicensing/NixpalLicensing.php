@@ -45,6 +45,8 @@ class NixpalLicensing extends Server
                 'description' => 'One key for a list of IPs that staff and the customer keep: never bound by a check, no reissue, no IP conflict (docs/zonecloud-bulk-license.md). Only on a new product: switched on a product with licenses, theirs answer «IP Address Invalid»; switched off, a bulk one binds to the first caller.'],
             ['name' => 'tiers', 'type' => 'text', 'label' => 'Bulk tiers', 'required' => false, 'placeholder' => '1=1.80, 51=1.50',
                 'description' => 'A bulk license\'s monthly price per IP, graduated: «from=price», the first from 1 (each IP at its own step). A service may have its own (Edit license).'],
+            ['name' => 'max_ips', 'type' => 'number', 'label' => 'Bulk: max IPs', 'default' => 200, 'required' => false,
+                'description' => 'How many IPs the customer may keep on a bulk license without staff (staff may set another per service in Edit license).'],
             ['name' => 'custom_fields', 'type' => 'text', 'label' => 'Custom Fields Reported', 'required' => false, 'placeholder' => 'comments',
                 'description' => 'Service properties reported in «customfields», comma separated (WHMCS product custom fields).'],
         ];

@@ -163,6 +163,44 @@ final class BulkUsage
     }
 
     /**
+     * The period running today, for the customer's screen: what was billed for it, and what it comes to if the list stays
+     * as it is (every IP that has been or is on it in the period). Null when no live renewal line covers today.
+     *
+     * @return array{start: CarbonImmutable, end: CarbonImmutable, ips: int, billed: string, estimate: string, correction: string}|null
+     */
+    public static function thisPeriod(Service $service): ?array
+    {
+        $license = $service->license;
+        if ($license === null) {
+            return null;
+        }
+        $zone = new DateTimeZone((string) config('settings.timezone', 'UTC'));
+        $today = CarbonImmutable::now($zone)->toDateString();
+        $line = InvoiceItem::query()->where('reference_type', Service::class)->where('reference_id', $service->id)
+            ->whereNotNull('period_start')->whereNotNull('period_end')
+            ->where(fn ($line) => $line->whereNull('kind')->orWhereNotIn('kind', [InvoiceItem::KIND_CHARGE, InvoiceItem::KIND_DISCOUNT]))
+            ->whereDate('period_start', '<=', $today)->whereDate('period_end', '>', $today)
+            ->whereHas('invoice', fn ($invoice) => $invoice->where('status', '!=', Invoice::STATUS_CANCELLED))
+            ->orderByDesc('period_start')->first();
+        if ($line === null) {
+            return null;
+        }
+        $start = CarbonImmutable::parse($line->period_start->toDateString(), $zone);
+        $end = CarbonImmutable::parse($line->period_end->toDateString(), $zone);
+        $days = (int) $start->diffInDays($end);
+        $cycleDays = max($days, (int) $start->diffInDays(BillingPeriod::end($start, (string) $service->plan?->billing_unit,
+            max(1, (int) $service->plan?->billing_period), $service->billing_day)));
+        $intervals = $license->ips()->get(['ip', 'added_at', 'removed_at'])
+            ->map(fn ($row) => [$row->ip, $row->added_at->toImmutable(), $row->removed_at?->toImmutable()])->all();
+        $ips = UsageCharge::distinctUnits($intervals, $start, $end);
+        $estimate = OrderPricing::toNet(UsageCharge::periodCharge(self::tiers($service), $ips, $days, $cycleDays), $service->client, $service->product);
+        $billed = (string) BigDecimal::of(number_format((float) $line->price, 2, '.', ''))->multipliedBy(max(1, (int) $line->quantity))->toScale(2);
+
+        return ['start' => $start, 'end' => $end, 'ips' => $ips, 'billed' => $billed, 'estimate' => $estimate,
+            'correction' => UsageCharge::adjustment($estimate, $billed)];
+    }
+
+    /**
      * The closed periods that cost more than billed and are not on an invoice yet.
      *
      * @return Collection<int, LicenseUsagePeriod>
