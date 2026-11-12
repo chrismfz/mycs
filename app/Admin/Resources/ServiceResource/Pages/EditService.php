@@ -705,7 +705,7 @@ class EditService extends EditRecord
                             ->hidden(fn (Service $record) => Licenses::isBulk($record)),
                         Textarea::make('valid_directory')->label('Valid directory')->rows(1)->hidden(fn (Service $record) => Licenses::isBulk($record)),
                         // A bulk license's own prices (agreed with the customer, Ε6): empty, its product's.
-                        TextInput::make('tiers')->label('Tiers (this service)')->placeholder('1=1.50')
+                        TextInput::make('tiers')->label('Tiers (this service)')->placeholder('1=1.50')->maxLength(255)
                             ->helperText('Monthly price per IP, graduated: «from=price», e.g. «1=1.50» for all at 1.50. Empty: the product\'s. From the next period closed.')
                             ->visible(fn (Service $record) => Licenses::isBulk($record)),
                     ])

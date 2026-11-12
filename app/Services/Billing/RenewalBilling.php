@@ -229,6 +229,12 @@ final class RenewalBilling
         // billed: credit now), then this one priced at the IPs on its list now, its tiers' cost (no coupon, one unit).
         $bulk = null;
         if (Licenses::isBulk($service)) {
+            // Monthly only (Ε15): the tiers are a month's price, and a period of another length would never be made up.
+            if ($service->plan->billing_unit !== 'month' || (int) $service->plan->billing_period !== 1) {
+                $this->notices["invoices_created #{$id}"] = new DisplayException("Service #{$id}: a bulk license is billed monthly only: not billed (set a monthly plan).");
+
+                return 0;
+            }
             try {
                 BulkUsage::close($service);
                 $bulk = BulkUsage::advance($service);
@@ -244,8 +250,9 @@ final class RenewalBilling
             $service->save();
         }
 
-        // If service price is 0, immediately activate next period
-        if ($service->price <= 0) {
+        // If service price is 0, immediately activate next period. Never a bulk license's: its period gets a line of 0.00
+        // (closed as paid), so that the IPs used in it are closed and billed once it is over (ADV-823-1).
+        if ($service->price <= 0 && $bulk === null) {
             (new RenewServiceService)->handle($service);
 
             return 1;

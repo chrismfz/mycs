@@ -108,7 +108,11 @@ final class IncomeReport
                 ->dividedBy(BigDecimal::of($rate)->plus(100), 0, RoundingMode::HalfUp)->toInt();
             $add(self::entry(CarbonImmutable::instance($event->occurred_at), '', (string) ($event->client->name ?? ''), $event->client,
                 (string) ($event->client?->primaryContact->country ?? ''), -$net, -$gross,
-                $event->cause === MoneyTrail::CAUSE_DOWNGRADE ? __('Credit given for a downgrade') : __('Credit given for a change of cycle')));
+                match ($event->cause) {
+                    MoneyTrail::CAUSE_DOWNGRADE => __('Credit given for a downgrade'),
+                    MoneyTrail::CAUSE_USAGE_CORRECTION => __('Credit given for a bulk license\'s usage'),
+                    default => __('Credit given for a change of cycle'),
+                }));
         }
 
         usort($rows, fn ($a, $b) => [$a['paid_at'], $a['number']] <=> [$b['paid_at'], $b['number']]);

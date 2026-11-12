@@ -18,6 +18,7 @@ use App\Services\Billing\RenewalBilling;
 use App\Services\Billing\RenewalPrice;
 use App\Services\Invoice\RecordPaymentService;
 use App\Services\Licensing\BulkUsage;
+use App\Services\ServiceUpgrade\ChangeCycle;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -210,7 +211,7 @@ class BulkLicenseBillingTest extends TestCase
         $this->assertSame([['from' => '1', 'price' => '1.80'], ['from' => '51', 'price' => '1.50']], BulkUsage::parseTiers(' 1=1.80;51=1.50 '));
     }
 
-    public function test_an_empty_list_renews_free_and_its_owed_correction_waits(): void
+    public function test_an_empty_list_is_billed_at_nothing_and_its_month_still_closed(): void
     {
         $this->pay($this->bill('2026-09-25'));
         $this->ips(20, '2026-10-11', 61);
@@ -218,9 +219,25 @@ class BulkLicenseBillingTest extends TestCase
         Carbon::setTestNow('2026-11-20 10:00:00');
         LicenseIp::query()->update(['removed_at' => now()]);
 
-        $this->assertNull($this->bill('2026-11-25'), 'no IPs: December renews at nothing');
-        $this->assertSame('2027-01-01', $this->service->fresh()->expires_at->toDateString(), 'December renewed free');
-        $this->assertSame('30.00', BulkUsage::owed($this->service->fresh()->license)->sole()->adjustment, 'October\'s 30.00 still owed');
+        // December: no IPs, a 0.00 line (never a free renewal, ADV-823-1), and October's 30.00 on the same invoice.
+        $december = $this->bill('2026-11-25');
+        $this->assertSame(['0.00', '30.00'], array_values($this->lines($december)));
+        $this->pay($december);
+        $this->assertSame('2027-01-01', $this->service->fresh()->expires_at->toDateString());
+
+        // IPs back in December: billed once December is over, on February's invoice.
+        $this->ips(5, '2026-12-03', 200);
+        $this->pay($this->bill('2026-12-25'));
+        $february = $this->bill('2027-01-25');
+        $this->assertSame(['9.00', '9.00'], array_values($this->lines($february)), 'February in advance, and December\'s 5 IPs');
+    }
+
+    public function test_a_bulk_license_never_changes_cycle_or_upgrades(): void
+    {
+        // A cut period would be credited twice: by the change of cycle and by its close (review of #823).
+        $this->assertSame(__('A bulk license is billed monthly: its cycle does not change.'),
+            ChangeCycle::refusal($this->service->fresh(), $this->service->plan, ChangeCycle::NOW));
+        $this->assertFalse($this->service->fresh()->upgradable);
     }
 
     public static function provideSeeds(): array

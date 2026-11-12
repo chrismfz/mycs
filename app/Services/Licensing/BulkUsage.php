@@ -25,6 +25,8 @@ use MyCS\Pricing\UsageCharge;
  * A bulk license's billing (docs/zonecloud-bulk-license.md §6.0, the owner's decisions of 2026-11-12):
  * - in advance, each period at cost(IPs on its list when it is invoiced), by graduated tiers: the license's own (agreed
  *   prices) or its product's;
+ * - monthly only; no cycle change or upgrade (ChangeCycle::refusal, Service::upgradable); a staff edit of a renewal line's price
+ *   or the account group's discount is not kept (the period is closed at its tiers): agreed prices are the license's tiers;
  * - once a paid period is over, it is closed at what it really cost: every distinct IP that was on the list during it,
  *   for the whole period (an agent that cannot reach zlic runs to its stored due date). More than billed: a line on the
  *   next renewal invoice. Less: credit at once.
@@ -87,7 +89,8 @@ final class BulkUsage
         $tiers = self::tiers($service);
         $ips = $service->license === null ? 0 : $service->license->ips()->active()->count();
 
-        return ['price' => (string) $tiers->cost($ips)->toScale(2), 'ips' => $ips, 'note' => self::note($tiers, $ips)];
+        // A catalog amount, as every price: net of the tax it holds when the company's prices include it (ADV-823-4).
+        return ['price' => OrderPricing::toNet((string) $tiers->cost($ips), $service->client, $service->product), 'ips' => $ips, 'note' => self::note($tiers, $ips)];
     }
 
     /** «60 IPs: 50 × 1.80 + 10 × 1.50» for a line. */
@@ -135,7 +138,7 @@ final class BulkUsage
             $cycleDays = max($days, (int) $start->diffInDays(BillingPeriod::end($start, (string) $service->plan?->billing_unit,
                 max(1, (int) $service->plan?->billing_period), $service->billing_day)));
             $ips = UsageCharge::distinctUnits($intervals, $start, $end);
-            $actual = UsageCharge::periodCharge($tiers, $ips, $days, $cycleDays);
+            $actual = OrderPricing::toNet(UsageCharge::periodCharge($tiers, $ips, $days, $cycleDays), $service->client, $service->product);
             $billed = (string) BigDecimal::of(number_format((float) $line->price, 2, '.', ''))->multipliedBy(max(1, (int) $line->quantity))->toScale(2);
             $adjustment = UsageCharge::adjustment($actual, $billed);
 
@@ -147,7 +150,8 @@ final class BulkUsage
             if (BigDecimal::of($adjustment)->isNegative()) {
                 // Given back with the tax it was billed with (Ε5: credit; a refund only by hand).
                 $gross = LinePricer::invoiceLine((string) BigDecimal::of($adjustment)->abs(), 1, OrderPricing::taxRate($service->client, $service->product))['total'];
-                (new CreditLedger)->add((int) $service->client_id, (string) $service->currency_code, (int) (string) BigDecimal::of($gross)->multipliedBy(100)->toScale(0),
+                // To whoever paid the period, in its currency (a service moved since: its first customer's, ADV-823-5).
+                (new CreditLedger)->add((int) $line->invoice->client_id, (string) $line->invoice->currency_code, (int) (string) BigDecimal::of($gross)->multipliedBy(100)->toScale(0),
                     MoneyTrail::CAUSE_USAGE_CORRECTION, MoneyTrail::SOURCE_SYSTEM, $line->invoice,
                     note: "Service #{$service->id}, {$start->toDateString()} – {$end->toDateString()}: {$ips} IPs, {$actual} instead of {$billed}");
             }
@@ -165,8 +169,12 @@ final class BulkUsage
      */
     public static function owed(License $license)
     {
-        return LicenseUsagePeriod::query()->where('license_id', $license->id)->whereNull('adjustment_item_id')
-            ->where('adjustment', '>', 0)->orderBy('period_start')->get();
+        // Not on a live invoice: never put on one, or its line deleted, or its invoice cancelled (re-issued, ADV-823-3).
+        // To waive one, staff set its line to 0.00 and the invoice is paid.
+        return LicenseUsagePeriod::query()->where('license_id', $license->id)->where('adjustment', '>', 0)
+            ->where(fn ($period) => $period->whereNull('adjustment_item_id')
+                ->orWhereHas('adjustmentItem.invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_CANCELLED)))
+            ->orderBy('period_start')->get();
     }
 
     /** The line of an owed correction: «Usage 01/10/2026 – 31/10/2026: 80 IPs, 135.00 billed 105.00». */
