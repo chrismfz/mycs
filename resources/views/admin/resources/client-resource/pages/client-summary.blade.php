@@ -39,6 +39,9 @@
             @if ($d['type'] === 'business')<x-filament::badge color="info">{{ __('account.contact_type.business') }}</x-filament::badge>
             @elseif ($d['type'])<span class="{{ $label }}">{{ __('account.contact_type.' . $d['type']) }}</span>@else—@endif
         </span></div>
+        @if ($d['contact'] !== null)
+            <div class="{{ $row }}" data-field="contact"><span class="{{ $label }}">{{ __('Contact') }}</span><span class="text-right break-all">{{ $d['contact'] ?: '—' }}</span></div>
+        @endif
         @foreach ([
             __('Company') => $d['company'], __('Email') => $d['email'],
             __('Address') => $d['address'], __('Address 2') => $d['address2'], __('City') => $d['city'], __('State') => $d['state'],

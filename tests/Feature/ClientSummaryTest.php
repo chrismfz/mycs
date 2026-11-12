@@ -169,4 +169,27 @@ class ClientSummaryTest extends TestCase
             ClientSummary::cycle($plan('recurring', 2, 'week')),
         ]);
     }
+
+    /** A business account is named by its company (#22: «Mr» typed as the company): the card shows the person too. */
+    public function test_a_business_card_shows_the_contact_person_and_a_personal_one_does_not(): void
+    {
+        $client = $this->user->client();
+        $client->primaryContact->forceFill(['type' => 'business', 'company_name' => 'Acme Ltd', 'first_name' => 'Simon', 'last_name' => 'Example'])->save();
+        $url = ClientResource::getUrl('view', ['record' => $client]);
+        $staff = $this->staff(['admin.clients.viewAny']);
+
+        $this->assertSame('Simon Example', ClientSummary::for($client->fresh(), $staff)['details']['contact']);
+        $this->actingAs($staff)->get($url)->assertOk()
+            ->assertSeeInOrder([__('Name'), 'Acme Ltd', __('Contact'), 'Simon Example', __('Company'), 'Acme Ltd']);
+
+        $client->primaryContact->forceFill(['first_name' => '', 'last_name' => ''])->save();
+        $this->actingAs($staff)->get($url)->assertOk()->assertSee('data-field="contact"', false);
+
+        $client->primaryContact->forceFill(['company_name' => null, 'first_name' => 'Simon', 'last_name' => 'Example'])->save();
+        $this->assertNull(ClientSummary::for($client->fresh(), $staff)['details']['contact']); // «Name» is already the person
+
+        $client->primaryContact->forceFill(['type' => 'individual', 'company_name' => 'Acme Ltd', 'first_name' => 'Simon', 'last_name' => 'Example'])->save();
+        $this->assertNull(ClientSummary::for($client->fresh(), $staff)['details']['contact']);
+        $this->actingAs($staff)->get($url)->assertOk()->assertDontSee('data-field="contact"', false);
+    }
 }

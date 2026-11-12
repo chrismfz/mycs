@@ -90,6 +90,9 @@ class ClientSummary
             // The account's own name and email: its primary contact's, else its owner's (a legacy account, review F3).
             'name' => $client->name ?: null,
             'company' => $contact?->company_name,
+            // A business account is named by its company: the person behind it (owner 2026-11-13, nixpal #22), '' when none.
+            // Without a company the name is already the person's (displayName()).
+            'contact' => $contact?->type === 'business' && filled($contact->company_name) ? $contact->fullName() : null,
             'email' => $client->email ?: null,
             'address' => $contact?->address1,
             'address2' => $contact?->address2,
