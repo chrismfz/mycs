@@ -29,6 +29,7 @@ use App\Models\Staff;
 use App\Services\Clients\MoveToClient;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
+use App\Services\Service\AppliedOpenInvoices;
 use App\Services\Service\DeleteService;
 use App\Services\Service\WelcomeMail;
 use App\Services\ServiceUpgrade\ChangeCycle;
@@ -129,6 +130,10 @@ class EditService extends EditRecord
             Notification::make()->danger()->title(__('Not saved'))->body(e($e->getMessage()))->send();
 
             throw new Halt;
+        }
+        // The package changed back with its upgrade's invoice left open (sweep 10): told here, nothing refused.
+        foreach (AppliedOpenInvoices::warnings($record) as $warning) {
+            Notification::make()->warning()->title(__('An applied invoice is still open'))->body(e($warning))->persistent()->send();
         }
 
         return $record;

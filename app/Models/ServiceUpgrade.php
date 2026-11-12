@@ -135,6 +135,22 @@ class ServiceUpgrade extends Model implements Auditable
     }
 
     /**
+     * The service is still on what this upgrade gave it: its product and each option it set. The plan only when the
+     * upgrade kept the product (another plan of it was what it gave), or does not say what it changed from (one from
+     * before the history columns); else a plan of that product is its cycle (REV-805-R2-4).
+     */
+    public function heldBy(Service $service): bool
+    {
+        $sameProduct = $this->from_product_id === null || (int) $this->from_product_id === (int) $this->product_id;
+        if ((int) $service->product_id !== (int) $this->product_id || ($sameProduct && (int) $service->plan_id !== (int) $this->plan_id)) {
+            return false;
+        }
+        $on = $service->configs()->pluck('config_value_id', 'config_option_id');
+
+        return $this->configs->every(fn (ServiceConfig $config) => (int) ($on[$config->config_option_id] ?? 0) === (int) $config->config_value_id);
+    }
+
+    /**
      * What the upgrade charges now, net (Δ1), or gives back when negative (SVC-14, as WHMCS): the service's new recurring
      * amount less the one it has (`services.price`: a staff price or a coupon's counts), times its quantity, for the days
      * left to its expiry, of its real period (a year of 365 or 366 days; more than one period when a renewal was paid

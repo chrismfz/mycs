@@ -54,6 +54,7 @@ final class UnbilledServices
         $today = CarbonImmutable::today();
         $this->noDueDate();
         $this->periodNotPaid($today);
+        $this->appliedNotHeld();
         $this->upgradeNotPaid();
         $this->runsPastUnpaid($today);
         $this->pastDue($today);
@@ -171,6 +172,8 @@ final class UnbilledServices
                     continue; // covered, to be closed as paid: open_settled says so
                 }
                 $owes = number_format(RecordPaymentService::toCents($invoice->remaining) / 100, 2, '.', '');
+                // Either half is safe: the date moved back by staff un-applies the line, and its payment then renews the
+                // service as any open renewal (Service::applyStaffChanges, sweep 10).
                 $this->add(self::PERIOD_NOT_PAID, (int) $line->reference_id, "runs to {$runsTo} on invoice #{$invoice->id}, which is {$invoice->status} again"
                     . (isset($since[$invoice->id]) ? ' since ' . self::day($since[$invoice->id]) : '')
                     . " (owes {$owes} {$invoice->currency_code}): collect it, or move the due date back" . ($start !== null ? " to {$start}" : ''));
@@ -183,9 +186,49 @@ final class UnbilledServices
     }
 
     /**
+     * The other order of the same two steps (REV-805-R3-1): staff moved the due date back while the invoice was still
+     * paid (nothing is un-applied then: Service::applyStaffChanges), and its payment was taken back afterwards. The line
+     * is applied, its invoice unpaid and owing, and the service (active or suspended) is due before the line's period
+     * ends: paying the invoice renews nothing. Said every day until staff settle it; nothing is changed here.
+     */
+    private function appliedNotHeld(): void
+    {
+        $lines = InvoiceItem::query()->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
+            ->join('services', 'services.id', '=', 'invoice_items.reference_id')
+            ->where('invoice_items.reference_type', Service::class)
+            ->where(fn ($line) => $line->whereNull('invoice_items.kind')
+                ->orWhereNotIn('invoice_items.kind', [InvoiceItem::KIND_CHARGE, InvoiceItem::KIND_DISCOUNT]))
+            ->whereNotNull('invoice_items.applied_at')->whereNotNull('invoice_items.period_end')
+            ->where('invoices.status', Invoice::STATUS_UNPAID)->whereColumn('invoices.client_id', 'services.client_id')
+            ->whereIn('services.status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->whereNotNull('services.expires_at')
+            ->whereIn('services.plan_id', fn ($plans) => $plans->select('id')->from('plans')->whereNotIn('type', ['free', 'one-time']))
+            ->orderBy('invoice_items.id')
+            ->get(['invoice_items.id', 'invoice_items.invoice_id', 'invoice_items.reference_id', 'invoice_items.period_start',
+                'invoice_items.period_end', 'services.expires_at as service_expires_at'])
+            ->filter(fn (InvoiceItem $line) => self::day($line->getAttribute('service_expires_at')) < $line->period_end->toDateString());
+        if ($lines->isEmpty()) {
+            return;
+        }
+        $invoices = Invoice::query()->whereKey($lines->pluck('invoice_id')->unique()->all())->with(['items', 'adjustmentNotes', 'transactions'])->get()->keyBy('id');
+        foreach ($lines as $line) {
+            if (RecordPaymentService::toCents($invoices[$line->invoice_id]->remaining) <= 0) {
+                continue; // covered, to be closed as paid: open_settled says so
+            }
+            $end = $line->period_end->toDateString();
+            $this->add(self::PERIOD_NOT_PAID, (int) $line->reference_id, "invoice #{$line->invoice_id} is unpaid and its line already gave the period "
+                . ($line->period_start !== null ? "{$line->period_start->toDateString()} to {$end}" : "to {$end}")
+                . ', but the service is due ' . self::day($line->getAttribute('service_expires_at')) . ': paying this invoice will not renew it. '
+                . "Cancel the invoice with «Re-issue: bill them all again»; or, to collect it as it is, set the service's due date to {$end} "
+                . '(if it is then not paid, move the date back again)');
+        }
+    }
+
+    /**
      * The other thing a payment gives a service (REV-783-2): an upgrade paid and done, then its payment deleted, edited
      * down or charged back. Its invoice owes again and the service keeps the bigger package, while it is still on the
-     * product that upgrade gave it. A cancelled or refunded upgrade invoice is staff's own doing and is not told.
+     * product, plan and options that upgrade gave it. A cancelled or refunded upgrade invoice is staff's own doing and is not told.
+     * Cancelling it changes no package (nothing reads an upgrade's invoice once it is completed), so the advice names
+     * both steps: the package changed back alone leaves an invoice that applies nothing when paid (S10-STAFF-FREEDOM-2).
      */
     private function upgradeNotPaid(): void
     {
@@ -194,10 +237,11 @@ final class UnbilledServices
             ->where('service_upgrades.status', ServiceUpgrade::STATUS_COMPLETED)
             ->whereIn('invoices.status', Invoice::OPEN_STATUSES)
             ->whereColumn('invoices.client_id', 'services.client_id')
-            ->whereColumn('services.product_id', 'service_upgrades.product_id')
             ->whereIn('services.id', self::running()->select('services.id'))
             ->orderBy('service_upgrades.id')->with('product:id,name')
-            ->get(['service_upgrades.id', 'service_upgrades.service_id', 'service_upgrades.product_id', 'service_upgrades.invoice_id', 'service_upgrades.applied_at']);
+            ->get(['service_upgrades.id', 'service_upgrades.service_id', 'service_upgrades.product_id', 'service_upgrades.plan_id', 'service_upgrades.from_product_id', 'service_upgrades.invoice_id', 'service_upgrades.applied_at'])
+            // Still on what it gave: the product, the plan and its options (REV-805-2), not once staff put them back.
+            ->filter(fn (ServiceUpgrade $upgrade) => ($service = Service::query()->find($upgrade->service_id)) !== null && $upgrade->heldBy($service));
         if ($upgrades->isEmpty()) {
             return;
         }
@@ -210,7 +254,7 @@ final class UnbilledServices
             }
             $this->add(self::PERIOD_NOT_PAID, (int) $upgrade->service_id, 'runs on ' . ($upgrade->product->name ?? "product #{$upgrade->product_id}")
                 . ($upgrade->applied_at !== null ? ' since ' . self::day($upgrade->applied_at) : '') . " by upgrade invoice #{$invoice->id}, which is {$invoice->status} again (owes "
-                . number_format($owes / 100, 2, '.', '') . " {$invoice->currency_code}): collect it, or change the package back");
+                . number_format($owes / 100, 2, '.', '') . " {$invoice->currency_code}): collect it, or cancel the invoice and change the package back (product, plan and price)");
         }
     }
 

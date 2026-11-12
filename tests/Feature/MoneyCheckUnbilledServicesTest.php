@@ -230,9 +230,13 @@ class MoneyCheckUnbilledServicesTest extends TestCase
         (new RecordPaymentService)->deleteTransaction($payment);
         $this->assertSame([$service->id => [UnbilledServices::PERIOD_NOT_PAID]], $this->kinds());
 
-        // Moved back: an ordinary service with an open invoice due on its date.
+        // Moved back around staff's path (a bare update un-applies nothing): the line is applied on an unpaid invoice and the
+        // service no longer holds its period, which the rule tells since #805 (REV-805-R3-1; it asserted no finding here).
+        // Moved back by staff (Service::applyStaffChanges) it is an ordinary service with an open invoice: Sweep10UnbilledAdviceTest.
         $service->fresh()->update(['expires_at' => '2026-11-15']);
-        $this->assertSame([], $this->kinds());
+        $this->assertSame(["invoice #{$invoice->id} is unpaid and its line already gave the period 2026-11-15 to 2026-12-15, but the service is due 2026-11-15: "
+            . 'paying this invoice will not renew it. Cancel the invoice with «Re-issue: bill them all again»; or, to collect it as it is, '
+            . "set the service's due date to 2026-12-15 (if it is then not paid, move the date back again)"], $this->details($service));
 
         // Or paid again (the date as it was): the line is not applied twice.
         $service->fresh()->update(['expires_at' => '2026-12-15']);
