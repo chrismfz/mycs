@@ -627,6 +627,13 @@ class Show extends Component
     public function toggleAutoCharge(): void
     {
         abort_unless($this->setsPaymentMethod(), 403);
+        // Only where the page offers it, as its payment method (sweep 10, S10-CLIENT-PORTAL-1): one that has not started
+        // has only its order's invoice, which is not split (a «Requires» promotion paid without the required product).
+        if (!ItemPaymentAccess::offersChoice($this->domain)) {
+            $this->notify(__('services.payment_method_not_available'), 'error');
+
+            return;
+        }
         $on = (bool) $this->domain->no_auto_charge;
         if ($on && Actor::impersonating() && !Actor::staffMayAs('pay')) {
             $this->notify(__('account.notifications.not_while_impersonating_money'), 'error');
