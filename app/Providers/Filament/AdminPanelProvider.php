@@ -6,6 +6,7 @@ use App\Admin\Auth\AppAuthentication;
 use App\Admin\Auth\EditProfile;
 use App\Admin\Auth\Login;
 use App\Admin\Resources\InvoiceResource;
+use App\Admin\Resources\TicketResource;
 use App\Http\Controllers\Admin\LoginAsClientController;
 use App\Http\Controllers\Admin\ServicePanelLoginController;
 use App\Http\Controllers\Admin\TicketPresenceController;
@@ -164,6 +165,8 @@ class AdminPanelProvider extends PanelProvider
                     ? Blade::render("@livewire('admin.staff-heartbeat')")
                         // The staff chat's sound, notification and count in the tab's title (§7γ), for those in the chat.
                         . (StaffChat::canView($staff) || LiveChats::isOperator($staff) ? Blade::render("@livewire('admin.staff-chat-notifier')") : '')
+                        // The tickets' live badge and «New ticket» notice (owner 2026-11-12), for those who see the tickets.
+                        . (TicketResource::canAccess() ? Blade::render("@livewire('admin.ticket-notifier')") : '')
                     : '',
             )
             ->renderHook(

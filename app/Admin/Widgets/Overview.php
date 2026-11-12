@@ -6,6 +6,8 @@ use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\OrderResource;
 use App\Admin\Resources\ServiceCancellationResource;
+use App\Admin\Resources\ServiceResource;
+use App\Admin\Resources\TicketResource;
 use App\Classes\Price;
 use App\Enums\DashboardPeriod;
 use App\Models\Credit;
@@ -49,8 +51,9 @@ class Overview extends BaseWidget
             $this->pendingOrders(),
             $this->invoiceTransaction(),
             // Fewer new tickets is the good outcome, so the trend color is inverted
-            $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true),
-            $this->getData(Service::class, 'Services'),
+            // Both open their list (owner 2026-11-12), as the other cards do.
+            $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true)->url(TicketResource::getUrl('index')),
+            $this->getData(Service::class, 'Services')->url(ServiceResource::getUrl('index')),
             $this->clientsWithCredit(),
             $this->pendingCancellations(),
             $this->pendingModuleActions(),

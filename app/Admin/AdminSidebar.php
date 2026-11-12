@@ -73,7 +73,7 @@ class AdminSidebar
         return self::SESSION . '.' . (auth('staff')->id() ?? 0);
     }
 
-    /** @return list<array{label: string, url: string, badge: ?string, color: string}> the queues this staff member may open */
+    /** @return list<array{label: string, url: string, badge: ?string, color: string, live: bool}> the queues this staff member may open */
     public static function queues(): array
     {
         $counted = self::navigationBadges();
@@ -102,7 +102,8 @@ class AdminSidebar
                     [$badge, $color] = $counted[$base] ?? ($clusterUrl !== null ? ($counted[$clusterUrl] ?? null) : null)
                         ?? [$class::getNavigationBadge(), $class::getNavigationBadgeColor()];
                 }
-                $queues[] = ['label' => $label, 'url' => $url, 'badge' => $badge === null ? null : (string) $badge, 'color' => $color ?? 'gray'];
+                // The tickets' count is kept live by the ticket notifier in the page's footer (owner 2026-11-12).
+                $queues[] = ['label' => $label, 'url' => $url, 'badge' => $badge === null ? null : (string) $badge, 'color' => $color ?? 'gray', 'live' => $class === TicketResource::class && $own === null];
             } catch (\Throwable) {
                 // A page that cannot build its URL right now is left out, as in the top menu.
             }
