@@ -401,7 +401,7 @@ class Stripe extends Gateway
                     break;
                 }
                 ExtensionHelper::addProcessingPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id, currency: $paymentIntent->currency ?? null, paymentGroup: $paymentIntent->metadata->payment_group ?? null,
-                    onItsWayNow: $this->failedIntentIsOnItsWay((string) $paymentIntent->id));
+                    onItsWayNow: $this->intentNow((string) $paymentIntent->id, InvoiceTransactionStatus::Failed) === 'processing');
                 break;
                 // Normal payment
             case 'payment_intent.succeeded':
@@ -425,6 +425,22 @@ class Stripe extends Gateway
                 if (!GatewayReference::isOurs($paymentIntent->metadata->mycs ?? null)) {
                     // Another system's payment on this account (WHMCS's, with its own invoice numbers): never ours (S0-6).
                     GatewayReference::foreign('Stripe', $event->type, $paymentIntent->id ?? null, isset($paymentIntent->amount) ? $paymentIntent->amount / 100 : null, $paymentIntent->currency ?? null);
+                    break;
+                }
+                // A late or repeated copy of an old failure, while a later attempt on the same intent is on its way (or
+                // came): the payment stays as it is, and the hold on its invoice with it (S10-PAYMENTS-1).
+                // An intent Stripe does not know (404: deleted, the other mode's) is not on its way: failed, as the event
+                // says; thrown, every such event would fail for ever and the payment hold its invoice for good.
+                try {
+                    $now = $this->intentNow((string) $paymentIntent->id, InvoiceTransactionStatus::Processing);
+                } catch (RequestException $e) {
+                    if ($e->response->status() !== 404) {
+                        throw $e;
+                    }
+                    $now = null;
+                }
+                if (in_array($now, ['processing', 'succeeded'], true)) {
+                    GatewayLog::current()->result(PaymentGatewayEvent::OUTCOME_IGNORED, 'intent_not_failed', ['external_id' => $paymentIntent->id, 'invoice_id' => $paymentIntent->metadata->invoice_id]);
                     break;
                 }
                 $failed = ExtensionHelper::addFailedPayment($paymentIntent->metadata->invoice_id, 'Stripe', $paymentIntent->amount / 100, null, $paymentIntent->id);
@@ -1209,16 +1225,18 @@ class Stripe extends Gateway
     }
 
     /**
-     * «Processing» for an intent whose payment here is failed: a late copy of an old event (S6-PAYMENTS-1), or a new
-     * attempt on the same intent (a card declined, then a bank debit on the same form: REV-766-1). The event cannot tell,
-     * so Stripe is asked once what the intent is now. A failure of the call is thrown: Stripe sends the event again.
+     * An event that would turn an intent's payment here from $from to the other of failed and processing: «processing»
+     * for a failed one (S6-PAYMENTS-1), a failure for one that is processing (S10-PAYMENTS-1). It is a late copy of an old
+     * event, or news (a card declined, then a bank debit on the same form: REV-766-1; a bank debit that bounced). The
+     * event cannot tell, so Stripe is asked once what the intent is now: its status, or null when the payment here is not
+     * $from (nothing to ask). A failure of the call is thrown: nothing changes and Stripe sends the event again.
      */
-    private function failedIntentIsOnItsWay(string $id): bool
+    private function intentNow(string $id, InvoiceTransactionStatus $from): ?string
     {
-        $failed = InvoiceTransaction::query()->where('transaction_id', $id)->where('status', InvoiceTransactionStatus::Failed)
+        $is = InvoiceTransaction::query()->where('transaction_id', $id)->where('status', $from)
             ->whereHas('gateway', fn ($gateway) => $gateway->where('extension', 'Stripe'))->exists();
 
-        return $failed && ($this->request('get', '/payment_intents/' . $id)->status ?? null) === 'processing';
+        return $is ? ($this->request('get', '/payment_intents/' . $id)->status ?? null) : null;
     }
 
     /**
