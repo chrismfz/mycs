@@ -54,6 +54,7 @@ final class UnbilledServices
         $today = CarbonImmutable::today();
         $this->noDueDate();
         $this->periodNotPaid($today);
+        $this->appliedNotHeld();
         $this->upgradeNotPaid();
         $this->runsPastUnpaid($today);
         $this->pastDue($today);
@@ -181,6 +182,44 @@ final class UnbilledServices
                 $this->add(self::PERIOD_NOT_PAID, (int) $line->reference_id, "runs to {$runsTo} on invoice #{$invoice->id}, which is {$invoice->status}: "
                     . 'nothing pays for the period ' . ($start !== null ? "from {$start}" : "to {$end}") . ': bill it again, or move the due date back');
             }
+        }
+    }
+
+    /**
+     * The other order of the same two steps (REV-805-R3-1): staff moved the due date back while the invoice was still
+     * paid (nothing is un-applied then: Service::applyStaffChanges), and its payment was taken back afterwards. The line
+     * is applied, its invoice unpaid and owing, and the service (active or suspended) is due before the line's period
+     * ends: paying the invoice renews nothing. Said every day until staff settle it; nothing is changed here.
+     */
+    private function appliedNotHeld(): void
+    {
+        $lines = InvoiceItem::query()->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
+            ->join('services', 'services.id', '=', 'invoice_items.reference_id')
+            ->where('invoice_items.reference_type', Service::class)
+            ->where(fn ($line) => $line->whereNull('invoice_items.kind')
+                ->orWhereNotIn('invoice_items.kind', [InvoiceItem::KIND_CHARGE, InvoiceItem::KIND_DISCOUNT]))
+            ->whereNotNull('invoice_items.applied_at')->whereNotNull('invoice_items.period_end')
+            ->where('invoices.status', Invoice::STATUS_UNPAID)->whereColumn('invoices.client_id', 'services.client_id')
+            ->whereIn('services.status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->whereNotNull('services.expires_at')
+            ->whereIn('services.plan_id', fn ($plans) => $plans->select('id')->from('plans')->whereNotIn('type', ['free', 'one-time']))
+            ->orderBy('invoice_items.id')
+            ->get(['invoice_items.id', 'invoice_items.invoice_id', 'invoice_items.reference_id', 'invoice_items.period_start',
+                'invoice_items.period_end', 'services.expires_at as service_expires_at'])
+            ->filter(fn (InvoiceItem $line) => self::day($line->getAttribute('service_expires_at')) < $line->period_end->toDateString());
+        if ($lines->isEmpty()) {
+            return;
+        }
+        $invoices = Invoice::query()->whereKey($lines->pluck('invoice_id')->unique()->all())->with(['items', 'adjustmentNotes', 'transactions'])->get()->keyBy('id');
+        foreach ($lines as $line) {
+            if (RecordPaymentService::toCents($invoices[$line->invoice_id]->remaining) <= 0) {
+                continue; // covered, to be closed as paid: open_settled says so
+            }
+            $end = $line->period_end->toDateString();
+            $this->add(self::PERIOD_NOT_PAID, (int) $line->reference_id, "invoice #{$line->invoice_id} is unpaid and its line already gave the period "
+                . ($line->period_start !== null ? "{$line->period_start->toDateString()} to {$end}" : "to {$end}")
+                . ', but the service is due ' . self::day($line->getAttribute('service_expires_at')) . ': paying this invoice will not renew it. '
+                . "Cancel the invoice with «Re-issue: bill them all again»; or, to collect it as it is, set the service's due date to {$end} "
+                . '(if it is then not paid, move the date back again)');
         }
     }
 

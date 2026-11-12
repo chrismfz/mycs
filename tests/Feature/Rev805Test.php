@@ -162,9 +162,7 @@ class Rev805Test extends TestCase
      */
     public function test_an_imported_line_without_period_paid_after_the_date_was_moved_back_tells_staff(): void
     {
-        $this->markTestIncomplete('open (2026-11-12): given again when the service has an earlier invoice '
-            . '(Sweep10UnbilledAdviceTest::test_an_imported_line_without_period_is_renewed_when_paid_after_the_date_was_moved_back); here it is '
-            . 'the service\'s only invoice, read as its first order\'s line (RenewServiceService::isFirstOrderLine): nothing given, nobody told');
+        $this->markTestIncomplete('known (2026-11-12): an imported line without a period cannot be given again; cutover-runbook');
         Carbon::setTestNow('2026-09-20 10:00:00');
         $this->plan->update(['name' => 'Monthly']);
         $this->whmcs($this->user->client()->id, $this->product->id);

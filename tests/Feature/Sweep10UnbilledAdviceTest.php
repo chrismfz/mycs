@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\InvoiceResource\Pages\ListInvoices;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\UnsuspendJob;
@@ -456,34 +457,109 @@ class Sweep10UnbilledAdviceTest extends TestCase
         $this->assertSame('2026-12-15', $service->fresh()->expires_at->toDateString());
     }
 
-    // (f) An imported line with no period (REV-805-1), on a service with an earlier invoice.
-    public function test_an_imported_line_without_period_is_renewed_when_paid_after_the_date_was_moved_back(): void
+    // An imported line with no period is as on main (REV-805-R3-2): never un-applied, so paid again it gives nothing.
+    public function test_an_imported_line_without_period_is_left_as_on_main(): void
     {
         [$service, $invoice] = $this->importedThenPaymentDeleted();
         $service->applyStaffChanges(['expires_at' => '2026-09-15']);
-        $this->assertNull($invoice->fresh()->items->first()->applied_at);
+        $this->assertNotNull($invoice->fresh()->items->first()->applied_at, 'still applied');
 
         Carbon::setTestNow('2026-09-22 10:00:00');
         (new RecordPaymentService)->recordByStaff($invoice->fresh(), null, '10.00', 'bank-2');
 
-        $line = $invoice->fresh()->items->first();
-        $this->assertSame([Invoice::STATUS_PAID, '2026-10-15', '2026-09-15', '2026-10-15'],
-            [$invoice->fresh()->status, $service->fresh()->expires_at->toDateString(), $line->period_start->toDateString(), $line->period_end->toDateString()]);
-        $this->cronUntil('2026-09-30');
-        $this->assertSame([Service::STATUS_ACTIVE, 2], [$service->fresh()->status, $this->lines($service)], 'nothing billed twice');
+        $this->assertSame([Invoice::STATUS_PAID, '2026-09-15', null], [$invoice->fresh()->status, $service->fresh()->expires_at->toDateString(), $invoice->fresh()->items->first()->period_end]);
     }
 
-    // (b) for a line with no period, pinned as it is: the date moved forward again by hand, then paid, adds a cycle.
-    public function test_an_imported_line_without_period_adds_a_cycle_when_the_date_was_moved_forward_again(): void
+    // The other order (REV-805-R3-1): the date moved back while the invoice was paid, the payment deleted after.
+
+    /** @return array{Service, Invoice} the renewal 11-15..12-15 paid, the date moved back to 11-15, then the payment deleted */
+    private function dateBackThenPaymentDeleted(): array
     {
-        [$service, $invoice] = $this->importedThenPaymentDeleted();
-        $service->applyStaffChanges(['expires_at' => '2026-09-15']);
-        $service->fresh()->applyStaffChanges(['expires_at' => '2026-10-15']);
+        $service = $this->service('2026-11-15');
+        $invoice = $this->renewal($service, '2026-11-15');
+        $payment = (new RecordPaymentService)->recordByStaff($invoice, null, '10.00', 'bank-1');
+        $service->fresh()->applyStaffChanges(['expires_at' => '2026-11-15']);
+        (new RecordPaymentService)->deleteTransaction($payment->fresh());
+        $this->assertNotNull($invoice->fresh()->items->first()->applied_at, 'nothing was un-applied: the invoice was paid when the date moved');
 
-        Carbon::setTestNow('2026-09-22 10:00:00');
+        return [$service->fresh(), $invoice->fresh()];
+    }
+
+    private function notHeld(Invoice $invoice): string
+    {
+        return "invoice #{$invoice->id} is unpaid and its line already gave the period 2026-11-15 to 2026-12-15, but the service is due 2026-11-15: "
+            . 'paying this invoice will not renew it. Cancel the invoice with «Re-issue: bill them all again»; or, to collect it as it is, '
+            . "set the service's due date to 2026-12-15 (if it is then not paid, move the date back again)";
+    }
+
+    public function test_the_money_check_tells_of_an_applied_unpaid_invoice_whose_service_no_longer_holds_its_period(): void
+    {
+        [$service, $invoice] = $this->dateBackThenPaymentDeleted();
+
+        $this->assertSame([$this->notHeld($invoice)], $this->told($service));
+        $this->assertSame([['rule' => 'service_unbilled', 'subject' => "service #{$service->id}", 'detail' => $this->notHeld($invoice)]], (new MoneyCheck)->run());
+
+        // Suspended for it by the cron: still told (a payment would bring it back with nothing renewed).
+        $this->cronUntil('2026-11-24');
+        $this->assertSame([Service::STATUS_SUSPENDED, [$this->notHeld($invoice)]], [$service->fresh()->status, $this->told($service)]);
+        // Ended, or its invoice cancelled: nothing more to tell.
+        $service->fresh()->applyStaffChanges(['status' => Service::STATUS_CANCELLED]);
+        $this->assertSame([], $this->told($service));
+    }
+
+    public function test_its_first_advice_is_true_cancelled_to_be_billed_again(): void
+    {
+        [$service, $invoice] = $this->dateBackThenPaymentDeleted();
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'All' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(ListInvoices::class)
+            ->callTableAction('cancel', $invoice, data: ['cancellation_reason' => 'not collected', 'periods' => 'keep'])->assertHasNoTableActionErrors();
+        $this->assertSame([Invoice::STATUS_CANCELLED, []], [$invoice->fresh()->status, $this->told($service)]);
+
+        $this->cronUntil('2026-11-11');
+        $again = Invoice::query()->where('status', Invoice::STATUS_UNPAID)->sole();
+        (new RecordPaymentService)->recordByStaff($again, null, '10.00', 'bank-2');
+        $this->assertSame([Invoice::STATUS_PAID, '2026-12-15', []], [$again->fresh()->status, $service->fresh()->expires_at->toDateString(), $this->told($service)]);
+    }
+
+    public function test_its_second_advice_is_true_the_date_set_to_the_periods_end(): void
+    {
+        // Collected: the service holds the period it then pays for.
+        [$service, $invoice] = $this->dateBackThenPaymentDeleted();
+        $service->applyStaffChanges(['expires_at' => '2026-12-15']);
+        $this->assertSame(["runs to 2026-12-15 on invoice #{$invoice->id}, which is unpaid again since 2026-11-10 (owes 10.00 USD): "
+            . 'collect it, or move the due date back to 2026-11-15'], $this->told($service), 'the ordinary «period not paid» now');
+        Carbon::setTestNow('2026-11-12 10:00:00');
         (new RecordPaymentService)->recordByStaff($invoice->fresh(), null, '10.00', 'bank-2');
+        $this->assertSame([Invoice::STATUS_PAID, '2026-12-15', []], [$invoice->fresh()->status, $service->fresh()->expires_at->toDateString(), (new MoneyCheck)->run()]);
 
-        $this->assertSame('2026-11-15', $service->fresh()->expires_at->toDateString(), 'a line with no period takes the first period not covered: one after the date staff set');
+        // Not paid: the date moved back again, now with the invoice unpaid, un-applies the line; it renews when paid.
+        [$other, $second] = $this->dateBackThenPaymentDeleted();
+        $other->applyStaffChanges(['expires_at' => '2026-12-15']);
+        $other->fresh()->applyStaffChanges(['expires_at' => '2026-11-15']);
+        $this->assertSame([null, []], [$second->fresh()->items->first()->applied_at, $this->told($other)]);
+        (new RecordPaymentService)->recordByStaff($second->fresh(), null, '10.00', 'bank-3');
+        $this->assertSame('2026-12-15', $other->fresh()->expires_at->toDateString());
+    }
+
+    public function test_that_finding_is_not_for_the_ordinary_cases(): void
+    {
+        // The payment taken back, the date untouched: the existing finding, not this one.
+        [$holds, $first] = $this->renewedThenPaymentDeleted();
+        $this->assertSame(["runs to 2026-12-15 on invoice #{$first->id}, which is unpaid again since 2026-11-10 (owes 10.00 USD): "
+            . 'collect it, or move the due date back to 2026-11-15'], $this->told($holds));
+        // After a proper un-apply (the date moved back while unpaid): an ordinary open renewal.
+        $holds->applyStaffChanges(['expires_at' => '2026-11-15']);
+        $this->assertSame([], $this->told($holds));
+        // A paid invoice, its date moved back by staff: theirs.
+        $paid = $this->service('2026-11-15');
+        (new RecordPaymentService)->recordByStaff($this->renewal($paid, '2026-11-15'), null, '10.00', 'bank-5');
+        $paid->fresh()->applyStaffChanges(['expires_at' => '2026-12-01']);
+        $this->assertSame([], $this->told($paid));
+        // An ordinary unpaid renewal, never applied.
+        $plain = $this->service('2026-11-15');
+        $this->renewal($plain, '2026-11-15');
+        $this->assertSame([], $this->told($plain));
     }
 
     // (g) Two unpaid applied lines: both un-applied; each payment gives its period, in a chain.
@@ -542,6 +618,17 @@ class Sweep10UnbilledAdviceTest extends TestCase
         $this->assertSame($this->big->id, (int) $service->fresh()->product_id);
         $this->assertSame([], $this->told($service), 'a cancelled upgrade invoice is staff\'s own doing');
         $this->assertSame([], AppliedOpenInvoices::warnings($service->fresh()->forceFill(['product_id' => $this->product->id, 'plan_id' => $this->plan->id])));
+    }
+
+    public function test_an_upgrade_that_does_not_say_what_it_changed_from_is_held_by_its_plan_too(): void
+    {
+        [$service, , $upgrade] = $this->upgradedThenPaymentDeleted();
+        $this->assertTrue($upgrade->heldBy($service));
+        $other = Plan::factory()->create(['priceable_id' => $this->big->id, 'priceable_type' => Product::class, 'name' => 'Yearly',
+            'billing_unit' => 'year', 'billing_period' => 1, 'type' => 'recurring']);
+
+        $this->assertTrue($upgrade->heldBy($service->forceFill(['plan_id' => $other->id])), 'another product before: a plan of Big is its cycle');
+        $this->assertFalse($upgrade->forceFill(['from_product_id' => null])->heldBy($service), 'from before the history columns: the plan counts');
     }
 
     public function test_the_form_warns_when_the_package_is_changed_back_with_the_upgrade_invoice_left_open(): void

@@ -686,14 +686,15 @@ class Service extends Model implements Auditable
             $dueBefore = $locked->getOriginal('expires_at');
             $locked->save();
             // The due date moved back by staff takes back what an unpaid invoice gave (owner 2026-11-12, sweep 10): its
-            // lines applied before (the payment deleted or charged back since) that reach past the new date, or have no
-            // period (an import), are not applied any more, so paying the invoice renews the service as any open renewal
-            // does. A paid (or cancelled, refunded) invoice's lines stay: a date set while it is paid is staff's.
+            // lines applied before (the payment deleted or charged back since) that reach past the new date are not
+            // applied any more, so paying the invoice renews the service as any open renewal does. A paid (or cancelled,
+            // refunded) invoice's lines stay: a date set while it is paid is staff's. So does a line with no period (an
+            // import): it names none to give back, and would take a whole new cycle (REV-805-R3-2).
             if ($dueBefore !== null && $locked->expires_at !== null
                 && CarbonImmutable::parse($locked->expires_at)->startOfDay()->lessThan(CarbonImmutable::parse($dueBefore)->startOfDay())) {
                 $locked->invoiceItems()->whereNotNull('applied_at')
                     ->where(fn ($line) => $line->whereNull('kind')->orWhereNotIn('kind', [InvoiceItem::KIND_CHARGE, InvoiceItem::KIND_DISCOUNT]))
-                    ->where(fn ($line) => $line->whereNull('period_end')->orWhereDate('period_end', '>', CarbonImmutable::parse($locked->expires_at)->toDateString()))
+                    ->whereDate('period_end', '>', CarbonImmutable::parse($locked->expires_at)->toDateString())
                     ->whereHas('invoice', fn ($invoice) => $invoice->where('status', Invoice::STATUS_UNPAID))
                     ->update(['applied_at' => null]);
             }
