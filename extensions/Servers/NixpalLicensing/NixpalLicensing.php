@@ -41,6 +41,8 @@ class NixpalLicensing extends Server
                 'description' => 'The customer may reissue the license (up to ' . Licenses::MAX_REISSUES . ' times).'],
             ['name' => 'allow_ip_conflict', 'type' => 'checkbox', 'label' => 'Allow IP Conflict', 'default' => false, 'database_type' => 'boolean',
                 'description' => 'Answer Active from any IP (WHMCS configoption5).'],
+            ['name' => 'bulk', 'type' => 'checkbox', 'label' => 'Bulk license', 'default' => false, 'database_type' => 'boolean',
+                'description' => 'One key for a list of IPs that staff and the customer keep: never bound by a check, no reissue, no IP conflict (docs/zonecloud-bulk-license.md). Only on a new product: switched on a product with licenses, theirs answer «IP Address Invalid»; switched off, a bulk one binds to the first caller.'],
             ['name' => 'custom_fields', 'type' => 'text', 'label' => 'Custom Fields Reported', 'required' => false, 'placeholder' => 'comments',
                 'description' => 'Service properties reported in «customfields», comma separated (WHMCS product custom fields).'],
         ];

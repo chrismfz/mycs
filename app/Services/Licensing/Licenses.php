@@ -110,12 +110,21 @@ class Licenses
         return $license;
     }
 
-    /** Whether the customer may reissue it now (WHMCS: Active, the product allows it, under the limit). */
+    /**
+     * A license of a bulk product (docs/zonecloud-bulk-license.md): its IPs are a list staff and the customer keep, never
+     * bound by a check, never reissued.
+     */
+    public static function isBulk(?Service $service): bool
+    {
+        return filter_var(ExtensionHelper::settingsToArray($service?->product->settings ?? collect())['bulk'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /** Whether the customer may reissue it now (WHMCS: Active, the product allows it, under the limit; never a bulk one). */
     public static function canReissue(License $license): bool
     {
         $settings = ExtensionHelper::settingsToArray($license->service?->product->settings ?? collect());
 
-        return $license->status === License::STATUS_ACTIVE
+        return $license->status === License::STATUS_ACTIVE && !self::isBulk($license->service)
             && filter_var($settings['allow_reissue'] ?? false, FILTER_VALIDATE_BOOLEAN)
             && $license->reissues < self::MAX_REISSUES;
     }
@@ -134,6 +143,10 @@ class Licenses
             }
             if ($byStaff && !in_array($locked->status, [License::STATUS_ACTIVE, License::STATUS_REISSUED], true)) {
                 throw new DisplayException(__('Only an active license can be reissued.'));
+            }
+            // A bulk license has no binding to clear: its IPs are a list (staff too).
+            if (self::isBulk($license->service)) {
+                throw new DisplayException(__('This license cannot be reissued.'));
             }
             $locked->update([
                 'status' => License::STATUS_REISSUED,

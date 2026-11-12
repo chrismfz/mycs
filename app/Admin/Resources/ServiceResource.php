@@ -24,6 +24,7 @@ use App\Models\Contact;
 use App\Models\CpanelAccount;
 use App\Models\Currency;
 use App\Models\License;
+use App\Models\LicenseIp;
 use App\Models\MailcowDomain;
 use App\Models\Plan;
 use App\Models\Product;
@@ -438,10 +439,15 @@ class ServiceResource extends Resource
                         TextEntry::make('license.status')->label('Status')->badge()->color(fn (?string $state) => match ($state) {
                             License::STATUS_ACTIVE => 'success', License::STATUS_EXPIRED => 'danger', default => 'warning',
                         }),
-                        TextEntry::make('license.reissues')->label('Reissues')->state(fn (Service $record) => $record->license?->reissues . ' / ' . Licenses::MAX_REISSUES),
-                        TextEntry::make('license.valid_ip')->label('Valid IPs')->placeholder('Not bound yet'),
-                        TextEntry::make('license.valid_domain')->label('Valid domains')->placeholder('—'),
-                        TextEntry::make('license.valid_directory')->label('Valid directory')->placeholder('—'),
+                        TextEntry::make('license.reissues')->label('Reissues')->state(fn (Service $record) => $record->license?->reissues . ' / ' . Licenses::MAX_REISSUES)
+                            ->hidden(fn (Service $record) => Licenses::isBulk($record)),
+                        TextEntry::make('license.valid_ip')->label('Valid IPs')->placeholder('Not bound yet')->hidden(fn (Service $record) => Licenses::isBulk($record)),
+                        TextEntry::make('license.valid_domain')->label('Valid domains')->placeholder('—')->hidden(fn (Service $record) => Licenses::isBulk($record)),
+                        TextEntry::make('license.valid_directory')->label('Valid directory')->placeholder('—')->hidden(fn (Service $record) => Licenses::isBulk($record)),
+                        // A bulk license (docs/zonecloud-bulk-license.md): its list, «Add IPs» / «Remove IPs» under «More».
+                        TextEntry::make('license_ips')->label('IP addresses')->columnSpanFull()->listWithLineBreaks()->placeholder('None yet')
+                            ->visible(fn (Service $record) => Licenses::isBulk($record))
+                            ->state(fn (Service $record) => self::bulkIps($record)),
                         TextEntry::make('license.last_ok_at')->label('Last good check')->since()->dateTimeTooltip()->placeholder('Never'),
                         TextEntry::make('license.last_seen_ip')->label('Last seen from')
                             ->state(fn (Service $record) => trim(($record->license->last_seen_ip ?? '') . ' ' . ($record->license->last_seen_client ?? '')) ?: null)->placeholder('—'),
@@ -583,6 +589,23 @@ class ServiceResource extends Resource
                     self::deleteBulkAction(),
                 ]),
             ]);
+    }
+
+    /**
+     * A bulk license's IPs on its list: «IP  name · since … · last good check …».
+     *
+     * @return list<string>
+     */
+    private static function bulkIps(Service $record): array
+    {
+        if ($record->license === null) {
+            return [];
+        }
+
+        return $record->license->ips()->active()->orderBy('ip')->get()
+            ->map(fn (LicenseIp $row) => trim($row->ip . '  ' . ($row->label ?? '')) . ' · since ' . $row->added_at->toDateString()
+                . ' · ' . ($row->last_ok_at ? 'last good check ' . $row->last_ok_at->diffForHumans() : 'never checked'))
+            ->all();
     }
 
     /** «ok / failed» over the last 30 days, from license_check_days. */

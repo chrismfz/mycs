@@ -4,6 +4,7 @@ namespace App\Services\Licensing;
 
 use App\Models\License;
 use App\Models\LicenseAccessLog;
+use App\Models\LicenseIp;
 use Illuminate\Support\Facades\DB;
 use Nixpal\Licensing\ZlicResponse;
 
@@ -28,6 +29,11 @@ class LicenseActivity
             ? ['last_ok_at' => $now, 'last_seen_ip' => mb_substr($ip, 0, 64), 'last_seen_client' => mb_substr($client, 0, 255)]
             // A failure says when, why and from where, without overwriting where it last worked (anyone may send one).
             : ['last_failure_at' => $now, 'last_failure' => mb_substr(trim((string) ($response->body['message'] ?? $response->body['description'] ?? $response->body['status'] ?? '') . ' (' . $ip . ')'), 0, 255)]);
+
+        // A bulk license's IP that answered (none for a single one): the customer sees which servers still run.
+        if ($ok && ($address = LicenseIp::normalize($ip)) !== null) {
+            LicenseIp::query()->where('license_id', $license->id)->where('ip', $address)->whereNull('removed_at')->update(['last_ok_at' => $now]);
+        }
 
         $column = $ok ? 'ok' : 'failed';
         $day = $now->toDateString();

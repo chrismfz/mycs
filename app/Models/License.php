@@ -74,6 +74,12 @@ class License extends Model implements Auditable
             fn (string $domain) => $domain !== '' && filter_var(preg_replace('/^www\./i', '', $domain), FILTER_VALIDATE_IP) === false));
     }
 
+    /** @return HasMany<LicenseIp, $this> a bulk license's IPs, with the removed ones */
+    public function ips(): HasMany
+    {
+        return $this->hasMany(LicenseIp::class);
+    }
+
     /** @return HasMany<LicenseAccessLog, $this> */
     public function accessLogs(): HasMany
     {
