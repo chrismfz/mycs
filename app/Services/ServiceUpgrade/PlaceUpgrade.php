@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Licensing\Licenses;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
 use Carbon\CarbonImmutable;
@@ -211,8 +212,8 @@ final class PlaceUpgrade
     {
         $service = Service::where('id', $service->id)->lockForUpdate()->first();
 
-        // Validate upgradable again after locking the service
-        if ($service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->count() != 0) {
+        // Validate upgradable again after locking the service. Never a bulk license (docs/zonecloud-bulk-license.md §6.0).
+        if ($service->upgrade()->where('status', ServiceUpgrade::STATUS_PENDING)->count() != 0 || Licenses::isBulk($service)) {
             return new self(self::NOT_UPGRADABLE);
         }
         if ($service->next_plan_id !== null) {

@@ -11,6 +11,7 @@ use App\Redactors\FullRedactor;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\LineTax;
+use App\Services\Licensing\Licenses;
 use App\Services\Order\OrderPricing;
 use App\Services\Service\AddonCycle;
 use App\Services\Service\RemoveCoupon;
@@ -1316,6 +1317,8 @@ class Service extends Model implements Auditable
                 // Nor a recurring one with no due date (a «Free Account» from WHMCS): never billed, an upgrade paid once
                 // would keep the dearer product for good (adversarial ADV-594-2). Staff give it a date first.
                 && !($this->plan->type === 'recurring' && $this->expires_at === null)
+                // Nor a bulk license: billed at its IPs, monthly (docs/zonecloud-bulk-license.md).
+                && !Licenses::isBulk($this)
         );
     }
 

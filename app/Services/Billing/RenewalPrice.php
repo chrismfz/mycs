@@ -2,7 +2,10 @@
 
 namespace App\Services\Billing;
 
+use App\Exceptions\DisplayException;
 use App\Models\Service;
+use App\Services\Licensing\BulkUsage;
+use App\Services\Licensing\Licenses;
 use Carbon\CarbonImmutable;
 
 /**
@@ -37,6 +40,18 @@ final class RenewalPrice
             $service = clone $service;
             $service->price = (float) $service->calculatePrice(applyCoupon: false);
             $service->coupon_expired_at = CarbonImmutable::now();
+        }
+
+        // A bulk license: the IPs on its list now at its tiers, as RenewalBilling bills it (no tiers: as it stands).
+        if (Licenses::isBulk($service)) {
+            try {
+                $price = (float) BulkUsage::advance($service)['price'];
+            } catch (DisplayException) {
+                return $service;
+            }
+            $service = clone $service;
+            $service->price = $price;
+            $service->quantity = 1;
         }
 
         return $service;
