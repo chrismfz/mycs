@@ -23,6 +23,13 @@ credentials. Το import της ημέρας τα φέρνει όλα:
   run πάνω σε βάση χωρίς δικό της run: το πρώτο είναι στην ώρα του (`cronjob_time`), άρα τα βήματα «πριν από το πρώτο
   cron» έχουν ως τότε. Το timezone, το URL, το όνομα, οι γλώσσες και το νόμισμα του `mycs:install` κρατιούνται πάνω από
   το reset της βάσης.
+- **Το import δεν ξανατρέχει μετά το go-live (sweep 11, S11-IMPORT-2):** μόλις το instance τρέξει το πρώτο του daily
+  cron, το `app:import-from-whmcs` με το ίδιο `--confirm-database` αρνείται («This instance has run its daily cron since
+  its last import …») και δεν αδειάζει τίποτα. Το `--replace-live-data` το ξεπερνά και είναι **μόνο** για πρόβες και
+  αντίγραφα που έτρεξαν cron· στο live instance δεν πληκτρολογείται ποτέ, εκτός αν αποφασιστεί ρητά να χαθεί ό,τι έγινε
+  από το go-live. Ως το πρώτο cron (και μετά από import που απέτυχε στη μέση) το import ξανατρέχει όπως πριν. Όσα οι
+  σημειώσεις του import λένε «run the import again before go-live, or after it …» γίνονται μετά το go-live με το χέρι:
+  κωδικός υπηρεσίας στη σελίδα της, logins στους Servers / Domains → Registrars / Gateways, ανακοινώσεις στα Announcements.
 - **Μετά το import, από το staff:**
   - **Registrar connections:** έρχονται ανενεργές και ενεργοποιούνται. **Πριν ανοίξει καθεμία (sweep 10, S10-DOMAINS-2,
     γνωστό):** οι πληρωμένες ανανεώσεις domain του WHMCS που έμειναν «προς ανανέωση» είναι στην έξοδο του import, μία

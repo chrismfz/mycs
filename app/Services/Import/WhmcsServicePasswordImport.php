@@ -74,7 +74,7 @@ final class WhmcsServicePasswordImport
                     $this->counts['skipped'] += count($rows) - $index;
                     $this->listFailed($failed);
                     $this->notes[] = "Service passwords not imported: WHMCS refused the API's call ({$this->reason($e)}). Check the API credentials, "
-                        . 'their role (DecryptPassword) and WHMCS\'s API IP access, then run the import again.';
+                        . 'their role (DecryptPassword) and WHMCS\'s API IP access, then run the import again before go-live, or after it set each password on its service\'s page.';
 
                     return ['counts' => $this->counts, 'notes' => $this->notes];
                 }
@@ -116,7 +116,7 @@ final class WhmcsServicePasswordImport
                 } elseif (++$inARow >= self::IN_A_ROW) {
                     $left = array_column(array_slice($rows, $index + 1), 'id');
                     $this->counts['skipped'] += count($left);
-                    $this->notes[] = self::IN_A_ROW . ' failed in a row: WHMCS is not answering, the other ' . count($left) . ' not asked. Run the import again.';
+                    $this->notes[] = self::IN_A_ROW . ' failed in a row: WHMCS is not answering, the other ' . count($left) . ' not asked: run the import again before go-live, or after it set each password on its service\'s page.';
                     break;
                 }
             }
@@ -132,7 +132,7 @@ final class WhmcsServicePasswordImport
     {
         if ($failed !== []) {
             $this->notes[] = count($failed) . ' service password(s) not imported (service #' . implode(', #', array_slice($failed, 0, 50))
-                . (count($failed) > 50 ? ', …' : '') . '): set them on their pages, or run the import again.';
+                . (count($failed) > 50 ? ', …' : '') . '): set them on their services\' pages, or (only before go-live) run the import again.';
         }
     }
 

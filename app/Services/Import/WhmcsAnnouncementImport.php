@@ -35,7 +35,7 @@ final class WhmcsAnnouncementImport
             $extension = Extension::query()->firstOrCreate(['type' => 'other', 'extension' => 'Announcements'], ['name' => 'Announcements', 'enabled' => true]);
             ExtensionHelper::call($extension, 'installed', mayFail: true);
             if (!self::extensionTable()) {
-                return ['counts' => $counts, 'notes' => [count($rows) . ' announcement(s) not imported: the Announcements extension could not be installed (install it and run the import again).']];
+                return ['counts' => $counts, 'notes' => [count($rows) . ' announcement(s) not imported: the Announcements extension could not be installed (install it and run the import again before go-live, or after it write them by hand under Announcements).']];
             }
             $notes[] = $extension->enabled
                 ? 'The Announcements extension was installed and enabled for WHMCS\'s announcements.'

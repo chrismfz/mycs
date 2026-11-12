@@ -91,6 +91,7 @@ class ImportFromWhmcs extends Command
         {--source-socket= : the WHMCS database\'s unix socket, instead of host and port}
         {--dry-run : connect to both, count what would come, write nothing}
         {--confirm-database= : this instance\'s database name, typed: the import empties it first (migrate:fresh)}
+        {--replace-live-data : also empty an instance that has run its own daily cron since its last import (never after go-live, unless that is meant)}
         {--ticket-attachments=* : A copy of a WHMCS folder with ticket files, once per folder (its storage folder and attachments/)}
         {--whmcs-api-url= : WHMCS\'s URL, for what only its API reads (saved payment methods, service passwords); its credentials in WHMCS_API_IDENTIFIER, WHMCS_API_SECRET}
         {--with-logins : also bring the logins of the servers, registrars and gateways (a database holding them must not run a cron or queue by accident)}';
@@ -272,8 +273,13 @@ class ImportFromWhmcs extends Command
 
             return self::FAILURE;
         }
+        // An instance that has lived (sweep 11 S11-IMPORT-2): --confirm-database is the same name before and after go-live.
+        $lived = $this->lived();
         if ($this->option('dry-run')) {
             $this->dryRun($target);
+            if ($lived !== null) {
+                $this->warn("{$lived}: the import would refuse to empty it without --replace-live-data.");
+            }
 
             return self::SUCCESS;
         }
@@ -289,6 +295,12 @@ class ImportFromWhmcs extends Command
         if ($this->option('confirm-database') !== $target) {
             $this->error("The import empties this instance's database «{$target}» first. Run it again with --confirm-database={$target} if that is meant"
                 . ' (a test copy, or the new instance before the cut-over); --dry-run writes nothing.');
+
+            return self::FAILURE;
+        }
+        if ($lived !== null && !$this->option('replace-live-data')) {
+            $this->error("{$lived}: what it billed, charged and was paid since would be lost with everything staff and customers did here."
+                . ' Nothing done. Only if that is meant (a test copy that ran its cron), run it again with --replace-live-data as well.');
 
             return self::FAILURE;
         }
@@ -504,6 +516,27 @@ class ImportFromWhmcs extends Command
         }
 
         return $value !== null ? (string) $value : null;
+    }
+
+    /**
+     * This instance has lived since its last import (sweep 11 S11-IMPORT-2): a daily run of its own left a trace, the same
+     * ones CronJob::ranBefore reads. The import's reset removes them and the cron does nothing while an import is half
+     * way (RUNNING), so a new instance, a rehearsal that never ran its cron and an import that failed have none. What was
+     * found, for the refusal; null when nothing was.
+     */
+    private function lived(): ?string
+    {
+        if (self::running() !== null || !Schema::hasTable('settings') || !Schema::hasTable('cron_stats')) {
+            return null;
+        }
+        $last = DB::table('settings')->where('settingable_type', CronStat::class)
+            ->whereIn('key', [CronJob::STARTED, CronJob::DUNNING_READY, 'last_cron_run'])->max('value');
+        if ($last === null) {
+            return null;
+        }
+
+        return 'This instance has run its daily cron since its last import (on ' . DB::table('cron_stats')->distinct()->count('date')
+            . " day(s) with counts, last at {$last})";
     }
 
     private function prepareDatabase()

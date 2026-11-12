@@ -510,14 +510,14 @@ final class WhmcsCredentialImport
             if ($e instanceof RuntimeException && str_starts_with($e->getMessage(), 'WHMCS API «') && preg_match(self::REFUSED, $this->reason($e)) === 1) {
                 $this->stopped = true;
                 $this->notes[] = "Credentials not imported: WHMCS refused the API's call ({$this->reason($e)}). Check the API credentials, "
-                    . 'their role (DecryptPassword) and WHMCS\'s API IP access, then run the import again.';
+                    . 'their role (DecryptPassword) and WHMCS\'s API IP access, then run the import again before go-live, or after it type each login on its own page (Servers, Domains → Registrars, Gateways).';
 
                 return null;
             }
             report(new RuntimeException("Credential «{$what}» not decrypted: " . class_basename($e))); // its class only
             if (++$this->inARow >= self::IN_A_ROW) {
                 $this->stopped = true;
-                $this->notes[] = self::IN_A_ROW . ' failed in a row: WHMCS is not answering, the rest not asked. Run the import again.';
+                $this->notes[] = self::IN_A_ROW . ' failed in a row: WHMCS is not answering, the rest not asked: run the import again before go-live, or after it type each login on its own page (Servers, Domains → Registrars, Gateways).';
             }
 
             return null;
