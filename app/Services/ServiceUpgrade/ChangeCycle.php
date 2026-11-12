@@ -15,6 +15,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\RecordPaymentService;
+use App\Services\Licensing\Licenses;
 use App\Services\Money\CreditAutoApply;
 use App\Services\Money\CreditLedger;
 use App\Services\Money\MoneyTrail;
@@ -110,6 +111,10 @@ final class ChangeCycle
         }
         if ($service->isAddon()) {
             return __('services.addons.cycle.follows_parent');
+        }
+        // A bulk license is billed monthly at its IPs (docs/zonecloud-bulk-license.md): a cut period would be credited twice.
+        if (Licenses::isBulk($service)) {
+            return __('A bulk license is billed monthly: its cycle does not change.');
         }
         if (!in_array($service->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true) || $service->plan === null) {
             return __('Only a running service can change its billing cycle.');
