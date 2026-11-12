@@ -4,12 +4,14 @@ namespace App\Admin\Widgets;
 
 use App\Admin\Pages\CronStats;
 use App\Admin\Resources\CpanelAccountResource;
+use App\Admin\Resources\GatewayTransactionResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\ModuleActionResource;
 use App\Admin\Resources\PaymentGatewayEventResource;
 use App\Admin\Resources\TicketResource;
 use App\Models\ChargeAttempt;
 use App\Models\CpanelAccount;
+use App\Models\GatewayTransaction;
 use App\Models\Invoice;
 use App\Models\ModuleAction;
 use App\Models\PaymentGatewayEvent;
@@ -153,6 +155,18 @@ class NeedsAttention extends Widget
             }
         }
 
+        if (GatewayTransactionResource::canViewAny()) {
+            $checked[] = __('PayPal transactions');
+            // What PayPal's own list and this site disagree on (gateways:reconcile), until staff mark each known.
+            $open = GatewayTransaction::query()->where('status', GatewayTransaction::OPEN);
+            $count = (clone $open)->count();
+            if ($count > 0) {
+                $rows[] = self::row(trans_choice(':count PayPal transaction that does not match|:count PayPal transactions that do not match', $count),
+                    __('not recorded here, not at PayPal, or another amount'), $open->min('occurred_at'), 'warning',
+                    GatewayTransactionResource::getUrl('index', ['filters' => ['differences' => ['isActive' => true]]]));
+            }
+        }
+
         // usort keeps the build order within a colour (PHP 8's sort is stable).
         usort($rows, fn (array $a, array $b): int => self::ORDER[$a['color']] <=> self::ORDER[$b['color']]);
 
@@ -173,6 +187,6 @@ class NeedsAttention extends Widget
     public static function canView(): bool
     {
         return InvoiceResource::canViewAny() || ModuleActionResource::canViewAny() || TicketResource::canViewAny()
-            || CpanelAccountResource::canViewAny() || CronStats::canAccess() || PaymentGatewayEventResource::canViewAny();
+            || CpanelAccountResource::canViewAny() || CronStats::canAccess() || PaymentGatewayEventResource::canViewAny() || GatewayTransactionResource::canViewAny();
     }
 }
