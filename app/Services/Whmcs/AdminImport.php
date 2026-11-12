@@ -49,13 +49,19 @@ final class AdminImport
      */
     public static function username(array $admin): ?string
     {
-        $username = trim((string) ($admin['username'] ?? ''));
-        if ($username === '' || mb_strlen($username) > 100 || preg_match('/[@\s]/', $username) === 1
+        $username = self::trim((string) ($admin['username'] ?? ''));
+        if ($username === '' || mb_strlen($username) > 100 || preg_match('/[@\s]/u', $username) === 1
             || Staff::query()->where('username', $username)->exists()) {
             return null;
         }
 
         return $username;
+    }
+
+    /** Trimmed of every kind of space, a no-break one too (review of #826, REV-826-3: one nobody could type). */
+    public static function trim(string $value): string
+    {
+        return (string) preg_replace('/^[\s\x{00A0}\x{FEFF}]+|[\s\x{00A0}\x{FEFF}]+$/u', '', $value);
     }
 
     /** @var array{added: int, existing: int, without_password: int, roles: int} */

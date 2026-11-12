@@ -9,6 +9,7 @@ use App\Classes\PermissionGuard;
 use App\Livewire\Admin\StaffSessionList;
 use App\Models\Role;
 use App\Models\Staff;
+use App\Services\Whmcs\AdminImport;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -50,8 +51,8 @@ class StaffResource extends Resource
                     ->unique('staff', 'email', ignoreRecord: true),
                 // Signs in with it as with the email (owner 2026-11-12); no @, so it is never someone's email.
                 TextInput::make('username')->translateLabel()->maxLength(100)->nullable()
-                    ->regex('/^\s*[^@\s]+\s*$/')
-                    ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? trim($state) : null)
+                    ->regex('/^\s*[^@\s]+\s*$/u')
+                    ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? AdminImport::trim($state) : null)
                     ->unique('staff', 'username', ignoreRecord: true),
                 TextInput::make('password')->translateLabel()->password()->revealable()
                     ->rule('min:12')

@@ -31,16 +31,23 @@ class Login extends FilamentLogin
     /** The cookie of a device a member of staff signed in on (encrypted, as every cookie here). */
     public const DEVICE_COOKIE = 'mycs_staff_device';
 
-    /** The member a login names: by email, else by username (the database's collation, as before: review of #333). */
+    /**
+     * The member a login names (the database's collation, as before: review of #333): with an @, by email; without, by
+     * username, then by email. A username never has an @, so neither can stand for the other: an email saved without
+     * one (app:staff:create, an import) never takes another member's username (review of #826, REV-826-1).
+     */
     public static function member(string $login): ?Staff
     {
         $login = trim($login);
         if ($login === '') {
             return null;
         }
+        if (str_contains($login, '@')) {
+            return Staff::query()->where('email', $login)->first();
+        }
 
-        return Staff::query()->where('email', $login)->first()
-            ?? Staff::query()->where('username', $login)->first();
+        return Staff::query()->where('username', $login)->first()
+            ?? Staff::query()->where('email', $login)->first();
     }
 
     protected function getEmailFormComponent(): Component

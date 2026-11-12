@@ -120,4 +120,11 @@ class StaffUsernameLoginTest extends TestCase
         $this->assertNull(Staff::query()->where('email', 'chris2@myip.test')->value('username'));
         $this->assertSame('chris', Staff::query()->find(1)->username);
     }
+
+    /** Review of #826, REV-826-3: a no-break space around a WHMCS username is trimmed, one inside refuses it. */
+    public function test_a_username_never_keeps_a_space_nobody_could_type(): void
+    {
+        $this->assertSame('chris', AdminImport::username(['username' => "\u{00A0}chris\u{00A0}"]));
+        $this->assertNull(AdminImport::username(['username' => "ch\u{00A0}ris"]));
+    }
 }
