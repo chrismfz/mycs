@@ -27,6 +27,7 @@ use App\Models\Service;
 use App\Models\SslOrder;
 use App\Models\Staff;
 use App\Services\Clients\MoveToClient;
+use App\Services\Licensing\BulkLicenseIps;
 use App\Services\Licensing\Licenses;
 use App\Services\Money\MoneyTrail;
 use App\Services\Service\AppliedOpenInvoices;
@@ -629,7 +630,7 @@ class EditService extends EditRecord
                 // licensing admin page).
                 // Only an Active one (a suspended or expired license is not moved: review R1).
                 Action::make('reissueLicense')->label('Reissue license')->icon('ri-refresh-line')->color('gray')
-                    ->visible(fn (Service $record) => $record->license?->status === License::STATUS_ACTIVE)
+                    ->visible(fn (Service $record) => $record->license?->status === License::STATUS_ACTIVE && !Licenses::isBulk($record))
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Its bindings are cleared and the next server that checks it takes it (staff: whatever the limit).')
@@ -642,6 +643,50 @@ class EditService extends EditRecord
                             return;
                         }
                         Notification::make()->success()->title('License reissued')->send();
+                        $this->refreshFormData(['license']);
+                    }),
+                // A bulk license's list (docs/zonecloud-bulk-license.md): staff add and remove, each change dated and audited.
+                Action::make('addLicenseIps')->label('Add IPs')->icon('ri-add-line')->color('gray')
+                    ->visible(fn (Service $record) => $record->license !== null && Licenses::isBulk($record))
+                    ->authorize('update')
+                    ->schema([
+                        Textarea::make('ips')->label('IP addresses')->required()->rows(6)
+                            ->helperText('One a line, optionally with a name after a space: «198.51.100.7 web1». On the list from now.'),
+                    ])
+                    ->action(function (Service $record, array $data) {
+                        try {
+                            $result = BulkLicenseIps::add($record->license, (string) $data['ips']);
+                        } catch (DisplayException $e) {
+                            Notification::make()->danger()->title('No IP added')->body(e($e->getMessage()))->send();
+
+                            return;
+                        }
+                        $done = Notification::make()->success()->title(count($result['added']) . ' added' . ($result['kept'] ? ', ' . count($result['kept']) . ' already on the list' : ''));
+                        // The same client's single licenses on those IPs (both paid for): stays until read.
+                        if ($result['warnings'] !== []) {
+                            $done->warning()->body(e(implode(' ', $result['warnings'])))->persistent();
+                        }
+                        $done->send();
+                        $this->refreshFormData(['license']);
+                    }),
+                Action::make('removeLicenseIps')->label('Remove IPs')->icon('ri-subtract-line')->color('gray')
+                    ->visible(fn (Service $record) => $record->license !== null && Licenses::isBulk($record))
+                    ->authorize('update')
+                    ->schema([
+                        Select::make('ids')->label('IP addresses')->multiple()->required()->searchable()
+                            ->options(fn (Service $record) => $record->license->ips()->active()->orderBy('ip')->get()
+                                ->mapWithKeys(fn ($row) => [$row->id => trim($row->ip . ' ' . ($row->label ?? ''))])->all())
+                            ->helperText('Off the list now: their agents stop at their next check, by the end of the day.'),
+                    ])
+                    ->action(function (Service $record, array $data) {
+                        try {
+                            $removed = BulkLicenseIps::remove($record->license, array_map('intval', (array) $data['ids']));
+                        } catch (DisplayException $e) {
+                            Notification::make()->danger()->title('No IP removed')->body(e($e->getMessage()))->send();
+
+                            return;
+                        }
+                        Notification::make()->success()->title($removed . ' removed')->send();
                         $this->refreshFormData(['license']);
                     }),
                 Action::make('editLicense')->label('Edit license')->icon('ri-key-2-line')->color('gray')

@@ -67,7 +67,8 @@
 - **Ποια προϊόντα (υπεύθυνος, 2026-11-12):** πρώτα **Agent**. Μετά ίσως **Node (DNS)**, ως δεύτερο bulk προϊόν με τον
   δικό του PSK (`ZoneCloudNode`), prefix `ZCNode-` και δικές του κλίμακες: ίδιος κώδικας, άλλη ρύθμιση. **Όχι** Web
   Controller (λίγες άδειες, μία ανά πελάτη).
-- Νέα ρύθμιση του extension **License mode**: `single` (default, ό,τι ισχύει σήμερα) | `bulk`.
+- Νέα ρύθμιση του extension **Bulk license** (checkbox, default off: ό,τι ισχύει σήμερα). Η άδεια είναι bulk όταν το
+  προϊόν της είναι bulk· καμία στήλη στην άδεια (PR 2).
 - Plan μόνο μηνιαίο (§9, Ε15). Allow IP Conflict δεν επιτρέπεται σε bulk. Reissue δεν έχει νόημα σε bulk (κρύβεται).
 
 ### 4.2 Πίνακες
@@ -79,9 +80,11 @@
 | `ip` varchar(45) | κανονικοποιημένη (`inet_pton`/`inet_ntop`)· IPv4 ή IPv6 |
 | `label` varchar(100) null | όνομα του server κατά τον πελάτη |
 | `added_at` datetime, `removed_at` datetime null | ενεργή = `removed_at IS NULL` |
-| `added_by_type/id`, `removed_by_type/id` | πελάτης (user), staff, migration, API |
 | `last_ok_at`, `last_check_at` datetime null | από το zlic, ανά IP: ο πελάτης βλέπει ποιοι servers ζουν ακόμα |
-| `active_ip` (generated: `IF(removed_at IS NULL, ip, NULL)`) | `UNIQUE(license_id, active_ip)`: μία ενεργή γραμμή ανά IP |
+| ποιος έκανε τι | το audit του model (`LicenseIp` είναι Auditable), όχι στήλες |
+
+Μία ενεργή γραμμή ανά IP: την κρατά ο κώδικας, υπό lock της γραμμής της άδειας (`BulkLicenseIps`), όχι ένα unique
+index. Μια IP είναι ενεργή σε μία bulk άδεια τη φορά, οποιουδήποτε πελάτη (§8.2).
 
 Αφαίρεση = `removed_at`· επανατοποθέτηση = **νέα** γραμμή. Οι γραμμές δεν σβήνονται και δεν αλλάζουν ημερομηνίες
 από τον πελάτη (ούτε προς τα πίσω ούτε προς τα μπρος). Το staff διορθώνει ημερομηνίες μόνο σε περίοδο που δεν έχει
@@ -99,8 +102,7 @@
 | `tiers` json | οι κλίμακες που ίσχυσαν (στιγμιότυπο, ώστε μια αλλαγή τιμών να μην ξαναγράφει το παρελθόν) |
 | `closed_at` datetime | |
 
-**`licenses`**: τρεις στήλες.
-- `mode` varchar(8) default `single`.
+**`licenses`**: δύο στήλες, με τη μετάβαση (PR 7).
 - `bulk_license_id` FK null: μια παλιά μεμονωμένη άδεια που **θα συγχωνευτεί ή συγχωνεύτηκε** σε bulk (§8).
 - `merged_at` datetime null: πότε έγινε ψευδώνυμο. Ως τότε (`bulk_license_id` γραμμένο, `merged_at` null) η άδεια
   δουλεύει όπως σήμερα· μετά, το κλειδί της απαντά ως η bulk.
@@ -129,7 +131,7 @@ findByKey(key) ─ άγνωστο ───────────────�
         IP ∈ ipList ─ λάθος PSK ────────▶ MD5 Checksum Verification Failed (όπως σήμερα)
                      σωστός PSK ────────▶ Active + md5hash + checkdate + localkey
                                            validip = η IP του καλούντα (όχι η λίστα)
-                                           touch(license) + touch(license_ip)
+                                           touch(license) + last_ok_at της IP
 ```
 
 - **Ίδιο JSON, ίδιο σχήμα, ίδιος αλγόριθμος** md5hash/localkey (`LocalKey`). Τα πεδία είναι τα ίδια με του verify.php.
@@ -275,7 +277,7 @@ graduated.
 - **Edit Service → License:** ό,τι βλέπει ο πελάτης, συν όλο το ιστορικό (και αφαιρεμένες), ποιος έκανε τι,
   προσθήκη/αφαίρεση για λογαριασμό του (με λόγο), διόρθωση ημερομηνιών μόνο σε ανοιχτή περίοδο, `max_ips`, κλίμακες
   της υπηρεσίας, προεπισκόπηση της διόρθωσης που θα βγει.
-- **Προϊόν:** License mode, κλίμακες ανά τιμή (repeater στο tab της τιμολόγησης), tier mode, counting, max IPs,
+- **Προϊόν:** Bulk license, κλίμακες ανά τιμή (repeater στο tab της τιμολόγησης), tier mode, counting, max IPs,
   ελάχιστο.
 - **Κονσόλα Licenses:** οι bulk με αριθμό IPs· το «Silent» και ανά IP.
 - **Convert to bulk** (§8): επιλογή αδειών του πελάτη, προεπισκόπηση (ποια μπαίνει πότε, παλιό και νέο κόστος).
@@ -353,19 +355,19 @@ graduated.
 | # | PR | Χρήματα | Review |
 |---|---|---|---|
 | 1 | **package `nixpal-licensing`:** `License::$ipList`, το bulk κλαδί του `Zlic` (χωρίς auto-bind, `validip` = καλών). Τα υπάρχοντα tests/fixtures/oracle χωρίς αλλαγή + νέα για bulk | όχι | code + adversarial (contract, ασφάλεια) |
-| 2 | **Σχήμα και άδεια:** `license_ips`, `licenses.mode`/`bulk_license_id`/`merged_at`, License mode στο extension, `MycsLicenseRepository` (λίστα, ψευδώνυμα, touch ανά IP), lifecycle, staff add/remove με audit | όχι | code + adversarial (lifecycle) |
+| 2 | **Σχήμα και άδεια:** `license_ips`, ρύθμιση Bulk license στο extension, `MycsLicenseRepository` (λίστα, `[]` χωρίς IPs, ποτέ bind), `last_ok_at` ανά IP από το `LicenseActivity`, χωρίς reissue, staff add/remove με audit (`BulkLicenseIps`). Τα ψευδώνυμα (`bulk_license_id`/`merged_at`) πάνε στο PR 7 | όχι | code + adversarial (lifecycle) |
 | 3 | **package `pricing`: `Tiers`, `UsageCharge`**: κλίμακες graduated/volume, IP-ημέρες από διαστήματα, peak, διόρθωση· decimal, fuzz | **ναι** | code + adversarial |
 | 4 | **Χρέωση:** `price_tiers`/`service_price_tiers`, bulk στο `RenewalPrice`, kind `usage`, `license_usage_periods`, κλείσιμο και διόρθωση στο cron, αρνητική → πίστωση, ακύρωση, παραγγελία με αρχικές IPs· MariaDB concurrency | **ναι** | code + adversarial + `Concurrency` σε MariaDB |
 | 5 | **Client area:** πίνακας IPs, μαζική προσθήκη, προεπισκόπηση κόστους, «αυτόν τον μήνα», ιστορικό· el/en | όχι (εμφανίζει ποσά από το 3/4) | code |
 | 6 | **Staff:** κλίμακες στο προϊόν και στην υπηρεσία, προεπισκόπηση διόρθωσης, κονσόλα (και οι σιωπηλές IPs) | ναι (τιμές) | code + adversarial |
-| 7 | **Μετάβαση:** «Convert to bulk» του staff (προεπισκόπηση, ακύρωση στο τέλος της περιόδου), ένταξη στη λήξη από το `ServiceLifecycle`, η ανανέωση της bulk μετρά όσες μπαίνουν, προειδοποίηση για ίδια IP· χωρίς πιστώσεις | **ναι** (σταματά ανανεώσεις) | code + adversarial |
+| 7 | **Μετάβαση:** `licenses.bulk_license_id`/`merged_at` και τα ψευδώνυμα στο `findByKey`, «Convert to bulk» του staff (προεπισκόπηση, ακύρωση στο τέλος της περιόδου), ένταξη στη λήξη από το `ServiceLifecycle`, η ανανέωση της bulk μετρά όσες μπαίνουν, προειδοποίηση για ίδια IP· χωρίς πιστώσεις | **ναι** (σταματά ανανεώσεις) | code + adversarial |
 | 8 | (προαιρετικό) API πελάτη για IPs | όχι | code + adversarial (auth) |
 
 **Για το PR 2, από τα reviews του #819:** (α) bulk άδεια χωρίς ενεργές IPs φτάνει στο zlic με `ipList = []`, **ποτέ
 `null`** (αλλιώς πέφτει στον δρόμο της single και δένεται στον πρώτο που καλεί)· (β) το `bind` του repository αρνείται
-άδεια με `mode = bulk` (μια άδεια που έγινε bulk ανάμεσα στην ανάγνωση και στο bind δεν δένεται ποτέ· το `Zlic` ήδη την
-ξαναδιαβάζει και απαντά με τη λίστα, ADV-819-1)· (γ) το `last_ok_at` ανά IP θέλει νέα μέθοδο στο `LicenseRepository`
-(ποια IP της λίστας απάντησε), αφού το `touch` δεν το ξέρει· (δ) η φόρμα αποθηκεύει τις IPs κανονικοποιημένες
+μια bulk (`License::isBulk()`)· αν ένα προϊόν γίνει bulk ανάμεσα στην ανάγνωση και στο bind, εκείνη η μία απάντηση
+είναι της single, και από εκεί και πέρα αποφασίζει η λίστα (οι στήλες της single αγνοούνται, ADV-819-1)· (γ) το `last_ok_at` ανά IP το γράφει το `LicenseActivity` μετά την απάντηση (όπως το `last_ok_at` της άδειας),
+χωρίς αλλαγή στο `LicenseRepository`· (δ) η φόρμα αποθηκεύει τις IPs κανονικοποιημένες
 (`inet_pton`/`inet_ntop`): μια λάθος γραμμένη ή CIDR δεν ταιριάζει ποτέ. Το `::ffff:a.b.c.d` δεν ταιριάζει με το `a.b.c.d`,
 όπως και στις single· μόνο αν ο vhost του zlic ακούει dual-stack με mapped διευθύνσεις.
 

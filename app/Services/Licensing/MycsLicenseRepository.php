@@ -50,6 +50,10 @@ final class MycsLicenseRepository implements LicenseRepository
         $license->lastAccess = $row->last_access?->format('Y-m-d H:i:s');
         $license->secret = (string) ($settings['secret_key'] ?? '');
         $license->allowIpConflict = filter_var($settings['allow_ip_conflict'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        // A bulk license's IPs: a list, [] when it has none (never null: the single path would bind the first caller).
+        if (filter_var($settings['bulk'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            $license->ipList = $row->ips()->active()->orderBy('id')->pluck('ip')->all();
+        }
 
         $tags = [
             'registeredname' => trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')),
@@ -87,6 +91,10 @@ final class MycsLicenseRepository implements LicenseRepository
      */
     public function bind(License $license, $now)
     {
+        // Never a bulk one (Zlic does not ask; this is the last word if a caller ever does).
+        if ($license->isBulk()) {
+            return false;
+        }
         $blank = "TRIM(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(valid_ip, ',', ''), ?, ''), ?, ''), ?, ''), ?, '')) = ''";
 
         return LicenseRow::query()->whereKey($license->id)

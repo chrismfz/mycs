@@ -1825,5 +1825,11 @@
     "Fine": "Εντάξει",
     "To see to": "Προς έλεγχο",
     "Known": "Γνωστό",
-    "Attachments": "Συνημμένα"
+    "Attachments": "Συνημμένα",
+    "No IP address given.": "Δεν δόθηκε διεύθυνση IP.",
+    ":ip is already on another bulk license of this client (service #:service).": "Η :ip είναι ήδη σε άλλη bulk άδεια του ίδιου πελάτη (υπηρεσία #:service).",
+    ":ip is already in use by another license. Please contact support.": "Η :ip χρησιμοποιείται ήδη από άλλη άδεια. Επικοινωνήστε με την υποστήριξη.",
+    "«:entry» is not an IP address.": "Το «:entry» δεν είναι διεύθυνση IP.",
+    "This license is not a bulk license.": "Αυτή η άδεια δεν είναι bulk.",
+    ":ip is also on license :service (service #:id): both are paid for until it ends.": "Η :ip είναι και στην άδεια :service (υπηρεσία #:id): πληρώνονται και οι δύο ώσπου να λήξει εκείνη."
 }
