@@ -91,7 +91,8 @@ class ClientSummary
             'name' => $client->name ?: null,
             'company' => $contact?->company_name,
             // A business account is named by its company: the person behind it (owner 2026-11-13, nixpal #22), '' when none.
-            'contact' => $contact?->type === 'business' ? $contact->fullName() : null,
+            // Without a company the name is already the person's (displayName()).
+            'contact' => $contact?->type === 'business' && filled($contact->company_name) ? $contact->fullName() : null,
             'email' => $client->email ?: null,
             'address' => $contact?->address1,
             'address2' => $contact?->address2,

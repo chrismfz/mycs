@@ -185,7 +185,10 @@ class ClientSummaryTest extends TestCase
         $client->primaryContact->forceFill(['first_name' => '', 'last_name' => ''])->save();
         $this->actingAs($staff)->get($url)->assertOk()->assertSee('data-field="contact"', false);
 
-        $client->primaryContact->forceFill(['type' => 'individual', 'first_name' => 'Simon', 'last_name' => 'Example'])->save();
+        $client->primaryContact->forceFill(['company_name' => null, 'first_name' => 'Simon', 'last_name' => 'Example'])->save();
+        $this->assertNull(ClientSummary::for($client->fresh(), $staff)['details']['contact']); // «Name» is already the person
+
+        $client->primaryContact->forceFill(['type' => 'individual', 'company_name' => 'Acme Ltd', 'first_name' => 'Simon', 'last_name' => 'Example'])->save();
         $this->assertNull(ClientSummary::for($client->fresh(), $staff)['details']['contact']);
         $this->actingAs($staff)->get($url)->assertOk()->assertDontSee('data-field="contact"', false);
     }
