@@ -360,7 +360,8 @@ class WhmcsMoneyJournal
 
     /**
      * A negative invoice (staff gave money back on one, in WHMCS) took a negative credit: the customer's balance went up
-     * by it. Its own balance stays below zero here (MoneyCheck's paid_balance, «paid over»: docs/importer.md).
+     * by it. Its own balance stays below zero here; MoneyCheck's paid_balance does not call it «paid over» for what
+     * this credit covers (docs/importer.md).
      */
     private function negativeInvoices(): void
     {
