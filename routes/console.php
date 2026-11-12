@@ -48,7 +48,7 @@ Schedule::command(CronJob::class, ['--dunning-only'])->description('Suspends and
 // its parent (SIGKILL, a hard reset) leaves a mutex that skips it, without a word, for a day (sweep 2, F-SCHEDULER-QUEUE-2).
 // Every task's withoutOverlapping() has one (≤ 2 h): app:cron-wait holds the deploy back while a mutex is held, so a
 // dead daily or weekly run's would otherwise fail every deploy for a day (sweep 2 review, REV2-FSQ-2).
-Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyFiveMinutes()->withoutOverlapping(30)->onOneServer();
+Schedule::command(FetchTicketMail::class)->description('Reads the departments\' mailboxes into tickets (those with polling on)')->everyThreeMinutes()->withoutOverlapping(30)->onOneServer();
 // The money check (docs/money-trail.md §5, MT-3): read-only, staff mailed when it finds something new. In the morning,
 // after the night's cron run and payments (cronjob_time, 00:00 on the devbox). One task of the scheduler to come (ROADMAP).
 // The daily summary email (Settings → Automation → Daily Summary Email; off by default): it checks the mode and the day.
