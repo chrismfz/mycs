@@ -46,12 +46,17 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+use Filament\Schemas\Schema;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
+use Livewire\Attributes\Locked;
 use Throwable;
 use WeakMap;
 
@@ -269,6 +274,7 @@ class ViewDomain extends ViewRecord
         }
         $this->record->refresh();
         $this->refreshFormData([]);
+        $this->refillBillingUnlessEdited();
     }
 
     protected function getHeaderActions(): array
@@ -292,6 +298,7 @@ class ViewDomain extends ViewRecord
                             Notification::make()->danger()->title(__('The registrar could not be read.'))->body(e($e->getMessage()))->send();
                         }
                         $this->refreshFormData([]);
+                        $this->refillBillingUnlessEdited();
                     }),
                 // Our record corrected when something changed outside MyCS (owner 2026-10-23): nothing asked of a registrar,
                 // each change audited before → after (DomainRecordCorrections).
@@ -383,6 +390,7 @@ class ViewDomain extends ViewRecord
                         }
                         $this->record->refresh();
                         $this->refreshFormData([]);
+                        $this->refillBillingUnlessEdited();
                     }),
 
                 Action::make('nameservers')->label(__('Nameservers'))->icon('heroicon-o-server-stack')
@@ -661,66 +669,204 @@ class ViewDomain extends ViewRecord
             // for .gr the registry's WHOIS API, G6 of grepp).
             Action::make('whois')->label(__('WHOIS'))->icon('heroicon-o-globe-alt')->color('gray')
                 ->url(fn (Domain $record) => WhoisLookup::getUrl(['domain' => $record->fqdn]))->openUrlInNewTab(),
-            Action::make('edit')->label(__('Edit'))->icon('heroicon-o-pencil-square')
-                ->visible(fn () => self::can('admin.domains.update'))
-                ->fillForm(fn (Domain $record) => ['auto_renew' => $record->auto_renew, 'notes' => $record->notes, 'years' => max(1, (int) $record->years),
-                    'recurring_amount' => $record->recurring_amount, 'payment_gateway_id' => $record->payment_gateway_id, 'no_auto_charge' => $record->no_auto_charge])
-                ->schema([
-                    Toggle::make('auto_renew')->label(__('Auto renew'))
-                        ->helperText(__('Off: no renewal invoice is made for it (do not renew).')),
-                    // Its renewal period (owner 2026-10-17): among the years its TLD prices; its open, unpaid renewal
-                    // invoice changes with it (DomainRenewalYears).
-                    Select::make('years')->label(__('Renewal period (years)'))
-                        ->options(fn (Domain $record) => DomainRenewalYears::choices($record))
-                        ->visible(fn (Domain $record) => DomainRenewalYears::changeable($record))
-                        ->selectablePlaceholder(false)
-                        ->helperText(fn (Domain $record) => $record->recurring_amount !== null
-                            ? __('It renews at a recurring amount set by hand (:amount): change that too if the period changes.', ['amount' => $record->recurring_amount])
-                            : __('From its next renewal; its open, unpaid renewal invoice changes with it.')),
-                    // A price of staff's own (a friend's; owner 2026-10-23), kept until emptied («Recalculate»): the TLD's again.
-                    // Decimal as typed, never through a float; what the column holds (ADV-6 of #403).
-                    TextInput::make('recurring_amount')->label(__('Renewal price'))->numeric()->minValue(0)->maxValue(99999999.99)->nullable()
-                        ->rule('regex:/^\d{1,8}(\.\d{1,2})?$/')
-                        ->prefix(fn (Domain $record) => $record->currency_code)
-                        ->placeholder(fn (Domain $record) => $record->catalogRenewalPrice(max(1, (int) $record->years)) ?? '—')
-                        ->helperText(__('Empty: the TLD\'s renew price, less its group\'s discount on domains (shown). From its next renewal invoice; one already made keeps its price.'))
-                        ->hintAction(Action::make('recalculate')->label(__('Recalculate'))->icon('heroicon-o-arrow-path')
-                            ->action(fn (Set $set) => $set('recurring_amount', null))),
-                    // Its own payment method (owner 2026-10-29, as WHMCS's): its renewals invoiced apart with it.
-                    Select::make('payment_gateway_id')->label(__('Payment method'))->nullable()
-                        ->options(fn () => Gateway::query()->orderBy('name')->pluck('name', 'id'))
-                        ->placeholder(__('The account\'s (its saved method)'))
-                        ->helperText(__('Another gateway than the saved method\'s: its renewals are invoiced apart, charged only by the account\'s saved method of that gateway.')),
-                    // Its own «Do not charge automatically» (#568).
-                    Toggle::make('no_auto_charge')->label(__('Do not charge automatically'))
-                        ->helperText(__('Its renewal invoices, the open one included, are paid by the customer; the account\'s other ones are still charged.')),
-                    Textarea::make('notes')->label(__('Admin notes'))->helperText(__('Staff only.'))->rows(4)->maxLength(5000),
-                ])
-                ->action(function (Domain $record, array $data) {
-                    // The period first: refused, nothing of the form is saved (code review 6 of #182).
-                    $outcome = DomainRenewalYears::UNCHANGED;
-                    if (isset($data['years']) && (int) $data['years'] !== max(1, (int) $record->years)) {
-                        try {
-                            $outcome = app(DomainRenewalYears::class)->change($record, (int) $data['years'], byStaff: true);
-                        } catch (DisplayException $e) {
-                            Notification::make()->danger()->title(e($e->getMessage()))->send();
-
-                            return;
-                        }
-                    }
-                    $price = $data['recurring_amount'] ?? null;
-                    $record->forceFill(['auto_renew' => (bool) $data['auto_renew'], 'notes' => ($data['notes'] ?? '') !== '' ? $data['notes'] : null,
-                        'payment_gateway_id' => filled($data['payment_gateway_id'] ?? null) ? (int) $data['payment_gateway_id'] : null,
-                        'no_auto_charge' => (bool) ($data['no_auto_charge'] ?? false),
-                        'recurring_amount' => $price === null || $price === '' ? null : (string) BigDecimal::of((string) $price)->toScale(2, RoundingMode::HalfUp)])->save(); // audited
-                    Notification::make()->success()->title(__('Saved.'))->body(match ($outcome) {
-                        DomainRenewalYears::INVOICE => __('Its open renewal invoice changed with the period.'),
-                        DomainRenewalYears::NEXT => __('The period counts from its next renewal invoice: the open one, if any, keeps its period (paid or with money on it, a price set by hand, in grace or redemption, or a later period billed already).'),
-                        default => null,
-                    })->send();
-                    $this->refreshFormData([]);
-                }),
         ];
+    }
+
+    /**
+     * Its billing, on the page rather than in an «Edit» modal (owner 2026-11-13): staff change it and «Save». Shown under
+     * «Domain» (DomainResource::infolist); read-only without `admin.domains.update`.
+     *
+     * @var array<string, mixed>|null
+     */
+    public ?array $billing = [];
+
+    /**
+     * What the form was filled with: «Save» writes only the fields staff changed since, so a page left open does not put
+     * back what someone else changed meanwhile (its price, its period).
+     *
+     * @var array<string, mixed>
+     */
+    #[Locked]
+    public array $billingLoaded = [];
+
+    public function mount(int|string $record): void
+    {
+        parent::mount($record);
+        $this->fillBilling();
+    }
+
+    /** @return array<string, mixed> */
+    private static function billingState(Domain $record): array
+    {
+        return ['auto_renew' => (bool) $record->auto_renew, 'no_auto_charge' => (bool) $record->no_auto_charge, 'years' => max(1, (int) $record->years),
+            'recurring_amount' => $record->recurring_amount, 'payment_gateway_id' => $record->payment_gateway_id, 'notes' => $record->notes];
+    }
+
+    /**
+     * After another action on the page: what it changed (a sync turns auto renew off) shown, and the base of «Save» —
+     * unless staff have changes of their own not saved yet, which an action is not to wipe (second review of #831).
+     * Those stay; «Save» then writes only them, keeping what the action changed.
+     */
+    private function refillBillingUnlessEdited(): void
+    {
+        foreach ($this->billingLoaded as $key => $value) {
+            if (!array_key_exists($key, $this->billing ?? [])) {
+                continue;
+            }
+            try {
+                $edited = self::billingValue($key, $this->billing[$key]) !== self::billingValue($key, $value);
+            } catch (Throwable) {
+                $edited = true; // not validated yet (a price «12,50»): staff's own, kept for «Save» to refuse (review of #835)
+            }
+            if ($edited) {
+                return;
+            }
+        }
+        $this->fillBilling();
+    }
+
+    private function fillBilling(): void
+    {
+        /** @var Domain $record */
+        $record = $this->getRecord();
+        $this->billingLoaded = self::billingState($record);
+        $this->billingSchema()->fill($this->billingLoaded);
+    }
+
+    /** The «Billing» form, as Filament builds it from billingForm(). */
+    private function billingSchema(): Schema
+    {
+        return $this->getSchema('billingForm') ?? throw new \LogicException('The domain page has no billing form.');
+    }
+
+    public function billingForm(Schema $schema): Schema
+    {
+        return $schema->statePath('billing')->model($this->getRecord())
+            ->disabled(fn () => !self::can('admin.domains.update'))
+            ->components([
+                Section::make(__('Billing'))->key('billing_section')->columns(['default' => 1, 'md' => 2])
+                    ->schema([
+                        Toggle::make('auto_renew')->label(__('Auto renew'))
+                            ->helperText(__('Off: no renewal invoice is made for it (do not renew).')),
+                        // Its own «Do not charge automatically» (#568).
+                        Toggle::make('no_auto_charge')->label(__('Do not charge automatically'))
+                            ->helperText(__('Its renewal invoices, the open one included, are paid by the customer; the account\'s other ones are still charged.')),
+                        // A price of staff's own (a friend's; owner 2026-10-23), kept until emptied («Recalculate»): the TLD's again.
+                        // Decimal as typed, never through a float; what the column holds (ADV-6 of #403).
+                        TextInput::make('recurring_amount')->label(__('Renewal price'))->numeric()->minValue(0)->maxValue(99999999.99)->nullable()
+                            ->rule('regex:/^\d{1,8}(\.\d{1,2})?$/')
+                            ->prefix(fn (Domain $record) => $record->currency_code)
+                            ->placeholder(fn (Domain $record) => $record->catalogRenewalPrice(max(1, (int) $record->years)) ?? '—')
+                            ->helperText(__('Empty: the TLD\'s renew price, less its group\'s discount on domains (shown). From its next renewal invoice; one already made keeps its price.'))
+                            ->hintAction(Action::make('recalculate')->label(__('Recalculate'))->icon('heroicon-o-arrow-path')
+                                ->visible(fn () => self::can('admin.domains.update'))
+                                ->action(fn (Set $set) => $set('recurring_amount', null))),
+                        // Its own payment method (owner 2026-10-29, as WHMCS's): its renewals invoiced apart with it.
+                        Select::make('payment_gateway_id')->label(__('Payment method'))->nullable()
+                            ->options(fn () => Gateway::query()->orderBy('name')->pluck('name', 'id'))
+                            ->placeholder(__('The account\'s (its saved method)'))
+                            ->helperText(__('Another gateway than the saved method\'s: its renewals are invoiced apart, charged only by the account\'s saved method of that gateway.')),
+                        // Its renewal period (owner 2026-10-17): among the years its TLD prices; its open, unpaid renewal
+                        // invoice changes with it (DomainRenewalYears).
+                        Select::make('years')->label(__('Renewal period (years)'))
+                            ->options(fn (Domain $record) => DomainRenewalYears::choices($record))
+                            ->visible(fn (Domain $record) => DomainRenewalYears::changeable($record))
+                            ->selectablePlaceholder(false)
+                            ->helperText(fn (Domain $record) => $record->recurring_amount !== null
+                                ? __('It renews at a recurring amount set by hand (:amount): change that too if the period changes.', ['amount' => $record->recurring_amount])
+                                : __('From its next renewal; its open, unpaid renewal invoice changes with it.')),
+                        Textarea::make('notes')->label(__('Admin notes'))->helperText(__('Staff only.'))->rows(3)->maxLength(5000)->columnSpanFull(),
+                    ])
+                    ->footer([
+                        Action::make('saveBilling')->label(__('Save'))->icon('heroicon-o-check')
+                            ->visible(fn () => self::can('admin.domains.update'))
+                            ->action(fn () => $this->saveBilling()),
+                        Text::make(__('Unsaved changes'))->color('warning')
+                            ->extraAttributes(['wire:dirty' => true, 'wire:target' => 'billing', 'style' => 'display:none']),
+                    ]),
+            ]);
+    }
+
+    /** «Save»: what staff changed, the period first (refused, nothing of the form is saved: code review 6 of #182). */
+    private function saveBilling(): void
+    {
+        if (!self::can('admin.domains.update')) {
+            return;
+        }
+        $data = $this->billingSchema()->getState();
+        /** @var Domain $record */
+        $record = $this->getRecord();
+        $loaded = $this->billingLoaded;
+        // Changed by someone else since the page was filled: kept (only staff's own changes are written), and said.
+        $now = self::billingState($record);
+        $meanwhile = array_keys(array_filter($now, fn ($value, string $key) => self::billingValue($key, $value) !== self::billingValue($key, $loaded[$key] ?? null), ARRAY_FILTER_USE_BOTH));
+        $changed = fn (string $key) => array_key_exists($key, $data) && self::billingValue($key, $data[$key]) !== self::billingValue($key, $loaded[$key] ?? null);
+
+        $write = [];
+        foreach (['auto_renew', 'no_auto_charge', 'recurring_amount', 'payment_gateway_id', 'notes'] as $key) {
+            if ($changed($key)) {
+                $write[$key] = self::billingValue($key, $data[$key]);
+            }
+        }
+        // The fields first, then the period, in one transaction: a price set with the period is the one its open renewal
+        // line sees (ADV-831-1: it was re-priced at the catalog's period price, the hand price written after); a period
+        // refused undoes them all (nothing of the form saved: code review 6 of #182).
+        try {
+            $outcome = DB::transaction(function () use ($record, $write, $changed, $data) {
+                if ($write !== []) {
+                    $record->forceFill($write)->save(); // audited
+                }
+
+                return $changed('years') && (int) $data['years'] !== max(1, (int) $record->years)
+                    ? app(DomainRenewalYears::class)->change($record, (int) $data['years'], byStaff: true)
+                    : DomainRenewalYears::UNCHANGED;
+            });
+        } catch (DisplayException $e) {
+            $record->refresh();
+            Notification::make()->danger()->title(e($e->getMessage()))->send();
+
+            return;
+        }
+        $body = match ($outcome) {
+            DomainRenewalYears::INVOICE => __('Its open renewal invoice changed with the period.'),
+            DomainRenewalYears::NEXT => __('The period counts from its next renewal invoice: the open one, if any, keeps its period (paid or with money on it, a price set by hand, in grace or redemption, or a later period billed already).'),
+            default => null,
+        };
+        $untouched = array_values(array_filter($meanwhile, fn (string $key) => !$changed($key)));
+        if ($untouched !== []) {
+            $body = trim(($body ?? '') . ' ' . __('Changed by someone else meanwhile, kept as they left it and shown now: :fields.', ['fields' => implode(', ', array_map(fn (string $key) => self::billingLabel($key), $untouched))]));
+        }
+        Notification::make()->success()->title(__('Saved.'))->body($body)->send();
+        $this->record->refresh();
+        $this->refreshFormData([]);
+        $this->fillBilling();
+    }
+
+    /** A field's label, as the form shows it. */
+    private static function billingLabel(string $key): string
+    {
+        return match ($key) {
+            'auto_renew' => __('Auto renew'),
+            'no_auto_charge' => __('Do not charge automatically'),
+            'recurring_amount' => __('Renewal price'),
+            'payment_gateway_id' => __('Payment method'),
+            'years' => __('Renewal period (years)'),
+            'notes' => __('Admin notes'),
+            default => $key,
+        };
+    }
+
+    /** A field's value as the column holds it, to compare and to write: the price decimal (never a float), no empty notes. */
+    private static function billingValue(string $key, mixed $value): mixed
+    {
+        return match ($key) {
+            'auto_renew', 'no_auto_charge' => (bool) $value,
+            'years' => max(1, (int) $value),
+            'payment_gateway_id' => filled($value) ? (int) $value : null,
+            'notes' => ($value ?? '') !== '' ? (string) $value : null,
+            'recurring_amount' => $value === null || $value === '' ? null : (string) BigDecimal::of((string) $value)->toScale(2, RoundingMode::HalfUp),
+            default => $value,
+        };
     }
 
     /** Read once per request however often the modal renders (review 10). */

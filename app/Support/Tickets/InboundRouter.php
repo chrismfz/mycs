@@ -130,8 +130,11 @@ class InboundRouter
         $outcome = $this->open($department, $email, $messageId, $account, $verdict->authenticated);
         if ($outcome->kind === InboundOutcome::OPENED) {
             RateLimiter::hit($limit, 3600);
-            // «We received it», only to an address our server vouched for: never mail to a forged From (backscatter).
-            if ($verdict->authenticated && $outcome->ticket !== null) {
+            // «We received it», to an address our server vouched for, or to one of our own customers' (a login with a
+            // proven address) once a day: never to a stranger's, which a forged From would make us mail (backscatter). A
+            // receiving server that vouches for little (cPanel's exim: iprev and DKIM in two headers, the first alone
+            // read) left every customer without it (nixpal, 2026-11-13). Unvouched, the mail says only our words.
+            if ($outcome->ticket !== null && ($verdict->authenticated || self::knownAddressOncePerDay($from))) {
                 // After the ticket is in: its failure is reported, never the mail's (read again, it would be a duplicate
                 // and the ticket nowhere in the import log: review of #406).
                 try {
@@ -185,6 +188,22 @@ class InboundRouter
 
         // A merged ticket's number leads to the one it was merged into (§6κ).
         return Ticket::query()->where('reference', $m[1])->first()?->survivor();
+    }
+
+    /**
+     * Whether an address our server did not vouch for is still one of our customers': a login whose address is proven
+     * (routes: verified, or brought from WHMCS with it), and it has not had «we received it» unvouched today. Never a
+     * contact or an unverified login: anyone can type a stranger's address into one (review of #833, REV-833-1). The
+     * worst a forger then does: one mail a day, in our words, to our own customer.
+     */
+    private static function knownAddressOncePerDay(string $from): bool
+    {
+        $user = self::loginOf($from);
+        if ($user === null || !self::routes($user)) {
+            return false;
+        }
+
+        return RateLimiter::attempt('ticket-mail-received-unvouched:' . mb_strtolower(trim($from)), 1, fn () => true, 86400) === true;
     }
 
     /**

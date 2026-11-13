@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Models\UserSession;
 use App\Providers\SettingsProvider;
 use App\Services\Invoice\RecordPaymentService;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Foundation\MaintenanceModeManager;
@@ -27,6 +28,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Once;
 use Livewire\Features\SupportDisablingBackButtonCache\SupportDisablingBackButtonCache;
+use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Livewire\LivewireManager;
 use LogicException;
@@ -51,6 +53,13 @@ abstract class TestCase extends BaseTestCase
         }
 
         parent::setUp();
+
+        // The domain page's «Billing» form (ViewDomain::billingForm, owner 2026-11-13: no «Edit» modal): its fields
+        // filled, then «Save».
+        Testable::macro('saveBilling', function (array $data = []) {
+            /** @var Testable $this */
+            return $this->fillForm($data, 'billingForm')->callAction(TestAction::make('saveBilling')->schemaComponent('billing_section', 'billingForm'));
+        });
 
         // A daily cron run that finds another one waits up to 10 minutes for it: never in a test (it holds the lock itself).
         CronJob::$lockWait = 0;

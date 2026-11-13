@@ -249,7 +249,7 @@
    λείπει και τα στοιχεία του registrar (`meta.registrar`, από allow-list: ποτέ auth code). «At the registrar»:
    nameservers (2–13, glue από το DNS για NS μέσα στο domain), lock, privacy, επαφές (του λογαριασμού· νέα επαφή → νέο
    handle· αν ο registrar αρνηθεί, οι ρόλοι μένουν ως ήταν), «Contacts at the registrar», «Get EPP code» (δείχνεται μία
-   φορά, ούτε στο log). «Edit»: auto-renew και admin notes, μόνο εδώ. Permissions `admin.domains.manage`,
+   φορά, ούτε στο log). Ενότητα «Billing» μέσα στη σελίδα, κάτω από το «Domain» (2026-11-13, όχι πια popup «Edit»): auto-renew, «Do not charge automatically», τιμή ανανέωσης με «Recalculate», τρόπος πληρωμής, περίοδος, admin notes, μόνο εδώ· το «Save» γράφει μόνο ό,τι άλλαξε το staff στη φόρμα. Μια άλλη ενέργεια της σελίδας (Sync, Renew now, εντολές registrar) ξαναγεμίζει τη φόρμα μόνο όταν το staff δεν έχει αλλαγές χωρίς Save. Γνωστό, αφήνεται (δεύτερο review του #831): αν η αλλαγή περιόδου απορριφθεί επειδή τρέχει την ίδια ώρα ανανέωση, τα πεδία γυρίζουν πίσω, μένουν όμως μια γραμμή στο PaymentsLog και ένα id τιμολογίου που καταναλώθηκε (κενό στην αρίθμηση του myip)· κανένα ποσό δεν αλλάζει. Permissions `admin.domains.manage`,
    `admin.domains.epp`. Καρτέλα «Registrar log» (με ποιος, `staff_id`). Καμία ενέργεια που χρεώνει: το restore πάει στο D5.
    Code + adversarial. Κανόνες μετά τα reviews:
    - Handle από τον registrar μόνο σε ρόλο **με** επαφή και χωρίς handle, και **μόνο αν η εγγραφή του στον registrar έχει
