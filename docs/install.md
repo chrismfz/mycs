@@ -112,9 +112,12 @@ MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
   ln -s mycs/public public_html`, με `chmod 711 mycs` και `755 mycs/public`. Το block του cPanel για την PHP
   (`AddHandler application/x-httpd-ea-php84`) αντιγράφεται στο `~/.htaccess`, ώστε να ισχύει και κάτω από το `public/`.
   **Προσοχή:** μια αλλαγή PHP από το cPanel (MultiPHP) γράφει μέσα στο `mycs/public/.htaccess`, που είναι αρχείο του git.
-- **Node 10, χωρίς rsync:** το `npm run build` δεν τρέχει εκεί. Το `deploy/orion.sh [ref]` χτίζει το `vendor` και τα
-  assets στον devbox στο ίδιο commit, τα στέλνει με tar πάνω από ssh, και τρέχει down, checkout, migrate, optimize,
-  `queue:restart`, up και ένα smoke check. Το `deploy/update.sh` δεν τρέχει εκεί.
+- **Deploy:** το ίδιο `deploy/update.sh` όπως παντού, ως ο χρήστης και με Node 22 του CloudLinux στο PATH, γιατί το
+  `node` του server είναι το 10:
+  `su - mycsnixpal -c 'cd ~/mycs && PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH QUEUE_SERVICE=mycsnixpal-queue deploy/update.sh main'`.
+  Ο χρήστης δεν σταματά το unit του worker, οπότε το script πέφτει στο `queue:restart`, και το unit τον ξαναξεκινά
+  (`Restart=always`). Δοκιμάστηκε 2026-11-13 (e1bcfa29). Το `alt-nodejs24` εγκαταστάθηκε, αλλά ο φάκελός του είναι άδειος,
+  και το `deploy/orion.sh` αφαιρέθηκε.
 - **`deploy/private-files.sh`:** μέσα στο CageFS δεν υπάρχει `/dev/fd`, οπότε δεν γίνεται process substitution. Από τις
   2026-11-13 το script δεν το χρειάζεται.
 - **Βάση και Redis:** η βάση δημιουργείται με `uapi --user=<user> Mysql create_database/create_user/set_privileges_on_database`.
