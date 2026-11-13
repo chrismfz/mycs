@@ -56,9 +56,12 @@ server, με το WHMCS ζωντανό: η τελευταία με API, logins �
   λυνόταν καθόλου, ώσπου ο cPanel έφτιαξε το νέο zone. Για το myip: πριν το βήμα 7, `grep` για το subdomain στα zones του γονικού.
 - **AutoSSL** αμέσως μετά το `modifyacct` (`/usr/local/cpanel/bin/autossl_check --user=<user>`): μέχρι να τρέξει, το
   domain σερβίρει self-signed.
-- **Μετά από κάθε import ξαναμπαίνουν:** `app_url`, `timezone` (Europe/Athens), `staff_2fa_required` (off στις πρόβες),
-  logo και favicon (τα αρχεία μένουν, οι ρυθμίσεις σβήνονται), και το «Captcha on sign-in». Το όνομα της εταιρείας και οι
-  default nameservers έρχονται πλέον από το WHMCS (#829).
+- **Πρώτα `mycs:install`, μετά import:** το όνομα της εταιρείας, το URL, οι γλώσσες και η ζώνη ώρας του install
+  κρατιούνται πάνω από το reset του import (`ImportFromWhmcs::INSTANCE_SETTINGS`). Στη nixpal το install παραλείφθηκε
+  (το import φέρνει τους admins), και βγήκαν `MyCS`, `http://localhost` και `UTC`, που μπήκαν με το χέρι μετά από κάθε
+  import. Το όνομα και οι default nameservers έρχονται πλέον και από το WHMCS (#829).
+- **Μετά από κάθε import ξαναμπαίνουν:** `staff_2fa_required` (off στις πρόβες), logo και favicon (τα αρχεία μένουν, οι
+  ρυθμίσεις σβήνονται), και το «Captcha on sign-in».
 - **Gateways:** το `app:enable-imported-gateways` θέλει `--yes`, γιατί με `--no-interaction` δεν κάνει τίποτα. Το
   «Webhook ID» του PayPal είναι υποχρεωτικό στη φόρμα: ένα προσωρινό `pending`, που η εντολή το αντικαθιστά με το
   πραγματικό id. Το παλιό endpoint του Stripe αρκεί να γίνει disabled.
