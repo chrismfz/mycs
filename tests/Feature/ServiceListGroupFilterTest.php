@@ -47,5 +47,12 @@ class ServiceListGroupFilterTest extends TestCase
         Livewire::test(ListService::class)->filterTable('category', $wordpress->id)
             ->assertCanSeeTableRecords([$wp])->assertCanNotSeeTableRecords([$plain, $licence]);
         $this->assertSame(SubNavigationPosition::Top, Services::getSubNavigationPosition());
+
+        // Two groups each other's parent (review of #836): labelled, the list still shows.
+        $licenses->forceFill(['parent_id' => $wordpress->id])->save();
+        $hosting->forceFill(['parent_id' => $licenses->id])->save();
+        $this->assertSame('Licenses › Hosting › WordPress', ServiceResource::categoryOptions()[$wordpress->id]);
+        Livewire::test(ListService::class)->assertSuccessful()->filterTable('category', $hosting->id)
+            ->assertCanSeeTableRecords([$plain, $wp, $licence]);
     }
 }

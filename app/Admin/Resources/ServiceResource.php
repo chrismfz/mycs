@@ -732,14 +732,17 @@ class ServiceResource extends Resource
         return $show($used) . ' / ' . ($limit === null ? 'unlimited' : $show($limit)) . ($percent !== null ? " ({$percent}%)" : '');
     }
 
-    /** @return array<int, string> each group under its parent's name («Hosting › WordPress»), in the shop's order */
+    /** @return array<int, string> each group under its parent's name («Hosting › WordPress»), by that label */
     public static function categoryOptions(): array
     {
-        $all = Category::query()->orderBy('sort')->orderBy('name')->get(['id', 'name', 'parent_id'])->keyBy('id');
-        $label = function (Category $category) use ($all, &$label): string {
+        $all = Category::query()->get(['id', 'name', 'parent_id'])->keyBy('id');
+        // Its parents up to the top, each once: two groups each other's parent (the form allows it) end there, not in a
+        // loop that takes the list down (review of #836).
+        $label = function (Category $category, array $seen = []) use ($all, &$label): string {
+            $seen[] = $category->id;
             $parent = $category->parent_id !== null ? $all->get($category->parent_id) : null;
 
-            return $parent !== null && $parent->id !== $category->id ? $label($parent) . ' › ' . $category->name : (string) $category->name;
+            return $parent !== null && !in_array($parent->id, $seen, true) ? $label($parent, $seen) . ' › ' . $category->name : (string) $category->name;
         };
 
         return $all->map(fn (Category $category) => $label($category))->sort()->all();
