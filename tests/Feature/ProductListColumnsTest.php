@@ -7,7 +7,9 @@ use App\Admin\Resources\ProductResource\Pages\ListProducts;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\Server;
+use App\Models\Service;
 use App\Models\Staff;
+use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -38,5 +40,30 @@ class ProductListColumnsTest extends TestCase
             ->assertTableColumnStateSet('stock', '∞', $free)->assertTableColumnFormattedStateSet('autosetup', 'Off', $free)
             ->assertTableColumnStateSet('visibility', 'Retired', $free);
         $this->assertSame('Free', ProductResource::payType($free->fresh()->load('plans')));
+    }
+
+    /** Owner 2026-11-14: how many are sold at a glance, active with the suspended beside them; every status in the tooltip. */
+    public function test_the_list_counts_each_products_services(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->actingAs(Staff::factory()->create(['role_id' => Role::create(['name' => 'All', 'permissions' => ['*']])->id]), 'staff');
+        $agent = $this->createProduct()->product;
+        $controller = $this->createProduct()->product;
+        $unsold = $this->createProduct()->product;
+        $clientId = User::factory()->create()->client()->id;
+        Product::query()->whereKey([$controller->id, $unsold->id])->update(['category_id' => $agent->category_id]); // one group, sorted within it
+        foreach (['active', 'active', 'active', 'suspended', 'terminated', 'cancelled', 'pending'] as $status) {
+            Service::factory()->create(['product_id' => $agent->id, 'plan_id' => $agent->plans()->first()->id, 'client_id' => $clientId, 'status' => $status]);
+        }
+        Service::factory()->create(['product_id' => $controller->id, 'plan_id' => $controller->plans()->first()->id, 'client_id' => $clientId, 'status' => 'active']);
+        Service::factory()->create(['product_id' => $unsold->id, 'plan_id' => $unsold->plans()->first()->id, 'client_id' => $clientId, 'status' => 'terminated']);
+
+        Livewire::test(ListProducts::class)
+            ->assertTableColumnStateSet('active_services', '3 · 1 susp.', $agent)
+            ->assertTableColumnStateSet('active_services', '1', $controller)
+            ->assertTableColumnStateSet('active_services', '0', $unsold)
+            ->assertSee('Active 3 · Suspended 1 · Pending 1 · Terminated 1 · Cancelled 1')
+            ->sortTable('active_services', 'desc')
+            ->assertCanSeeTableRecords([$agent, $controller, $unsold], inOrder: true);
     }
 }
