@@ -382,7 +382,7 @@ Mollie (ο καθένας μπορεί να στείλει ένα) είναι 40
 
 **Όπως χτίστηκε (MT-3):**
 - **Κανάλι `payments`** (`storage/logs/payments-*.log`, 365 ημέρες, `LOG_PAYMENTS_DAYS`, επίπεδο `info` ανεξάρτητα
-  από το `LOG_LEVEL`, αλλάζει με `LOG_PAYMENTS_LEVEL`, αρχεία `0664` ώστε να γράφουν και ο web server και ο cron). Το `PaymentsLog` γράφει
+  από το `LOG_LEVEL`, αλλάζει με `LOG_PAYMENTS_LEVEL`, αρχεία `0660` ώστε να γράφουν και ο web server και ο cron, όχι όμως να τα διαβάζουν άλλοι χρήστες). Το `PaymentsLog` γράφει
   εκεί και στο κανονικό log: τα ευρήματα του `money-check`, τα alerts του Log πύλης, τις πληρωμές που δεν
   καταγράφηκαν (`RecordPaymentService`), την αγορά πίστωσης και την πληρωμή ακυρωμένης υπηρεσίας.
 - **Log πύλης:**
