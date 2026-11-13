@@ -208,5 +208,6 @@ class ImportAutomationSettingsTest extends TestCase
         $this->assertSame('Smith & Co', $value('company_name'));
         $this->assertSame(['ns1.example.test', 'ns2.example.test', '', 'ns4.ours.test', ''],
             array_map(fn (int $n) => (string) $value("domain_nameserver_{$n}"), range(1, 5)), 'a bad or empty one keeps MyCS\'s own');
+        $this->assertStringContainsString('kept: WHMCS\'s «not a host» is not a host name', $this->output->fetch(), 'the dropped one is said (review of #829)');
     }
 }

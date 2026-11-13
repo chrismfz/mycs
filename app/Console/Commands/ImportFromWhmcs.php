@@ -498,7 +498,7 @@ class ImportFromWhmcs extends Command
      * This instance's own settings, as mycs:install stored them (Install::saveSettings): kept over the import's reset. The
      * seed would put them back to the code's defaults (UTC, http://localhost), which then override .env (SettingsProvider:
      * app.timezone, app.url, date_default_timezone_set): sweep F-CUTOVER-DAY-2. What the import brings of them (the default
-     * currency) is written after, and wins.
+     * currency, and the company's name since nixpal's cut-over) is written after, and wins.
      */
     public const INSTANCE_SETTINGS = ['company_name', 'app_url', 'app_language', 'allowed_languages', 'admin_language', 'timezone', 'default_currency'];
 
@@ -882,6 +882,13 @@ class ImportFromWhmcs extends Command
         ];
         $rows = [];
         foreach ($settings as $key => $setting) {
+            // A nameserver WHMCS has but that is not a host name (an IP, «host:53»): said with its value, never a silent
+            // «kept» (review of #829).
+            if ($setting === null && preg_match('/^domain_nameserver_(\d)$/', $key, $n) === 1 && trim((string) ($config['DefaultNameserver' . $n[1]] ?? '')) !== '') {
+                $rows[] = [$key, 'kept: WHMCS\'s «' . trim((string) $config['DefaultNameserver' . $n[1]]) . '» is not a host name'];
+
+                continue;
+            }
             if ($setting === null) {
                 $rows[] = [$key, $key === 'cronjob_time' && $hour === 3 ? 'kept: never 03:xx, the clock changes then (BIL-16)' : 'kept (WHMCS has none, or one out of range)'];
 
