@@ -12,8 +12,8 @@ use App\Models\CronStat;
 use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Models\Setting;
-use App\Models\Staff;
 use App\Services\Service\DunningForecast;
+use App\Support\StaffRecipients;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
@@ -30,6 +30,9 @@ use Throwable;
  */
 final class CronSummary
 {
+    /** Who may get it: those who may see Cron stats. */
+    public const PERMISSION = 'admin.cron_stats.view';
+
     /** The last day a summary covered (whether it was sent or nothing had failed): the next one starts after it. */
     public const COVERED = 'cron_summary_covered';
 
@@ -221,31 +224,17 @@ final class CronSummary
     }
 
     /**
-     * The addresses: the chosen staff that are still active and may see Cron stats; none chosen (or none left), the System
-     * Email Address.
+     * The addresses: the chosen staff that are still active and may see Cron stats; none chosen (or none left), the
+     * staff of the system notices who may see them; none of those either, the System Email Address, not silence (code
+     * review of #689). Never staff without Cron stats (review of the system notices' recipients).
      *
      * @return list<string>
      */
     public static function recipients(): array
     {
-        $ids = array_filter(array_map('intval', (array) config('settings.cron_summary_recipients', [])));
-        if ($ids === []) {
-            $system = trim((string) config('settings.system_email_address'));
-
-            return $system === '' ? [] : [$system];
-        }
-
-        $staff = Staff::query()->whereKey($ids)->where('active', true)->with('role')->orderBy('id')->get()
-            ->filter(fn (Staff $staff) => $staff->hasPermission('admin.cron_stats.view') && trim((string) $staff->email) !== '')
-            ->map(fn (Staff $staff) => (string) $staff->email)->unique()->values()->all();
-        // Every one chosen left or lost the permission: the System Email Address, not silence (code review of #689).
-        if ($staff === []) {
-            $system = trim((string) config('settings.system_email_address'));
-
-            return $system === '' ? [] : [$system];
-        }
-
-        return $staff;
+        return StaffRecipients::chosen('cron_summary_recipients', self::PERMISSION)
+            ?: StaffRecipients::chosen(StaffRecipients::SYSTEM_NOTICES, self::PERMISSION)
+            ?: StaffRecipients::systemAddress();
     }
 
     /** @param  array<string, mixed>  $data */

@@ -8,7 +8,6 @@ use App\Helpers\TemplateRenderer;
 use App\Models\Client;
 use App\Models\Currency;
 use App\Models\Setting;
-use App\Models\Staff;
 use App\Models\TaxRate;
 use App\Rules\Cidr;
 use App\Rules\TicketReferenceMask;
@@ -17,6 +16,7 @@ use App\Services\Mcp\McpOauth;
 use App\Services\Tax\EuVat;
 use App\Support\CurrentClient;
 use App\Support\Retention;
+use App\Support\StaffRecipients;
 use DateTimeZone;
 use Exception;
 use Filament\Schemas\Components\Utilities\Get;
@@ -134,7 +134,17 @@ class Settings
                     'label' => 'System Email Address',
                     'type' => 'email',
                     'required' => true,
-                    'description' => 'The email address used for system emails, such as CronJob failures, updates, etc.',
+                    'description' => 'Where system notices go (cron failures, payments and module actions that need staff, etc.) when no staff are chosen below, or none of them is active.',
+                ],
+                [
+                    'name' => 'system_notice_recipients',
+                    'label' => 'System notices: send to',
+                    'type' => 'select',
+                    'options' => fn (): array => self::systemNoticeRecipientOptions(), // when the page shows it
+                    'database_type' => 'array',
+                    'multiple' => true,
+                    'default' => [],
+                    'description' => 'Active staff who get the system notices, each to their own address. None chosen: the System Email Address.',
                 ],
                 [
                     'name' => 'tos',
@@ -403,7 +413,7 @@ class Settings
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => true,
-                    'description' => 'As WHMCS\'s «New Order Notification»: when a customer places an order, an email to the System Email Address with its items, invoice, notes and links to it. Not for orders staff create.',
+                    'description' => 'As WHMCS\'s «New Order Notification»: when a customer places an order, an email to the system notices\' recipients with its items, invoice, notes and links to it. Not for orders staff create.',
                 ],
                 [
                     'name' => 'mail_host',
@@ -643,7 +653,7 @@ class Settings
                     'type' => 'checkbox',
                     'database_type' => 'boolean',
                     'default' => true,
-                    'description' => 'After the daily run, one email to the System Email Address listing each service suspended or terminated for non-payment, with its client, unpaid invoices and a link to it (to unsuspend it or set «Do Not Suspend Until»). Only on a day something was suspended or terminated, as WHMCS\'s «Cron Job Activity».',
+                    'description' => 'After the daily run, one email to the system notices\' recipients listing each service suspended or terminated for non-payment, with its client, unpaid invoices and a link to it (to unsuspend it or set «Do Not Suspend Until»). Only on a day something was suspended or terminated, as WHMCS\'s «Cron Job Activity».',
                 ],
                 // The daily summary email (owner 2026-11-06, ROADMAP 9β-4): the calendar's days and what is due next, by mail.
                 [
@@ -666,7 +676,7 @@ class Settings
                     'database_type' => 'array',
                     'multiple' => true,
                     'default' => [],
-                    'description' => 'Active staff who may see Cron stats. None chosen: the System Email Address.',
+                    'description' => 'Active staff who may see Cron stats. None chosen: those of the system notices who may see them, else the System Email Address.',
                 ],
                 [
                     'name' => 'cron_summary_time',
@@ -1654,22 +1664,13 @@ class Settings
      */
     public static function summaryRecipientOptions(): array
     {
-        try {
-            $options = Staff::query()->where('active', true)->with('role')->orderBy('first_name')->get()
-                ->filter(fn (Staff $staff) => $staff->hasPermission('admin.cron_stats.view'))
-                ->mapWithKeys(fn (Staff $staff) => [$staff->id => $staff->name . ' <' . $staff->email . '>'])->all();
-            // One chosen who left or lost the permission stays listed (code review of #689): the field's «in» rule would
-            // refuse every save of the page, and staff could not see what to remove. Not sent to (CronSummary::recipients).
-            $stored = array_filter(array_map('intval', (array) config('settings.cron_summary_recipients', [])));
-            foreach (array_diff($stored, array_keys($options)) as $id) {
-                $staff = Staff::query()->find($id);
-                $options[$id] = ($staff ? $staff->name . ' <' . $staff->email . '>' : "#{$id}") . ' (' . __('not sent to: inactive or no access') . ')';
-            }
+        return StaffRecipients::options('cron_summary_recipients', 'admin.cron_stats.view');
+    }
 
-            return $options;
-        } catch (Exception) {
-            return []; // no database yet (install)
-        }
+    /** @return array<int, string> */
+    public static function systemNoticeRecipientOptions(): array
+    {
+        return StaffRecipients::options(StaffRecipients::SYSTEM_NOTICES);
     }
 
     public static function settingsObject()

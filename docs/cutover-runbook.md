@@ -533,7 +533,7 @@ knowledgebase (δικός του controller). Ό,τι άλλο του WHMCS πά
     «Περιμένουν αναστολή» δείχνει ό,τι κρατά: να διαβαστεί πριν ξαναγίνει on το «Enable Suspension» (Settings → Cron), γιατί στο πρώτο cron μετά αναστέλλονται όλες μαζί.
     Και το ίδιο με email: **Settings → Automation → Daily Summary Email** (off από προεπιλογή). «Every day» ή «Only when
     something failed» (μέρα χωρίς cron, κάρτα που δεν χρεώθηκε, ενέργεια module ανοιχτή), παραλήπτες από το staff που
-    βλέπει Cron stats (κανείς: το System Email Address), ώρα αποστολής (μετά το Time of Day) και «Working days only»
+    βλέπει Cron stats (κανείς: όσοι από τις ειδοποιήσεις συστήματος τα βλέπουν, αλλιώς το System Email Address), ώρα αποστολής (μετά το Time of Day) και «Working days only»
     (η Δευτέρα καλύπτει το Σαββατοκύριακο). Κάθε email: οι μέρες από το προηγούμενο (έως 7), και τι αναστέλλεται ή
     τερματίζεται τώρα, αύριο και μεθαύριο, με τις υπηρεσίες· με «Working days only» της Παρασκευής φτάνει ως τη Δευτέρα,
     γιατί το email της Δευτέρας φεύγει μετά τις αναστολές της (ADV-A3-5). Για τις πρώτες μέρες: «Every day». Δοκιμή χωρίς να

@@ -6,6 +6,7 @@ use App\Contracts\ReadsAccountBalance;
 use App\Helpers\NotificationHelper;
 use App\Models\DomainRegistrarConnection;
 use App\Support\Redact;
+use App\Support\StaffRecipients;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Throwable;
@@ -133,8 +134,8 @@ final class RegistrarBalances
             return $balance;
         }
         if ($problem !== null) {
-            // Not sent (mail off, no system address): not told, so told once mail is on (review 4).
-            if (config('settings.mail_disable') || !config('settings.system_email_address')) {
+            // Not sent (mail off, no one to send it to): not told, so told once mail is on (review 4).
+            if (config('settings.mail_disable') || StaffRecipients::systemNotices() === []) {
                 return $balance;
             }
             $amount = e(($balance['amount'] ?? '—') . ' ' . ($balance['currency'] ?? ''));

@@ -32,6 +32,7 @@ use App\Support\EmailKinds;
 use App\Support\Locales;
 use App\Support\LogText;
 use App\Support\Redact;
+use App\Support\StaffRecipients;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
@@ -337,10 +338,15 @@ class NotificationHelper
         array $attachments = [],
         ?string $email = null,
     ): void {
-        if (!$email) {
-            $email = config('settings.system_email_address');
+        if (config('settings.mail_disable')) {
+            return;
         }
-        if (!$email || config('settings.mail_disable')) {
+        // No address given: each of the staff chosen for system notices, else the System Email Address (owner 2026-11-13).
+        if (!$email) {
+            foreach (StaffRecipients::systemNotices() as $address) {
+                self::sendSystemEmailNotification($subject, $body, $attachments, $address);
+            }
+
             return;
         }
         // To staff, and kept in the email log: an error in it shows no secret, unless «Full logs» (App\Support\LogText).
