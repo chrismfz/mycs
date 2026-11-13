@@ -492,7 +492,7 @@ class ProductResource extends Resource
     public static function servicesTooltip(Product $product): string
     {
         return collect([Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING, Service::STATUS_TERMINATED, Service::STATUS_CANCELLED])
-            ->map(fn (string $status) => __(ucfirst($status)) . ' ' . (int) $product->getAttribute("{$status}_services"))
+            ->map(fn (string $status) => Service::statusLabel($status) . ' ' . (int) $product->getAttribute("{$status}_services"))
             ->implode(' · ');
     }
 
