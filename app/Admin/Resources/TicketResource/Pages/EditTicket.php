@@ -34,10 +34,12 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
-use Filament\Support\Enums\TextSize;
+use Filament\Support\Enums\FontWeight;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -342,62 +344,80 @@ class EditTicket extends EditRecord
     {
         return $schema
             ->record($this->record)
-            ->columns(['default' => 3, 'md' => 1])
+            ->columns(1)
             ->components([
-                // A guest's ticket names its guest; staff link it to an account by hand (docs/tickets.md §3 Δ).
-                TextEntry::make('client_id')
-                    ->size(TextSize::Large)
-                    ->state(fn (Ticket $record) => $record->isGuest() ? __('Guest') . ': ' . $record->guest_name . ' <' . $record->guest_email . '>' : $record->client?->name)
-                    ->url(fn (Ticket $record) => $record->client ? ClientResource::getUrl('view', ['record' => $record->client]) : null)
-                    // Opened by a mail our server did not vouch for: the address may be forged (our replies to it say
-                    // nothing of what the sender wrote).
-                    ->helperText(fn (Ticket $record) => implode(' ', array_filter([
-                        $record->sender_vouched === false ? '⚠ ' . __('Our mail server did not vouch for this address: it may be forged.') : null,
-                        self::unverifiedLoginHint($record),
-                    ])) ?: null)
-                    ->label('Client'),
-                TextEntry::make('reference')
-                    ->size(TextSize::Large)
-                    ->label('Number'),
-                TextEntry::make('subject')
-                    ->size(TextSize::Large)
-                    ->label('Subject'),
-                TextEntry::make('status')
-                    ->size(TextSize::Large)
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => Ticket::statusLabel($state))
-                    ->color(fn ($state) => Ticket::statusColor($state))
-                    ->label('Status'),
-                TextEntry::make('priority')
-                    ->size(TextSize::Large)
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => ucfirst($state))
-                    ->color(fn ($state) => Ticket::priorityColor($state))
-                    ->label('Priority'),
-                TextEntry::make('department.name')
-                    ->size(TextSize::Large)
-                    ->placeholder('No department')
-                    ->label('Department'),
-
-                TextEntry::make('assigned_to')
-                    ->size(TextSize::Large)
-                    ->label('Assigned To')
-                    ->placeholder('No assigned user')
-                    ->formatStateUsing(fn ($record) => $record->assignedTo->name),
-
-                TextEntry::make('ccs')
-                    ->size(TextSize::Large)
-                    ->label('CC')
-                    ->state(fn (Ticket $record) => $record->ccs()->orderBy('id')->pluck('email')->all())
-                    ->listWithLineBreaks()
-                    ->placeholder('No one copied'),
-
-                TextEntry::make('service_id')
-                    ->size(TextSize::Large)
-                    ->label('Service')
-                    ->url(fn ($record) => $record->service ? ServiceResource::getUrl('edit', ['record' => $record->service]) : null)
-                    ->placeholder('No service')
-                    ->formatStateUsing(fn ($record) => $this->formatServiceOptionLabel($record->service)),
+                // Two boxes (owner 2026-11-13): the ticket itself, then whose it is; the actions under them.
+                Section::make(__('Ticket'))
+                    ->compact()
+                    ->schema([
+                        TextEntry::make('reference')
+                            ->label(__('Number'))
+                            ->prefix('#')
+                            ->weight(FontWeight::SemiBold)
+                            ->copyable(),
+                        TextEntry::make('subject')
+                            ->label(__('Subject')),
+                        Grid::make(2)->schema([
+                            TextEntry::make('status')
+                                ->badge()
+                                ->formatStateUsing(fn ($state) => Ticket::statusLabel($state))
+                                ->color(fn ($state) => Ticket::statusColor($state))
+                                ->label(__('Status')),
+                            TextEntry::make('priority')
+                                ->badge()
+                                ->formatStateUsing(fn ($state) => TicketResource::priorityOptions()[$state] ?? ucfirst((string) $state))
+                                ->color(fn ($state) => Ticket::priorityColor($state))
+                                ->label(__('Priority')),
+                        ]),
+                        Grid::make(2)->schema([
+                            TextEntry::make('department.name')
+                                ->placeholder(__('No department'))
+                                ->label(__('Department')),
+                            TextEntry::make('assigned_to')
+                                ->label(__('Assigned to'))
+                                ->placeholder('—')
+                                ->formatStateUsing(fn ($record) => $record->assignedTo?->name),
+                        ]),
+                        TextEntry::make('created_at')
+                            ->label(__('Opened'))
+                            ->dateTime('d/m/Y H:i')
+                            ->helperText(fn (Ticket $record) => match ($record->opened_via) {
+                                'email' => __('by email'),
+                                'portal' => __('from the client area'),
+                                'form' => __('from the contact form'),
+                                'api' => __('by API'),
+                                'whmcs' => __('from WHMCS'),
+                                default => __('by staff'),
+                            }),
+                    ]),
+                Section::make(__('Client'))
+                    ->compact()
+                    ->schema([
+                        // A guest's ticket names its guest; staff link it to an account by hand (docs/tickets.md §3 Δ).
+                        TextEntry::make('client_id')
+                            ->hiddenLabel()
+                            ->weight(FontWeight::SemiBold)
+                            ->state(fn (Ticket $record) => $record->isGuest() ? __('Guest') . ': ' . $record->guest_name . ' <' . $record->guest_email . '>' : $record->client?->name)
+                            ->url(fn (Ticket $record) => $record->client ? ClientResource::getUrl('view', ['record' => $record->client]) : null)
+                            ->color(fn (Ticket $record) => $record->client ? 'primary' : null)
+                            // Opened by a mail our server did not vouch for: the address may be forged (our replies to it say
+                            // nothing of what the sender wrote).
+                            ->helperText(fn (Ticket $record) => implode(' ', array_filter([
+                                $record->sender_vouched === false ? '⚠ ' . __('Our mail server did not vouch for this address: it may be forged.') : null,
+                                self::unverifiedLoginHint($record),
+                            ])) ?: null),
+                        TextEntry::make('service_id')
+                            ->label(__('Service'))
+                            ->url(fn ($record) => $record->service ? ServiceResource::getUrl('edit', ['record' => $record->service]) : null)
+                            ->color(fn (Ticket $record) => $record->service ? 'primary' : null)
+                            ->placeholder(__('No service'))
+                            ->formatStateUsing(fn ($record) => $this->formatServiceOptionLabel($record->service)),
+                        TextEntry::make('ccs')
+                            ->label('CC')
+                            ->state(fn (Ticket $record) => $record->ccs()->orderBy('id')->pluck('email')->all())
+                            ->listWithLineBreaks()
+                            ->placeholder(__('No one copied')),
+                    ]),
 
                 Actions::make([
                     Action::make('Edit')
@@ -516,6 +536,7 @@ class EditTicket extends EditRecord
                         ->hidden(!auth()->user()->can('update', $this->record) || ($this->record instanceof Ticket && $this->record->isMerged())),
                     Action::make('Delete')
                         ->color('danger')
+                        ->outlined()
                         ->icon('heroicon-o-trash')
                         ->requiresConfirmation()
                         ->action(fn (Ticket $record) => $record->delete())
@@ -531,7 +552,7 @@ class EditTicket extends EditRecord
                     AuditAction::make()->auditChildren([
                         'messages',
                     ]),
-                ])->key('ticketActions')->columnSpan(['default' => 'full', 'md' => 1]),
+                ])->key('ticketActions'),
             ]);
     }
 
@@ -561,6 +582,22 @@ class EditTicket extends EditRecord
     private function formatServiceOptionLabel($record): string
     {
         return "{$record->product->name} #{$record->id} - " . ucfirst($record->status) . ($record->label == $record->baseLabel ? '' : " ({$record->label})");
+    }
+
+    /** The message whose whole mail is open: one of this ticket's, read when asked for (review 3 of #846). */
+    public ?int $mailShown = null;
+
+    public function showMail(int $id): void
+    {
+        $this->mailShown = $this->record instanceof Ticket ? $this->record->messages()->whereKey($id)->value('id') : null;
+        if ($this->mailShown !== null) {
+            $this->dispatch('open-modal', id: 'ticket-mail');
+        }
+    }
+
+    public function shownMail(): ?TicketMessage
+    {
+        return $this->mailShown !== null && $this->record instanceof Ticket ? $this->record->messages()->find($this->mailShown) : null;
     }
 
     public function deleteMessage(TicketMessage $message): void

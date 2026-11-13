@@ -84,6 +84,8 @@ class InboundRouter
 
         $verdict = self::verdict($email, $raw, (string) $department->authserv_id);
         $vouched = $verdict->authenticated || !$department->require_dmarc;
+        // What staff read beside the message (owner 2026-11-13): our server's verdict, not the department's leniency.
+        $mail = TicketMessage::mailDetails($email, $raw, $verdict->authenticated, $verdict->reason);
 
         // 3. A reply: by our Message-ID only.
         $threaded = $this->threadedTicket($email);
@@ -108,7 +110,7 @@ class InboundRouter
             }
             RateLimiter::hit($replies, 3600);
 
-            return $this->reply($threaded, $email, $messageId, $author, $copied ? TicketCc::normalise($from) : null);
+            return $this->reply($threaded, $email, $messageId, $mail, $author, $copied ? TicketCc::normalise($from) : null);
         }
 
         // 4. Names a ticket, but is no reply to a mail of ours (an old WHMCS one): staff decide.
@@ -128,7 +130,7 @@ class InboundRouter
         if (RateLimiter::tooManyAttempts($limit, self::NEW_TICKETS_PER_HOUR)) {
             return $this->quarantine($department, $email, $raw, 'rate_limited', $messageId, $verdict);
         }
-        $outcome = $this->open($department, $email, $messageId, $account, $verdict->authenticated);
+        $outcome = $this->open($department, $email, $messageId, $mail, $account, $verdict->authenticated);
         if ($outcome->kind === InboundOutcome::OPENED) {
             RateLimiter::hit($limit, 3600);
             // «We received it», to an address our server vouched for, or to one of our own customers' (a login with a
@@ -261,20 +263,24 @@ class InboundRouter
         return $grants->count() === 1 ? ['client_id' => (int) $grants->first()->client_id, 'user' => $user] : null;
     }
 
-    private function reply(Ticket $ticket, InboundEmail $email, string $messageId, ?User $author, ?string $copied = null): InboundOutcome
+    /** @param  array<string, mixed>|null  $mail */
+    private function reply(Ticket $ticket, InboundEmail $email, string $messageId, ?array $mail, ?User $author, ?string $copied = null): InboundOutcome
     {
-        return $this->unique(fn () => TicketFiles::transaction(function () use ($ticket, $email, $messageId, $author, $copied) {
-            $message = $ticket->messages()->create(['sender_email' => $copied] + $this->messageData($email, $messageId, $author, ReplyText::clean($email->body)));
+        return $this->unique(fn () => TicketFiles::transaction(function () use ($ticket, $email, $messageId, $mail, $author, $copied) {
+            $message = $ticket->messages()->create(['sender_email' => $copied, 'mail' => $mail] + $this->messageData($email, $messageId, $author, ReplyText::clean($email->body)));
             TicketFiles::storeInbound($message, $email->attachments);
 
             return new InboundOutcome(InboundOutcome::THREADED, $ticket);
         }));
     }
 
-    /** @param  array{client_id: int, user: User}|null  $account */
-    private function open(TicketDepartment $department, InboundEmail $email, string $messageId, ?array $account, bool $vouched): InboundOutcome
+    /**
+     * @param  array<string, mixed>|null  $mail
+     * @param  array{client_id: int, user: User}|null  $account
+     */
+    private function open(TicketDepartment $department, InboundEmail $email, string $messageId, ?array $mail, ?array $account, bool $vouched): InboundOutcome
     {
-        return $this->unique(fn () => TicketFiles::transaction(function () use ($department, $email, $messageId, $account, $vouched) {
+        return $this->unique(fn () => TicketFiles::transaction(function () use ($department, $email, $messageId, $mail, $account, $vouched) {
             $ticket = Ticket::query()->create([
                 'subject' => $this->subject($email->subject),
                 'status' => Ticket::STATUS_OPEN,
@@ -286,7 +292,7 @@ class InboundRouter
                 'guest_name' => $account === null ? ($email->fromName ?? $email->fromEmail) : null,
                 'guest_email' => $account === null ? $email->fromEmail : null,
             ]);
-            $message = $ticket->messages()->create($this->messageData($email, $messageId, $account['user'] ?? null, trim($email->body)));
+            $message = $ticket->messages()->create(['mail' => $mail] + $this->messageData($email, $messageId, $account['user'] ?? null, trim($email->body)));
             TicketFiles::storeInbound($message, $email->attachments);
 
             return new InboundOutcome(InboundOutcome::OPENED, $ticket);

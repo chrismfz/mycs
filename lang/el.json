@@ -1860,5 +1860,17 @@
     "by API": "μέσω API",
     "from WHMCS": "από το WHMCS",
     "by staff": "από το προσωπικό",
-    ":count message|:count messages": ":count μήνυμα|:count μηνύματα"
+    ":count message|:count messages": ":count μήνυμα|:count μηνύματα",
+    "Number": "Αριθμός",
+    "No department": "Χωρίς τμήμα",
+    "No service": "Χωρίς υπηρεσία",
+    "No one copied": "Κανείς σε κοινοποίηση",
+    "Check": "Έλεγχος",
+    "Verified": "Επαληθευμένο",
+    "Not verified: it may be forged": "Δεν επαληθεύτηκε: μπορεί να είναι πλαστό",
+    "The whole mail and its headers": "Όλο το mail και τα headers",
+    "Headers": "Headers",
+    "Delete this message?": "Διαγραφή αυτού του μηνύματος;",
+    "Not checked": "Δεν ελέγχθηκε",
+    "The whole mail": "Όλο το mail"
 }

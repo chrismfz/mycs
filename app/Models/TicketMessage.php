@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
+use MyCS\TicketMail\InboundEmail;
+use MyCS\TicketMail\MailHeaders;
 use OwenIt\Auditing\Contracts\Auditable;
 
 /**
@@ -25,7 +27,7 @@ class TicketMessage extends Model implements Auditable
      *
      * @var list<string>
      */
-    protected $auditExclude = ['message', 'body_original'];
+    protected $auditExclude = ['message', 'body_original', 'mail'];
 
     protected $fillable = [
         'ticket_id',
@@ -37,6 +39,7 @@ class TicketMessage extends Model implements Auditable
         'is_internal',
         'sender_email',
         'body_original',
+        'mail',
     ];
 
     /** Came in by email (docs/tickets.md A2): its email_message_id is the sender's, never a thread key. */
@@ -50,7 +53,32 @@ class TicketMessage extends Model implements Auditable
 
     protected $casts = [
         'is_internal' => 'boolean',
+        'mail' => 'array',
     ];
+
+    /**
+     * What staff read of the mail a message came by (owner 2026-11-13): From, the server our server took it from (the
+     * topmost Received, our own line), whether our server vouched for the From and why, and the header block. Never
+     * shown to the customer.
+     *
+     * Never blocks the mail: details that cannot be stored are left out (adversarial review of #846). $vouched null: our
+     * server's check never ran on it (a mail quarantined before it, review 3 of #846).
+     *
+     * @return array{from: string, server: string|null, vouched: bool|null, reason: string, headers: string}|null
+     */
+    public static function mailDetails(InboundEmail $email, string $raw, ?bool $vouched, string $reason): ?array
+    {
+        $from = $email->fromName !== null && $email->fromName !== '' ? $email->fromName . ' <' . $email->fromEmail . '>' : $email->fromEmail;
+        $details = [
+            'from' => mb_substr(mb_scrub($from, 'UTF-8'), 0, 300),
+            'server' => MailHeaders::sendingServer($raw),
+            'vouched' => $vouched,
+            'reason' => mb_substr(mb_scrub($reason, 'UTF-8'), 0, 80),
+            'headers' => MailHeaders::block($raw),
+        ];
+
+        return json_encode($details) === false ? null : $details;
+    }
 
     /**
      * The messages a reply may join by (§3 Α): those we mailed, whose Message-ID of ours is in TicketMailId. An id on
