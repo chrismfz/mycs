@@ -532,10 +532,17 @@ class PayPal extends Gateway implements ListsTransactions
                     'fields' => 'transaction_info', 'page_size' => self::SEARCH_PAGE_SIZE, 'page' => $page,
                 ]);
                 // A 200 that is not PayPal's answer (an HTML page, an empty body) is not an empty list (ADV-810-3, 4).
-                if (!is_object($response) || !is_array($response->transaction_details ?? null)) {
+                $details = is_object($response) ? ($response->transaction_details ?? null) : null;
+                // A span with nothing in it: PayPal leaves transaction_details out and says total_items 0 (nixpal
+                // 2026-11-13). Only that says so: the count, as a number, is 0, and on a part's first page (a later
+                // page of a list page 1 said was longer is never its end: ADV-842-1).
+                if ($details === null && $page === 1 && is_object($response) && ($response->total_items ?? null) === 0) {
+                    $details = [];
+                }
+                if (!is_array($details)) {
                     throw new PayPalApiException(200, 'UNREADABLE_ANSWER', null, null, [], 'Transaction Search answered without transaction_details');
                 }
-                foreach ($response->transaction_details as $detail) {
+                foreach ($details as $detail) {
                     $line = self::searchLine($detail->transaction_info ?? null);
                     if ($line !== null) {
                         $lines[$line->what . ':' . $line->id] = $line; // a row on the edge of two parts, once

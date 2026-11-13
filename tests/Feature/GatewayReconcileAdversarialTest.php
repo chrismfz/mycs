@@ -94,9 +94,11 @@ class GatewayReconcileAdversarialTest extends TestCase
                 $pages = array_chunk($within, $this->perPage);
                 $page = (int) ($query['page'] ?? 1);
 
-                return Http::response([
+                // As PayPal answers: no transaction_details at all when the span has none (seen 2026-11-13).
+                return Http::response(($within === [] ? [] : [
                     'transaction_details' => array_map(fn (array $info) => ['transaction_info' => $info], $pages[$page - 1] ?? []),
-                    'page' => $page, 'total_pages' => max(1, count($pages)),
+                ]) + [
+                    'page' => $page, 'total_items' => count($within), 'total_pages' => max(1, count($pages)),
                 ] + ($this->refreshed === false ? [] : ['last_refreshed_datetime' => $this->refreshed ?? now()->utc()->subHours(3)->format('Y-m-d\TH:i:sO')]));
             },
         ]);
@@ -347,6 +349,36 @@ class GatewayReconcileAdversarialTest extends TestCase
 
         $this->assertCount(1, $this->searches);
         $this->assertSame(['PAY-OLD-TYPO'], GatewayTransaction::query()->pluck('reference')->all(), 'unsaid: six hours behind');
+    }
+
+    /**
+     * nixpal 2026-11-13: the first day after the cut-over had no PayPal transaction, and PayPal answered as it does
+     * for an empty span (no transaction_details, total_items 0). That is an empty list, read: nothing to say.
+     */
+    public function test_a_span_with_nothing_in_it_is_an_empty_list_as_paypal_answers_it(): void
+    {
+        $this->configure(['reconcile_from' => '2026-11-20 00:20']);
+        $this->instead = [fn () => Http::response(['account_number' => 'X', 'start_date' => '2026-11-19T00:20:00+0000',
+            'end_date' => '2026-11-20T12:00:00+0000', 'last_refreshed_datetime' => '2026-11-20T09:29:59+0000',
+            'page' => 1, 'total_items' => 0, 'total_pages' => 0, 'links' => []])];
+
+        $this->assertSame(0, $this->reconcile());
+
+        $this->assertSame([], GatewayTransaction::query()->get()->all());
+        $this->assertSame([], $this->said());
+        $this->assertSame(0, DB::table('email_logs')->where('subject', 'PayPal transactions not read')->count());
+    }
+
+    /** Still never an empty list: JSON without the rows that does not say it has none (no count, or a count as text, or more than 0). */
+    public function test_json_without_rows_that_does_not_say_none_is_not_an_empty_list(): void
+    {
+        foreach ([['page' => 1, 'total_pages' => 1], ['page' => 1, 'total_items' => '0'], ['page' => 1, 'total_items' => 3, 'total_pages' => 1]] as $body) {
+            Cache::flush();
+            $this->instead = [fn () => Http::response($body + ['last_refreshed_datetime' => '2026-11-20T09:00:00+0000'])];
+
+            $this->assertSame(1, $this->reconcile(), json_encode($body));
+            $this->assertSame('PayPal transactions', $this->said()[0]['subject'] ?? null, json_encode($body));
+        }
     }
 
     public function test_adv_810_sound_a_failed_read_keeps_what_staff_marked_and_the_money_check_says_the_same_each_day(): void
