@@ -24,6 +24,8 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string|null $tiers a bulk license's own prices per IP (Ε6), else its product's
  * @property int|null $bulk_license_id the bulk license this standalone one joins at its expiry, or joined (§8)
  * @property Carbon|null $merged_at when it joined: its key answers as the bulk license since
+ * @property-read int|null $listed_ips the licenses console's count of its active IPs (withCount)
+ * @property-read int|null $silent_ips the licenses console's count of its silent IPs (withCount)
  * @property Carbon|null $last_access
  */
 class License extends Model implements Auditable
