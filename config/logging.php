@@ -87,8 +87,9 @@ return [
             'path' => storage_path('logs/payments.log'),
             // Its own level: an app logging only errors still keeps the money's warnings and the check's runs.
             'level' => env('LOG_PAYMENTS_LEVEL', 'info'),
-            // Written by the web server and the cron (a different user): whoever makes the day's file, both can write it.
-            'permission' => 0664,
+            // Written by the web server and the cron (a different user, the same group): whoever makes the day's file,
+            // both can write it; never readable by others (nixpal 2026-11-13: a new day's file was 664 until a deploy).
+            'permission' => 0660,
             'days' => env('LOG_PAYMENTS_DAYS', 365),
             'replace_placeholders' => true,
         ],
