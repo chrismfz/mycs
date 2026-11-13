@@ -155,8 +155,11 @@ class BulkLicenseOrderAdversarialTest extends TestCase
      * Correct: the first period is closed like any other at its IPs, against the 0.00 paid (or, if the coupon is meant to
      * be worth one IP, 105.00 − 1.80): e.g. the free start gets a 0.00 paid line with its period, as the renewal does for
      * bulk (ADV-823-1); or a rule: no coupon / no free order on a bulk product.
+     *
+     * Owner 2026-11-13: cut by a rule for staff (no coupon includes a bulk product, staff never order one at 0.00), not
+     * code (docs/zonecloud-bulk-license.md §6.3). This pins what it does: the free first month is never closed.
      */
-    public function test_adv_832_3_a_free_first_month_by_coupon_is_still_closed_at_its_ips(): void
+    public function test_adv_832_3_known_a_free_first_month_by_coupon_is_never_closed_so_no_coupon_on_bulk(): void
     {
         $coupon = Coupon::create(['code' => 'FREE1', 'type' => 'percentage', 'applies_to' => 'all', 'value' => 100, 'recurring' => null]);
         $product = $this->product->fresh();
@@ -170,12 +173,12 @@ class BulkLicenseOrderAdversarialTest extends TestCase
         $this->pay($this->bill($service, '2026-10-03'));   // October in advance, 60 IPs
         $this->bill($service, '2026-11-03');
 
-        $this->assertTrue(LicenseUsagePeriod::query()->whereDate('period_start', '2026-09-10')->exists(),
-            'September (60 IPs, 105.00) was used: it is closed and billed, not free');
+        $this->assertFalse(LicenseUsagePeriod::query()->whereDate('period_start', '2026-09-10')->exists(),
+            'known: September (60 IPs) is free, never closed: the rule keeps coupons off bulk');
     }
 
-    /** ADV-832-4 (medium): the same through a staff price of 0.00 on the OrderLine («Create Order»). */
-    public function test_adv_832_4_a_staff_price_of_zero_still_closes_the_first_month(): void
+    /** ADV-832-4 (medium, known, cut by the same rule): the same through a staff price of 0.00 on the OrderLine («Create Order»). */
+    public function test_adv_832_4_known_a_staff_price_of_zero_leaves_the_first_month_unclosed(): void
     {
         $product = $this->product->fresh();
         $placed = (new PlaceOrderService)->place($this->user->client(), 'USD', [new OrderLine($product, $product->plans()->first(), price: '0.00')]);
@@ -187,8 +190,8 @@ class BulkLicenseOrderAdversarialTest extends TestCase
         $this->pay($this->bill($service, '2026-10-03'));
         $this->bill($service, '2026-11-03');
 
-        $this->assertTrue(LicenseUsagePeriod::query()->whereDate('period_start', '2026-09-10')->exists(),
-            'September at 60 IPs is closed like any other period');
+        $this->assertFalse(LicenseUsagePeriod::query()->whereDate('period_start', '2026-09-10')->exists(),
+            'known: never closed; staff never order a bulk license at 0.00');
     }
 
     /** ADV-832-G1 (passing guard): tax-inclusive prices, no IP: the 1.80 paid comes back whole, tax in. */

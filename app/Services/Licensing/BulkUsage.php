@@ -202,10 +202,15 @@ final class BulkUsage
             'correction' => UsageCharge::adjustment($estimate, $billed)];
     }
 
-    /** A line's net, price × quantity, from the stored decimal (never a float). */
+    /**
+     * A line's net for its period, (price − setup fee) × quantity, from the stored decimals (never a float). An order's
+     * line holds its setup fee in its price: that fee is not usage, never counted against the IPs (ADV-832-1/2).
+     */
     private static function lineNet(InvoiceItem $line): string
     {
-        return (string) BigDecimal::of((string) $line->getRawOriginal('price'))->multipliedBy(max(1, (int) $line->quantity))->toScale(2, RoundingMode::HalfUp);
+        $price = BigDecimal::of((string) $line->getRawOriginal('price'))->minus(BigDecimal::of((string) ($line->getRawOriginal('setup_fee') ?? '0')));
+
+        return (string) $price->multipliedBy(max(1, (int) $line->quantity))->toScale(2, RoundingMode::HalfUp);
     }
 
     /**
