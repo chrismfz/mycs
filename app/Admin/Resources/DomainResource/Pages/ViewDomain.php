@@ -53,6 +53,7 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 use Livewire\Attributes\Locked;
@@ -273,6 +274,7 @@ class ViewDomain extends ViewRecord
         }
         $this->record->refresh();
         $this->refreshFormData([]);
+        $this->fillBilling(); // what the action changed (a sync turns auto renew off): shown, and the base of «Save»
     }
 
     protected function getHeaderActions(): array
@@ -296,6 +298,7 @@ class ViewDomain extends ViewRecord
                             Notification::make()->danger()->title(__('The registrar could not be read.'))->body(e($e->getMessage()))->send();
                         }
                         $this->refreshFormData([]);
+                        $this->fillBilling(); // what the action changed (a sync turns auto renew off): shown, and the base of «Save»
                     }),
                 // Our record corrected when something changed outside MyCS (owner 2026-10-23): nothing asked of a registrar,
                 // each change audited before → after (DomainRecordCorrections).
@@ -387,6 +390,7 @@ class ViewDomain extends ViewRecord
                         }
                         $this->record->refresh();
                         $this->refreshFormData([]);
+                        $this->fillBilling(); // what the action changed (a sync turns auto renew off): shown, and the base of «Save»
                     }),
 
                 Action::make('nameservers')->label(__('Nameservers'))->icon('heroicon-o-server-stack')
@@ -770,32 +774,46 @@ class ViewDomain extends ViewRecord
         /** @var Domain $record */
         $record = $this->getRecord();
         $loaded = $this->billingLoaded;
+        // Changed by someone else since the page was filled: kept (only staff's own changes are written), and said.
+        $now = self::billingState($record);
+        $meanwhile = array_keys(array_filter($now, fn ($value, string $key) => self::billingValue($key, $value) !== self::billingValue($key, $loaded[$key] ?? null), ARRAY_FILTER_USE_BOTH));
         $changed = fn (string $key) => array_key_exists($key, $data) && self::billingValue($key, $data[$key]) !== self::billingValue($key, $loaded[$key] ?? null);
 
-        $outcome = DomainRenewalYears::UNCHANGED;
-        if ($changed('years') && (int) $data['years'] !== max(1, (int) $record->years)) {
-            try {
-                $outcome = app(DomainRenewalYears::class)->change($record, (int) $data['years'], byStaff: true);
-            } catch (DisplayException $e) {
-                Notification::make()->danger()->title(e($e->getMessage()))->send();
-
-                return;
-            }
-        }
         $write = [];
         foreach (['auto_renew', 'no_auto_charge', 'recurring_amount', 'payment_gateway_id', 'notes'] as $key) {
             if ($changed($key)) {
                 $write[$key] = self::billingValue($key, $data[$key]);
             }
         }
-        if ($write !== []) {
-            $record->forceFill($write)->save(); // audited
+        // The fields first, then the period, in one transaction: a price set with the period is the one its open renewal
+        // line sees (ADV-831-1: it was re-priced at the catalog's period price, the hand price written after); a period
+        // refused undoes them all (nothing of the form saved: code review 6 of #182).
+        try {
+            $outcome = DB::transaction(function () use ($record, $write, $changed, $data) {
+                if ($write !== []) {
+                    $record->forceFill($write)->save(); // audited
+                }
+
+                return $changed('years') && (int) $data['years'] !== max(1, (int) $record->years)
+                    ? app(DomainRenewalYears::class)->change($record, (int) $data['years'], byStaff: true)
+                    : DomainRenewalYears::UNCHANGED;
+            });
+        } catch (DisplayException $e) {
+            $record->refresh();
+            Notification::make()->danger()->title(e($e->getMessage()))->send();
+
+            return;
         }
-        Notification::make()->success()->title(__('Saved.'))->body(match ($outcome) {
+        $body = match ($outcome) {
             DomainRenewalYears::INVOICE => __('Its open renewal invoice changed with the period.'),
             DomainRenewalYears::NEXT => __('The period counts from its next renewal invoice: the open one, if any, keeps its period (paid or with money on it, a price set by hand, in grace or redemption, or a later period billed already).'),
             default => null,
-        })->send();
+        };
+        $untouched = array_values(array_filter($meanwhile, fn (string $key) => !$changed($key)));
+        if ($untouched !== []) {
+            $body = trim(($body ?? '') . ' ' . __('Changed by someone else meanwhile, kept as they left it and shown now: :fields.', ['fields' => implode(', ', $untouched)]));
+        }
+        Notification::make()->success()->title(__('Saved.'))->body($body)->send();
         $this->record->refresh();
         $this->refreshFormData([]);
         $this->fillBilling();
