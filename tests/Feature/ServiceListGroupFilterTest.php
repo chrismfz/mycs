@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Clusters\InvoiceCluster;
 use App\Admin\Clusters\Services;
 use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\ListService;
@@ -47,6 +48,7 @@ class ServiceListGroupFilterTest extends TestCase
         Livewire::test(ListService::class)->filterTable('category', $wordpress->id)
             ->assertCanSeeTableRecords([$wp])->assertCanNotSeeTableRecords([$plain, $licence]);
         $this->assertSame(SubNavigationPosition::Top, Services::getSubNavigationPosition());
+        $this->assertSame(SubNavigationPosition::Top, InvoiceCluster::getSubNavigationPosition());
 
         // Two groups each other's parent (review of #836): labelled, the list still shows.
         $licenses->forceFill(['parent_id' => $wordpress->id])->save();
