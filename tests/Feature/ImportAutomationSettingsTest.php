@@ -196,4 +196,17 @@ class ImportAutomationSettingsTest extends TestCase
         $this->import(['AutoSuspension' => 'on']);
         $this->assertNull($downgrade(), 'none in WHMCS: MyCS\'s own kept (no row written)');
     }
+
+    /** nixpal's cut-over (2026-11-13): the company's name and the default nameservers came neither. */
+    public function test_the_company_name_and_the_default_nameservers_come(): void
+    {
+        $value = fn (string $key) => Setting::query()->whereNull('settingable_type')->where('key', $key)->first()?->getRawOriginal('value');
+        $this->storeSettings(['domain_nameserver_4' => 'ns4.ours.test']);
+        $this->import(['CompanyName' => 'Smith &amp; Co', 'DefaultNameserver1' => 'NS1.Example.test.', 'DefaultNameserver2' => ' ns2.example.test ',
+            'DefaultNameserver3' => 'not a host', 'DefaultNameserver4' => '', 'DefaultNameserver5' => '']);
+
+        $this->assertSame('Smith & Co', $value('company_name'));
+        $this->assertSame(['ns1.example.test', 'ns2.example.test', '', 'ns4.ours.test', ''],
+            array_map(fn (int $n) => (string) $value("domain_nameserver_{$n}"), range(1, 5)), 'a bad or empty one keeps MyCS\'s own');
+    }
 }
