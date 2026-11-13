@@ -135,7 +135,7 @@ class ChatNotifications
     public function handleCancellation(CancellationCreated $event): void
     {
         // Made with its parent's request: one notice, the parent's (ADV-634-4); a move into a bulk license is staff's own.
-        if ($event->cancellation->with_parent || BulkConvert::silent($event->cancellation->service)) {
+        if ($event->cancellation->with_parent || BulkConvert::moving($event->cancellation->service)) {
             return;
         }
         [$type, $reason, $serviceId] = [$event->cancellation->type, $event->cancellation->reason, $event->cancellation->service_id];

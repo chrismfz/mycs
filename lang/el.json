@@ -1869,5 +1869,10 @@
     "Not checked": "Δεν ελέγχθηκε",
     "The whole mail": "Όλο το mail",
     "Moved into bulk license (service #:id)": "Μεταφέρθηκε σε bulk άδεια (υπηρεσία #:id)",
-    "service #:id": "υπηρεσία #:id"
+    "service #:id": "υπηρεσία #:id",
+    "Only a running bulk license takes standalone ones in.": "Μόνο μια bulk άδεια σε λειτουργία δέχεται μεμονωμένες.",
+    "No license selected.": "Δεν επιλέχθηκε άδεια.",
+    "Service #:id cannot move into this bulk license (not an active, renewing standalone license of this client with the same secret, nothing open to pay and no addons).": "Η υπηρεσία #:id δεν μπορεί να μπει σε αυτή τη bulk άδεια (δεν είναι ενεργή μεμονωμένη άδεια του ίδιου πελάτη με το ίδιο secret, που ανανεώνεται, χωρίς ανοιχτά τιμολόγια και χωρίς addons).",
+    "A cancellation was asked for one of them meanwhile: nothing moved.": "Στο μεταξύ ζητήθηκε ακύρωση για μία από αυτές: δεν μεταφέρθηκε καμία.",
+    "Its license joined a bulk license and its key still answers as that one: keep this service.": "Η άδειά της μπήκε σε bulk άδεια και το κλειδί της απαντά ακόμα ως εκείνη: κράτησε αυτή την υπηρεσία."
 }

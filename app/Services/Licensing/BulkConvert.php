@@ -4,12 +4,14 @@ namespace App\Services\Licensing;
 
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Models\Invoice;
 use App\Models\License;
 use App\Models\LicenseIp;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceCancellation;
 use App\Services\Order\OrderPricing;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -22,9 +24,10 @@ use Illuminate\Support\Facades\DB;
 class BulkConvert
 {
     /**
-     * The client's licenses that may move into $bulk: running, renewing (a due date, no cancellation asked), standalone
-     * (not bulk, no list), not moving already, and checked with the same secret (PSK) as the bulk product: their agents
-     * keep sending it.
+     * The client's licenses that may move into $bulk: active and renewing (a due date, no cancellation asked, nothing
+     * open to pay, neither an addon nor with one), standalone (not bulk, no list, Active: bound or never, not waiting for a reissue, no «Allow IP
+     * conflict»), not moving already, and checked with the same secret (PSK) as the bulk product: their agents keep sending
+     * it. Anything else is left to staff by hand (review of #850: a cut, not a case): its join date and IPs are then known.
      *
      * @return Collection<int, Service>
      */
@@ -33,12 +36,16 @@ class BulkConvert
         $secret = self::secret($bulk->product);
 
         return Service::query()->where('client_id', $bulk->client_id)->whereKeyNot($bulk->id)
-            ->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])->whereNotNull('expires_at')
+            ->where('status', Service::STATUS_ACTIVE)->whereNotNull('expires_at')->where('expires_at', '>', now())
             ->whereDoesntHave('cancellation')
-            ->whereHas('license', fn ($license) => $license->whereNull('bulk_license_id')->where('status', '!=', License::STATUS_EXPIRED)
+            ->whereNull('parent_service_id')
+            ->whereDoesntHave('addons', fn ($addons) => $addons->whereIn('status', Service::PAYING_STATUSES))
+            ->whereDoesntHave('invoices', fn ($invoices) => $invoices->whereIn('invoices.status', Invoice::OPEN_STATUSES))
+            ->whereHas('license', fn ($license) => $license->whereNull('bulk_license_id')->where('status', License::STATUS_ACTIVE)
                 ->whereDoesntHave('ips', fn ($ips) => $ips->whereNull('removed_at')))
             ->with(['license', 'product.settings', 'plan'])->orderBy('expires_at')->orderBy('id')->get()
-            ->filter(fn (Service $service) => !Licenses::isBulk($service) && $secret !== '' && self::secret($service->product) === $secret)
+            ->filter(fn (Service $service) => !Licenses::isBulk($service) && $secret !== '' && self::secret($service->product) === $secret
+                && !filter_var(ExtensionHelper::settingsToArray($service->product->settings ?? collect())['allow_ip_conflict'] ?? false, FILTER_VALIDATE_BOOLEAN))
             ->values();
     }
 
@@ -79,33 +86,46 @@ class BulkConvert
      */
     public static function convert(Service $bulk, array $ids): int
     {
-        if (!Licenses::isBulk($bulk) || $bulk->license === null || !in_array($bulk->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
-            throw new DisplayException(__('Only a running bulk license takes standalone ones in.'));
-        }
         $ids = array_values(array_unique(array_map('intval', $ids)));
         if ($ids === []) {
             throw new DisplayException(__('No license selected.'));
         }
 
-        return DB::transaction(function () use ($bulk, $ids) {
-            // Under their services' locks, read again: a cancellation, a payment or another move meanwhile is seen.
-            Service::query()->whereKey($ids)->orderBy('id')->lockForUpdate()->get();
-            $eligible = self::candidates($bulk)->keyBy('id');
-            foreach ($ids as $id) {
-                if (!$eligible->has($id)) {
-                    throw new DisplayException(__('Service #:id cannot move into this bulk license (not a running standalone license of this client with the same secret, or already cancelling).', ['id' => $id]));
-                }
-            }
-            foreach ($ids as $id) {
-                $service = $eligible->get($id);
-                // The license first: the cancellation's mails ask it (silent()).
-                $service->license->update(['bulk_license_id' => $bulk->license->id]);
-                ServiceCancellation::query()->create(['service_id' => $id, 'type' => 'end_of_period',
-                    'reason' => __('Moved into bulk license (service #:id)', ['id' => $bulk->id])]);
-            }
+        try {
+            return DB::transaction(fn () => self::move($bulk, $ids));
+        } catch (UniqueConstraintViolationException) {
+            // The customer asked to cancel one meanwhile (one request a service): nothing moved.
+            throw new DisplayException(__('A cancellation was asked for one of them meanwhile: nothing moved.'));
+        }
+    }
 
-            return count($ids);
-        });
+    /** @param  list<int>  $ids */
+    private static function move(Service $bulk, array $ids): int
+    {
+        // Under the services' locks, in id order, read again: the bulk ending, a cancellation, a payment or another move
+        // meanwhile is seen.
+        $locked = Service::query()->whereKey([...$ids, $bulk->id])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        $bulk = $locked->get($bulk->id) ?? $bulk;
+        // Running and not cancelling (ADV-850-4): it outlives the licenses it takes in.
+        if (!Licenses::isBulk($bulk) || $bulk->license === null || !in_array($bulk->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)
+            || $bulk->cancellation()->exists()) {
+            throw new DisplayException(__('Only a running bulk license takes standalone ones in.'));
+        }
+        $eligible = self::candidates($bulk)->keyBy('id');
+        foreach ($ids as $id) {
+            if (!$eligible->has($id)) {
+                throw new DisplayException(__('Service #:id cannot move into this bulk license (not an active, renewing standalone license of this client with the same secret, nothing open to pay and no addons).', ['id' => $id]));
+            }
+        }
+        foreach ($ids as $id) {
+            $service = $eligible->get($id);
+            // The license first: the cancellation's mails ask it (moving()).
+            $service->license->update(['bulk_license_id' => $bulk->license->id]);
+            ServiceCancellation::query()->create(['service_id' => $id, 'type' => 'end_of_period',
+                'reason' => __('Moved into bulk license (service #:id)', ['id' => $bulk->id])]);
+        }
+
+        return count($ids);
     }
 
     /**
@@ -122,7 +142,9 @@ class BulkConvert
             return;
         }
         $bulk = License::query()->with('service.product')->find($license->bulk_license_id);
-        if ($bulk === null || !in_array($bulk->service?->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
+        // Still running, and still this client's (ADV-850-3): else it ends as any license.
+        if ($bulk === null || !in_array($bulk->service?->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)
+            || (int) $bulk->service->client_id !== (int) $service->client_id) {
             return;
         }
         $ips = self::ipsOf($license);
@@ -133,16 +155,30 @@ class BulkConvert
         License::query()->whereKey($license->id)->whereNull('merged_at')->update(['merged_at' => now()]);
     }
 
-    /** A move withdrawn before it joined (its cancellation deleted): the license is standalone again. */
+    /**
+     * A move withdrawn before it joined (its cancellation deleted while the service still runs): the license is standalone
+     * again. Not once the service ended (review of #850): a failed join waiting for its retry stays a move.
+     */
     public static function withdraw(int $serviceId): void
     {
-        License::query()->where('service_id', $serviceId)->whereNull('merged_at')->update(['bulk_license_id' => null]);
+        License::query()->where('service_id', $serviceId)->whereNull('merged_at')
+            ->whereHas('service', fn ($service) => $service->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED]))
+            ->update(['bulk_license_id' => null]);
     }
 
-    /** Moving into, or joined, a bulk license: its cancellation and its end send the customer no mail. */
-    public static function silent(?Service $service): bool
+    /** Moving into a bulk license: its cancellation request is staff's, no mail or chat card for it. */
+    public static function moving(?Service $service): bool
     {
         return $service !== null && License::query()->where('service_id', $service->id)->whereNotNull('bulk_license_id')->exists();
+    }
+
+    /**
+     * Joined a bulk license: its end sends no mail. One that ended without joining (the bulk ended first, or it was ended
+     * for another reason) is told as any (review of #850).
+     */
+    public static function joined(?Service $service): bool
+    {
+        return $service !== null && License::query()->where('service_id', $service->id)->whereNotNull('merged_at')->exists();
     }
 
     /** @return list<string> a standalone license's bound IPs, as the bulk list keeps them */

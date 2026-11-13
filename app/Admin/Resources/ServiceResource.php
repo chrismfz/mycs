@@ -623,11 +623,13 @@ class ServiceResource extends Resource
         if ($license->bulk_license_id !== null) {
             $bulk = $license->bulkLicense?->service_id;
 
-            return $license->merged_at !== null
-                ? 'Joined the bulk license of service #' . $bulk . ' on ' . $license->merged_at->format('d/m/Y') . ': its key answers as that license.'
-                : 'Joins the bulk license of service #' . $bulk . ' at its expiry' . ($record->expires_at ? ', ' . $record->expires_at->format('d/m/Y') : '') . '.';
+            return match (true) {
+                $license->merged_at !== null => 'Joined the bulk license of service #' . $bulk . ' on ' . $license->merged_at->format('d/m/Y') . ': its key answers as that license.',
+                $record->isEnded() => 'Was to join the bulk license of service #' . $bulk . ', but ended without joining.',
+                default => 'Joins the bulk license of service #' . $bulk . ' at its expiry' . ($record->expires_at ? ', ' . $record->expires_at->format('d/m/Y') : '') . '.',
+            };
         }
-        $joining = $license->joining()->whereNull('merged_at')->with('service')->get();
+        $joining = $license->joining()->whereNull('merged_at')->with('service')->get()->reject(fn (License $one) => $one->service?->isEnded() ?? true);
         $joined = $license->joining()->whereNotNull('merged_at')->count();
         if ($joining->isEmpty() && $joined === 0) {
             return null;

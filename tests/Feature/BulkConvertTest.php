@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Jobs\Server\TerminateJob;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\License;
@@ -19,6 +21,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Licensing\BulkConvert;
 use App\Services\Licensing\BulkLicenseIps;
+use App\Services\Service\DeleteService;
 use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -112,8 +115,19 @@ class BulkConvertTest extends TestCase
         $ended = $this->service($this->standalone, now()->addDays(7), '203.0.113.14');
         $ended->update(['status' => Service::STATUS_CANCELLED]);
         $this->service($this->bulk->product, now()->addDays(7));                                                       // another bulk
+        $this->service($this->standalone, now()->addDays(7), '203.0.113.15')->update(['status' => Service::STATUS_SUSPENDED]);
+        $this->service($this->standalone, now()->addDays(7), '203.0.113.16')->license->update(['status' => License::STATUS_REISSUED]);
+        $conflict = $this->product(bulk: false);
+        (new Setting)->forceFill(['key' => 'allow_ip_conflict', 'value' => '1', 'type' => 'boolean', 'settingable_id' => $conflict->id, 'settingable_type' => (new Product)->getMorphClass()])->save();
+        $this->service($conflict, now()->addDays(7), '203.0.113.17');
+        $owing = $this->service($this->standalone, now()->addDays(7), '203.0.113.18');
+        $invoice = Invoice::factory()->create(['client_id' => $this->clientId, 'status' => Invoice::STATUS_UNPAID, 'currency_code' => 'USD']);
+        $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $owing->id, 'description' => 'Renewal', 'price' => '1.80', 'quantity' => 1]);
+        $withAddon = $this->service($this->standalone, now()->addDays(7), '203.0.113.19');
+        $this->service($this->standalone, now()->addDays(7))->update(['parent_service_id' => $withAddon->id]);
 
-        $this->assertSame([$one->id], BulkConvert::candidates($this->bulk)->pluck('id')->all());
+        $this->assertSame([$one->id], BulkConvert::candidates($this->bulk)->pluck('id')->all(),
+            'not: suspended, waiting for a reissue, «Allow IP conflict», owing, with an addon (review of #850: cut, staff by hand)');
         $this->expectException(DisplayException::class);
         BulkConvert::convert($this->bulk, [$one->id, $cancelling->id]);
     }
@@ -191,6 +205,35 @@ class BulkConvertTest extends TestCase
         $this->assertNull($old->license->fresh()->merged_at);
         $this->assertSame(License::STATUS_EXPIRED, $old->license->fresh()->status);
         $this->assertSame('Expired', $this->check($old->license->license_key, '203.0.113.10')['status']);
+        $this->assertSame(['service_cancelled'], EmailLog::query()->pluck('template_key')->all(), 'not joined: told as any (review of #850)');
+        $this->assertSame('Was to join the bulk license of service #' . $this->bulk->id . ', but ended without joining.',
+            (new \ReflectionMethod(ServiceResource::class, 'bulkMove'))->invoke(null, $old->fresh()));
+    }
+
+    public function test_terminated_by_staff_while_moving_it_is_told_as_any_and_does_not_join(): void
+    {
+        $old = $this->service($this->standalone, Carbon::parse('2026-11-20 00:00:00'), '203.0.113.10');
+        BulkConvert::convert($this->bulk, [$old->id]);
+        $old->update(['status' => Service::STATUS_TERMINATED]);
+
+        dispatch_sync(new TerminateJob($old->fresh()));
+
+        $this->assertNull($old->license->fresh()->merged_at);
+        $this->assertSame(['server_terminated'], EmailLog::query()->pluck('template_key')->all(), 'review of #850');
+    }
+
+    public function test_a_service_whose_license_joined_cannot_be_deleted(): void
+    {
+        $old = $this->service($this->standalone, Carbon::parse('2026-11-20 00:00:00'), '203.0.113.10');
+        BulkConvert::convert($this->bulk, [$old->id]);
+        $this->cron('2026-11-20 10:00:00');
+
+        try {
+            (new DeleteService)->handle($old->fresh());
+            $this->fail('refused');
+        } catch (DisplayException) {
+        }
+        $this->assertSame('Active', $this->check($old->license->license_key, '203.0.113.10')['status'], 'its key still answers (review of #850)');
     }
 
     public function test_ended_for_another_reason_it_does_not_join(): void

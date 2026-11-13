@@ -61,6 +61,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
@@ -83,7 +84,6 @@ class EditService extends EditRecord
         $this->filledAttributes = $this->getRecord()->getAttributes();
     }
 
-    /** The change of cycle before it is made: what the customer pays from then, and now what is credited and billed. */
     /** «28 licenses, 27 IPs new to the list (1 never bound), joining 20/11/2026 – 13/12/2026; then 48.60 a month.» */
     private static function movePreview(Service $bulk, array $ids): string
     {
@@ -97,6 +97,7 @@ class EditService extends EditRecord
             . ($p['monthly'] !== null ? '; then ' . $p['monthly'] . ' a month at its prices (net), once all are in.' : '.');
     }
 
+    /** The change of cycle before it is made: what the customer pays from then, and now what is credited and billed. */
     private static function cyclePreview(Service $service, mixed $planId, string $mode): string
     {
         $plan = ChangeCycle::plans($service)->firstWhere('id', (int) $planId);
@@ -709,7 +710,7 @@ class EditService extends EditRecord
                 // Standalone licenses moved into this bulk one (docs/zonecloud-bulk-license.md §8.1): each joins at its own expiry.
                 Action::make('moveLicensesIn')->label('Move standalone licenses in')->icon('ri-inbox-archive-line')->color('gray')
                     ->visible(fn (Service $record) => $record->license !== null && Licenses::isBulk($record)
-                        && in_array($record->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true))
+                        && in_array($record->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true) && $record->cancellation === null)
                     ->authorize('update')
                     ->modalDescription('Each keeps working as it is until its own expiry, then joins this list with its IP, and its key answers as this license. Its renewal stops (a cancellation at the end of its period); no mail to the client: tell them once.')
                     ->modalSubmitActionLabel('Move')
@@ -743,12 +744,27 @@ class EditService extends EditRecord
                     ->requiresConfirmation()
                     ->modalDescription('Its cancellation is withdrawn: it keeps its key and IP and renews again as a standalone license.')
                     ->action(function (Service $record) {
-                        $record->cancellation()->get()->each->delete();
+                        // Under its lock, while it still runs: the cron ending it meanwhile wins (review of #850).
+                        $withdrawn = DB::transaction(function () use ($record) {
+                            $locked = Service::query()->whereKey($record->id)->lockForUpdate()->first();
+                            if (!in_array($locked?->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
+                                return false;
+                            }
+                            $locked->cancellation()->get()->each->delete();
+
+                            return true;
+                        });
+                        if (!$withdrawn) {
+                            Notification::make()->danger()->title('Not withdrawn')->body('It ended meanwhile.')->send();
+
+                            return;
+                        }
                         Notification::make()->success()->title('Move withdrawn')->send();
                         $this->refreshFormData(['license']);
                     }),
                 Action::make('editLicense')->label('Edit license')->icon('ri-key-2-line')->color('gray')
-                    ->visible(fn (Service $record) => $record->license !== null)
+                    // Not once it joined a bulk license: its key answers as that one, its own row is history (review of #850).
+                    ->visible(fn (Service $record) => $record->license !== null && $record->license->merged_at === null)
                     ->authorize('update')
                     ->fillForm(fn (Service $record) => $record->license->only(['status', 'valid_ip', 'valid_domain', 'valid_directory', 'tiers', 'max_ips']))
                     ->schema([

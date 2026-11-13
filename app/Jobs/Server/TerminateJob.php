@@ -61,8 +61,8 @@ class TerminateJob implements ShouldQueue
         // Only when it ended as cancelled (the request's paths): a terminated one ended for another reason (non-payment,
         // staff), whatever request a revived service still has on file (review 2).
         $requested = $this->service->fresh()->status === Service::STATUS_CANCELLED ? $this->service->cancellation()->latest('id')->value('type') : null;
-        // An immediate one was told already; one moving into a bulk license is told by staff, once (owner 2026-11-13).
-        if ($requested === 'immediate' || BulkConvert::silent($this->service)) {
+        // An immediate one was told already; one that joined a bulk license is told by staff, once (owner 2026-11-13).
+        if ($requested === 'immediate' || BulkConvert::joined($this->service)) {
             return;
         }
         $requested === 'end_of_period'
