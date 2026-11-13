@@ -12,6 +12,7 @@ use App\Admin\Search\SearchTitle;
 use App\Enums\DomainStatus;
 use App\Models\Client;
 use App\Models\Domain;
+use App\Models\DomainRegistrarConnection;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Ops\Scrub;
 use App\Services\Payment\ItemPaymentMethod;
@@ -121,6 +122,10 @@ class DomainResource extends Resource
             ])
             ->filters([
                 SelectFilter::make('status')->label(__('Status'))->options(DomainStatus::options()),
+                // At a «manual» registrar, its own or its TLD's (D-10): renewed and moved by hand (owner 2026-11-13: Utilities ›
+                // Offline domains).
+                Filter::make('manual_registrar')->label(__('Manual registrar (done by hand)'))
+                    ->query(fn (Builder $query) => self::atManualRegistrar($query)),
                 Filter::make('not_ours')->label(__('Not ours at its registrar'))
                     ->query(fn ($query) => $query->whereNotNull('meta->not_ours')),
                 Filter::make('sync_failing')->label(__('Last sync failed'))
@@ -429,6 +434,15 @@ class DomainResource extends Resource
                 ]),
             ]),
         ]);
+    }
+
+    /** @param Builder<Domain> $query its domains served by a «manual» connection, as Domain::effectiveRegistrarConnection picks it */
+    public static function atManualRegistrar(Builder $query): Builder
+    {
+        $manual = fn (Builder $connection) => $connection->where('registrar', DomainRegistrarConnection::MANUAL);
+
+        return $query->where(fn (Builder $query) => $query->whereHas('registrarConnection', $manual)
+            ->orWhere(fn (Builder $query) => $query->whereNull('registrar_connection_id')->whereHas('domainTld.registrarConnection', $manual)));
     }
 
     /** Domains whose registrar says they are not ours: staff's to confirm (the sync only notes it). */

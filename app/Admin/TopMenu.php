@@ -72,6 +72,7 @@ use App\Admin\Resources\UserResource;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Resources\Resource;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 
 /**
@@ -85,7 +86,7 @@ class TopMenu
      * Group => items: [class] (its navigation label) or [class, page, label] for a resource
      * page such as 'create'. Order and names follow the WHMCS menu people are used to.
      *
-     * @var array<string, list<array{0: class-string, 1?: string, 2?: string, 3?: array<string, string>}>>
+     * @var array<string, list<array{0: class-string, 1?: string, 2?: string, 3?: array<string, mixed>}>>
      */
     public const MENU = [
         'Clients' => [
@@ -145,6 +146,9 @@ class TopMenu
             [RedfishMachineResource::class, 'index', 'Machines'],
             [CpanelAccountResource::class, 'index', 'Hosting Accounts'],
             [MailcowDomainResource::class, 'index', 'Mail Domains'],
+            // What is done by hand (owner 2026-11-13): the services on an offline module, the domains at a «manual» registrar.
+            [ServiceResource::class, 'index', 'Offline Services', ['filters' => ['offline' => ['isActive' => true]]]],
+            [DomainResource::class, 'index', 'Offline Domains', ['filters' => ['manual_registrar' => ['isActive' => true]]]],
             [McpProposalResource::class, 'index', 'MCP Proposals'],
             [SystemCleanup::class],
         ],
@@ -262,7 +266,15 @@ class TopMenu
         if ($query !== '') {
             parse_str($query, $wanted);
 
-            return $current === strtok($url, '?') && array_intersect_assoc(array_map('strval', $wanted), array_map(fn ($v) => is_scalar($v) ? (string) $v : '', request()->query())) === array_map('strval', $wanted);
+            // Flattened (a filter is nested: filters[offline][isActive]=1), each value compared as text.
+            $have = Arr::dot(request()->query());
+            foreach (Arr::dot($wanted) as $key => $value) {
+                if (!is_scalar($have[$key] ?? null) || (string) $have[$key] !== (string) $value) {
+                    return false;
+                }
+            }
+
+            return $current === strtok($url, '?');
         }
         if ($current === $url && request()->query('tab') !== null) {
             return false;
@@ -273,7 +285,7 @@ class TopMenu
 
     /**
      * @param  class-string  $class
-     * @param  array<string, string>  $query  e.g. a list's tab
+     * @param  array<string, mixed>  $query  e.g. a list's tab or filters
      * @return array{label: string, url: string}|null
      */
     private static function item(string $class, string $page = 'index', ?string $label = null, array $query = []): ?array

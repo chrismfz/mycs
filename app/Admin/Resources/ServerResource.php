@@ -132,7 +132,8 @@ class ServerResource extends Resource
                 TextColumn::make('extension')->label('Module'),
                 // Accounts on it (active, suspended, pending) against its limit, as WHMCS's server list.
                 TextColumn::make('accounts')->label('Accounts')
-                    ->state(fn (Server $record) => $record->accountsCount() . ($record->max_accounts !== null ? ' / ' . $record->max_accounts : '')),
+                    ->state(fn (Server $record) => $record->accountsCount() . ($record->max_accounts !== null ? ' / ' . $record->max_accounts : ''))
+                    ->url(fn (Server $record) => self::servicesUrl($record)),
             ])
             ->filters([
                 // Panels and machines in one list (a Redfish machine is a server each).
@@ -140,6 +141,10 @@ class ServerResource extends Resource
                     ->options(fn () => Server::query()->distinct()->orderBy('extension')->pluck('extension', 'extension')->all()),
             ])
             ->recordActions([
+                // What runs on it (owner 2026-11-13: which one is the one on «Manual (offline)»): its services, filtered.
+                Action::make('services')->label(__('Services'))->icon('heroicon-o-queue-list')->color('gray')
+                    ->url(fn (Server $record) => self::servicesUrl($record))
+                    ->visible(fn () => ServiceResource::canViewAny()),
                 EditAction::make(),
             ])
             ->toolbarActions([
@@ -183,5 +188,11 @@ class ServerResource extends Resource
             'create' => CreateServer::route('/create'),
             'edit' => EditServer::route('/{record}/edit'),
         ];
+    }
+
+    /** The services list showing only this server's services, or null for staff who may not see services. */
+    public static function servicesUrl(Server $server): ?string
+    {
+        return ServiceResource::canViewAny() ? ServiceResource::getUrl('index', ['filters' => ['server' => ['value' => $server->id]]]) : null;
     }
 }

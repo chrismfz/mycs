@@ -72,6 +72,9 @@ use Throwable;
 
 class ServiceResource extends Resource
 {
+    /** The server modules with no API: every action on them a staff task. */
+    public const OFFLINE_MODULES = ['OfflineDedicated', 'OfflineVm', 'OfflineSsl'];
+
     protected static ?string $model = Service::class;
 
     /** Its name in «Recently viewed» (the sidebar shows its kind beside it). */
@@ -556,6 +559,12 @@ class ServiceResource extends Resource
                     ->relationship('product', 'name')
                     ->searchable()
                     ->preload(),
+                // Its server (owner 2026-11-13: what runs on «Manual (offline)»), opened from the servers list and the dashboard.
+                SelectFilter::make('server')->label(__('Server'))
+                    ->relationship('server', 'name')->searchable()->preload(),
+                // Machines and certificates done by hand (OfflineDedicated, OfflineVm, OfflineSsl): Utilities › Offline services.
+                Filter::make('offline')->label(__('Offline (done by hand)'))
+                    ->query(fn (Builder $query) => $query->whereHas('server', fn (Builder $server) => $server->whereIn('extension', self::OFFLINE_MODULES))),
                 // A product group with its subgroups (owner 2026-11-13: «all hosting packages», not one of them).
                 SelectFilter::make('category')
                     ->label(__('Product group'))

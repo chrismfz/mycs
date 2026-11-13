@@ -24,9 +24,15 @@
                     <span class="block h-full rounded-full" style="width: {{ $row['percent'] }}%; background: var(--{{ $row['color'] }}-500)"></span>
                 </span>
                 @endif
+                @if ($row['services_url'])
+                <a href="{{ $row['services_url'] }}" title="{{ __('Services') }}" class="w-16 shrink-0 text-end tabular-nums text-gray-700 hover:underline dark:text-gray-200">
+                    {{ $row['used'] }}@if ($row['max'] !== null)<span class="text-gray-400"> / {{ $row['max'] }}</span>@endif
+                </a>
+                @else
                 <span class="w-16 shrink-0 text-end tabular-nums text-gray-700 dark:text-gray-200">
                     {{ $row['used'] }}@if ($row['max'] !== null)<span class="text-gray-400"> / {{ $row['max'] }}</span>@endif
                 </span>
+                @endif
             </li>
             @endforeach
         </ul>
