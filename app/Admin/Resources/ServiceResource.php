@@ -20,6 +20,7 @@ use App\Admin\Resources\ServiceResource\RelationManagers\SslVersionsRelationMana
 use App\Admin\Resources\ServiceResource\RelationManagers\UpgradesRelationManager;
 use App\Admin\Search\SearchTitle;
 use App\Exceptions\DisplayException;
+use App\Models\Category;
 use App\Models\Contact;
 use App\Models\CpanelAccount;
 use App\Models\Currency;
@@ -555,6 +556,14 @@ class ServiceResource extends Resource
                     ->relationship('product', 'name')
                     ->searchable()
                     ->preload(),
+                // A product group with its subgroups (owner 2026-11-13: «all hosting packages», not one of them).
+                SelectFilter::make('category')
+                    ->label(__('Product group'))
+                    ->options(fn () => self::categoryOptions())
+                    ->searchable()
+                    ->query(fn (Builder $query, array $data) => filled($data['value'] ?? null)
+                        ? $query->whereHas('product', fn (Builder $product) => $product->whereIn('category_id', self::categoryWithChildren((int) $data['value'])))
+                        : $query),
                 // Its dedicated IP set here is not the one its server says (owner 2026-10-23).
                 Filter::make('ip_differs')->label('IP differs from the server')
                     // IPv4 only, as cPanel tells it (an IPv6 set here is never «different»).
@@ -721,5 +730,31 @@ class ServiceResource extends Resource
         $percent = ServiceUsage::percent($used, $limit);
 
         return $show($used) . ' / ' . ($limit === null ? 'unlimited' : $show($limit)) . ($percent !== null ? " ({$percent}%)" : '');
+    }
+
+    /** @return array<int, string> each group under its parent's name («Hosting › WordPress»), in the shop's order */
+    public static function categoryOptions(): array
+    {
+        $all = Category::query()->orderBy('sort')->orderBy('name')->get(['id', 'name', 'parent_id'])->keyBy('id');
+        $label = function (Category $category) use ($all, &$label): string {
+            $parent = $category->parent_id !== null ? $all->get($category->parent_id) : null;
+
+            return $parent !== null && $parent->id !== $category->id ? $label($parent) . ' › ' . $category->name : (string) $category->name;
+        };
+
+        return $all->map(fn (Category $category) => $label($category))->sort()->all();
+    }
+
+    /** @return list<int> the group and every group under it */
+    public static function categoryWithChildren(int $id): array
+    {
+        $ids = [$id];
+        $parents = [$id];
+        while ($parents !== [] && count($ids) < 1000) {
+            $parents = Category::query()->whereIn('parent_id', $parents)->whereNotIn('id', $ids)->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $ids = [...$ids, ...$parents];
+        }
+
+        return $ids;
     }
 }
