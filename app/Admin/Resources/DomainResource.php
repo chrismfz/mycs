@@ -364,8 +364,6 @@ class DomainResource extends Resource
                 // registrar's column (owner 2026-10-23).
                 Group::make([
                     $domain,
-                    // Its billing, edited here (ViewDomain::billingForm, owner 2026-11-13): no «Edit» modal.
-                    EmbeddedSchema::make('billingForm')->visible(fn ($livewire) => method_exists($livewire, 'billingForm')),
                     $contacts,
                     // As last read from the registrar (its «Read child nameservers»): the forgotten ones too.
                     Section::make(__('Child nameservers'))
@@ -385,6 +383,9 @@ class DomainResource extends Resource
                         ]),
                 ]),
                 Group::make([
+                    // Its billing, edited here (ViewDomain::billingForm, owner 2026-11-13: no «Edit» modal), at the top of the
+                    // right column: the left one held it all and scrolled (owner 2026-11-13).
+                    EmbeddedSchema::make('billingForm')->visible(fn ($livewire) => method_exists($livewire, 'billingForm')),
                     Section::make(__('Nameservers'))->schema([
                         TextEntry::make('nameservers.host')->hiddenLabel()->listWithLineBreaks()->placeholder('—'),
                     ]),
