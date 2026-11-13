@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Admin\Resources\DomainResource\Pages\ListDomains;
 use App\Admin\Resources\ServerResource;
 use App\Admin\Resources\ServerResource\Pages\ListServers;
+use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\ListService;
 use App\Admin\TopMenu;
 use App\Models\Domain;
@@ -66,6 +67,14 @@ class ServersServicesOfflineTest extends TestCase
         $utilities = collect(collect(TopMenu::groups())->firstWhere('label', 'Utilities')['items'])->keyBy('label');
         $this->assertStringContainsString('offline', urldecode($utilities['Offline Services']['url']));
         $this->assertStringContainsString('manual_registrar', urldecode($utilities['Offline Domains']['url']));
+
+        // On Offline Services only that item is lit, not Clients › Products/Services too (review of #841); a filter
+        // ticked in the table («true») is the same as the link's («1»).
+        foreach (['1', 'true'] as $ticked) {
+            $this->get(ServiceResource::getUrl('index', ['filters' => ['offline' => ['isActive' => $ticked]]]));
+            $lit = collect(TopMenu::groups())->flatMap(fn ($g) => collect($g['items'])->where('active', true)->map(fn ($i) => $g['label'] . '/' . $i['label']))->values()->all();
+            $this->assertSame(['Utilities/Offline Services'], $lit, $ticked);
+        }
     }
 
     public function test_staff_who_may_not_see_services_get_no_link(): void

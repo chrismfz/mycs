@@ -220,6 +220,22 @@ class TopMenu
             }
         }
 
+        // A page open on another item's query (Utilities › Offline Services on the services list) is that item's, not the
+        // plain list's too (review of #841: two groups lit), as «Pending Orders» is, not «List All Orders» (R6).
+        $openOnQuery = collect($groups)->flatMap(fn (array $group) => $group['items'])
+            ->filter(fn (array $item) => $item['active'] && str_contains($item['url'], '?'))
+            ->map(fn (array $item) => strtok($item['url'], '?'))->all();
+        if ($openOnQuery !== []) {
+            foreach ($groups as $g => $group) {
+                foreach ($group['items'] as $i => $item) {
+                    if ($item['active'] && !str_contains($item['url'], '?') && in_array($item['url'], $openOnQuery, true)) {
+                        $groups[$g]['items'][$i]['active'] = false;
+                    }
+                }
+                $groups[$g]['active'] = collect($groups[$g]['items'])->contains('active', true);
+            }
+        }
+
         // An extension's page (or one added without a line above): under «Addons», as in WHMCS.
         $addons = [];
         foreach (self::unlisted() as $class) {
@@ -267,9 +283,15 @@ class TopMenu
             parse_str($query, $wanted);
 
             // Flattened (a filter is nested: filters[offline][isActive]=1), each value compared as text.
+            // A filter ticked in the table writes «true», one from a link «1»: the same (review of #841).
+            $text = fn (mixed $value): string => match ((string) $value) {
+                'true' => '1',
+                'false' => '0',
+                default => (string) $value,
+            };
             $have = Arr::dot(request()->query());
             foreach (Arr::dot($wanted) as $key => $value) {
-                if (!is_scalar($have[$key] ?? null) || (string) $have[$key] !== (string) $value) {
+                if (!is_scalar($have[$key] ?? null) || $text($have[$key]) !== $text($value)) {
                     return false;
                 }
             }
