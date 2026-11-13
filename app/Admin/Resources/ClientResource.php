@@ -224,7 +224,8 @@ class ClientResource extends Resource
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['primaryContact', 'ownerGrant.user', 'credits', 'group'])
                 ->withCount(['services', 'services as active_services_count' => fn (Builder $query) => $query->where('status', 'active')])
-                ->withMax('grants as last_login_at', 'last_login_at'))
+                // Its current logins only, as its Summary counts them (review of #840): a removed login's is not its activity.
+                ->withMax(['grants as last_login_at' => fn (Builder $grants) => $grants->whereNull('revoked_at')], 'last_login_at'))
             ->columns([
                 // On its group's colour, as WHMCS marks a group's clients (owner 2026-11-01).
                 TextColumn::make('id')->label('ID')->sortable()->searchable()

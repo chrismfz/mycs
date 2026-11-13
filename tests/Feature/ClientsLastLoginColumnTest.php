@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Admin\Resources\ClientResource\Pages\ListClients;
 use App\Admin\Resources\UserResource\Pages\ListUsers;
-use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Staff;
 use App\Models\User;
@@ -35,7 +34,10 @@ class ClientsLastLoginColumnTest extends TestCase
             ->assertTableColumnExists('last_login_at')
             ->sortTable('last_login_at', 'desc')->assertCanSeeTableRecords([$a, $b, $c], inOrder: true)
             ->sortTable('last_login_at', 'asc')->assertCanSeeTableRecords([$c, $b, $a], inOrder: true);
-        $this->assertSame('2026-06-01 10:00:00', (string) Client::query()->withMax('grants as last_login_at', 'last_login_at')->find($b->id)->last_login_at);
+        // A login removed from the account: its sign-in no longer counts, as in the Summary.
+        $c->grants()->create(['user_id' => $recent->id, 'owner' => false, 'last_login_at' => '2026-11-13 09:00:00', 'revoked_at' => '2026-11-13 09:30:00']);
+        $this->livewireAs($staff)->test(ListClients::class)
+            ->sortTable('last_login_at', 'desc')->assertCanSeeTableRecords([$a, $b, $c], inOrder: true);
 
         $this->livewireAs($staff)->test(ListUsers::class)
             ->sortTable('last_login_at', 'desc')->assertCanSeeTableRecords([$recent, $never, $old], inOrder: true);
