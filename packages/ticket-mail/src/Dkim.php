@@ -3,6 +3,7 @@
 namespace MyCS\TicketMail;
 
 use Closure;
+use RuntimeException;
 
 /**
  * Our own DKIM check (RFC 6376, RFC 8301, RFC 8463) of a raw mail, for when our receiving server's
@@ -17,13 +18,21 @@ use Closure;
  *   library also takes «F-rom» for it), so the From signed is the From the router reads;
  * - an expired x=, a key in testing (t=y), revoked (empty p=), of another algorithm or service, more than one key
  *   record, or a DNS failure: nothing vouches;
- * - at most MAX_SIGNATURES aligned signatures are looked up in DNS; an unaligned one is never looked up.
+ * - the headers the router reads (From, Subject, Message-ID, In-Reply-To, References) and every header h= names must be
+ *   in the mail once at most (also by the MIME library's loose reading of names): the
+ *   library shows the first, DKIM signs the last (review of #837, REV-837-4);
+ * - at most MAX_SIGNATURES aligned signatures are looked up in DNS (each one a lookup of the sender's choosing); an
+ *   unaligned one never;
+ * - no regular expression may fail into a value: a failed one (PCRE's limits) refuses the mail (REV-837-1).
  */
 final class Dkim
 {
-    public const MAX_SIGNATURES = 5;
+    public const MAX_SIGNATURES = 2;
 
     public const VERIFIED = 'dkim_verified';
+
+    /** The headers the router reads: each once at most (From exactly once), by its own name. */
+    private const READ = ['from', 'subject', 'message-id', 'in-reply-to', 'references'];
 
     /** @var Closure(string): (list<string>|null) */
     private readonly Closure $txt;
@@ -44,6 +53,15 @@ final class Dkim
 
     public function verdict(string $raw, string $fromEmail): AuthVerdict
     {
+        try {
+            return $this->verdictOf($raw, $fromEmail);
+        } catch (RegexFailed) {
+            return new AuthVerdict(false, 'dkim_malformed');
+        }
+    }
+
+    private function verdictOf(string $raw, string $fromEmail): AuthVerdict
+    {
         $fromDomain = AuthenticationResults::domainOf($fromEmail);
         if ($fromDomain === null) {
             return new AuthVerdict(false, 'dkim_no_from_domain');
@@ -58,14 +76,18 @@ final class Dkim
         if ($signatures === []) {
             return new AuthVerdict(false, 'dkim_none');
         }
-        // One From, named only From: the one the router reads is the one signed.
-        $froms = array_filter($fields, fn (array $field) => preg_replace('/[^a-z0-9]/', '', strtolower($field[0])) === 'from');
-        if (count($froms) !== 1 || strtolower((string) array_values($froms)[0][0]) !== 'from') {
-            return new AuthVerdict(false, 'dkim_from_header');
+        // One From, named only From: the one the router reads is the one signed. The other headers it reads, once at
+        // most and by their own name: the MIME library shows the first, DKIM signs the last (ADV-837-2).
+        foreach (self::READ as $name) {
+            $same = array_values(array_filter($fields, fn (array $field) => self::loose($field[0]) === self::loose($name)));
+            if (count($same) !== ($name === 'from' ? 1 : min(1, count($same))) || ($same !== [] && strtolower($same[0][0]) !== $name)) {
+                return new AuthVerdict(false, $name === 'from' ? 'dkim_from_header' : 'dkim_header_twice');
+            }
         }
 
         $reason = 'dkim_not_aligned';
         $tried = 0;
+        $bodyHashes = [];
         foreach ($signatures as $signature) {
             $tags = self::tags(substr($signature[1], strlen($signature[0]) + 1));
             if ($tags === null) {
@@ -79,9 +101,13 @@ final class Dkim
             if (++$tried > self::MAX_SIGNATURES) {
                 break;
             }
-            $reason = $this->check($tags, $signature, $fields, $body);
+            $reason = $this->check($tags, $signature, $fields, $body, $bodyHashes);
             if ($reason === null) {
                 return new AuthVerdict(true, self::VERIFIED);
+            }
+            // A name server that fails (or is slow) is asked once per mail (ADV-837-3).
+            if ($reason === 'dkim_dns_failure') {
+                break;
             }
         }
 
@@ -100,8 +126,9 @@ final class Dkim
      * @param  array<string, string>  $tags
      * @param  array{0: string, 1: string}  $signature
      * @param  list<array{0: string, 1: string}>  $fields
+     * @param  array<string, string>  $bodyHashes  by canonicalization, once per mail
      */
-    private function check(array $tags, array $signature, array $fields, string $body): ?string
+    private function check(array $tags, array $signature, array $fields, string $body, array &$bodyHashes): ?string
     {
         foreach (['v', 'a', 'b', 'bh', 'd', 'h', 's'] as $required) {
             if (!isset($tags[$required])) {
@@ -138,6 +165,12 @@ final class Dkim
         if (!in_array('from', $signed, true)) {
             return 'dkim_from_unsigned';
         }
+        $names = array_count_values(array_map(fn (array $field) => self::loose($field[0]), $fields));
+        foreach ($signed as $name) {
+            if (($names[self::loose($name)] ?? 0) > 1) {
+                return 'dkim_header_twice';
+            }
+        }
         foreach (['t', 'x'] as $time) {
             if (isset($tags[$time]) && preg_match('/^\d{1,12}$/', $tags[$time]) !== 1) {
                 return 'dkim_bad_signature';
@@ -152,7 +185,8 @@ final class Dkim
             return 'dkim_bad_signature';
         }
 
-        if (!hash_equals(hash('sha256', self::canonicalBody($body, $bodyCanon), true), $bodyHash)) {
+        $bodyHashes[$bodyCanon] ??= hash('sha256', self::canonicalBody($body, $bodyCanon), true);
+        if (!hash_equals($bodyHashes[$bodyCanon], $bodyHash)) {
             return 'dkim_body_hash';
         }
 
@@ -231,12 +265,16 @@ final class Dkim
      */
     private static function split(string $raw): ?array
     {
-        $raw = (string) preg_replace('/\r?\n/', "\r\n", $raw);
+        $raw = self::replace('/\r?\n/', "\r\n", $raw);
+        // A lone CR: the MIME library may read it as a line of its own (in the head: another From), and the body's
+        // trailing line breaks would not be CRLF pairs alone.
+        if (str_contains(str_replace("\r\n", '', $raw), "\r")) {
+            return null;
+        }
         $end = str_starts_with($raw, "\r\n") ? 0 : strpos($raw, "\r\n\r\n");
         [$head, $body] = $end === false ? [$raw, ''] : [substr($raw, 0, $end), substr($raw, $end + ($end === 0 ? 2 : 4))];
 
-        // A lone CR (or NUL) the MIME library might read as a line of its own: then its From may not be ours.
-        if (preg_match('/\r(?!\n)|\x00/', $head) === 1) {
+        if (str_contains($head, "\0")) {
             return null;
         }
         $fields = [];
@@ -290,7 +328,7 @@ final class Dkim
     /** Base64 with folding whitespace in it; null when it is not base64. */
     private static function base64(string $value): ?string
     {
-        $decoded = base64_decode((string) preg_replace('/[ \t\r\n]+/', '', $value), true);
+        $decoded = base64_decode(str_replace([' ', "\t", "\r", "\n"], '', $value), true);
 
         return $decoded === false || $decoded === '' ? null : $decoded;
     }
@@ -303,7 +341,7 @@ final class Dkim
     private static function withoutB(array $signature): string
     {
         [$name, $field] = $signature;
-        $value = (string) preg_replace('/(^|;)([ \t\r\n]*b[ \t\r\n]*=)[^;]*/', '$1$2', substr($field, strlen($name) + 1));
+        $value = self::replace('/(^|;)([ \t\r\n]*b[ \t\r\n]*=)[^;]*/', '$1$2', substr($field, strlen($name) + 1));
 
         return $name . ':' . $value;
     }
@@ -337,7 +375,7 @@ final class Dkim
     {
         if ($canon === 'relaxed') {
             [$name, $value] = explode(':', $field, 2);
-            $value = (string) preg_replace('/[ \t]+/', ' ', str_replace("\r\n", '', $value));
+            $value = self::replace('/[ \t]+/', ' ', str_replace("\r\n", '', $value));
             $field = strtolower(rtrim($name, " \t")) . ':' . trim($value, ' ');
         }
 
@@ -347,14 +385,26 @@ final class Dkim
     private static function canonicalBody(string $body, string $canon): string
     {
         if ($canon === 'relaxed') {
-            $body = (string) preg_replace('/[ \t]+/', ' ', $body);
-            $body = (string) preg_replace('/ (?=\r\n|$)/', '', $body);
-            $body = (string) preg_replace('/(\r\n)+$/', '', $body);
+            $body = self::replace('/ (?=\r\n|$)/', '', self::replace('/[ \t]+/', ' ', $body));
+            // The line breaks at the end: CRLF pairs only (split refuses a lone CR), so rtrim is exact.
+            $body = rtrim($body, "\r\n");
 
             return $body === '' ? '' : $body . "\r\n";
         }
 
-        return (string) preg_replace('/(\r\n)+$/', '', $body) . "\r\n";
+        return rtrim($body, "\r\n") . "\r\n";
+    }
+
+    /** A header name as the MIME library finds it: its letters and digits, lower case. */
+    private static function loose(string $name): string
+    {
+        return self::replace('/[^a-z0-9]/', '', strtolower($name));
+    }
+
+    /** preg_replace, or RegexFailed: never a null read as an empty string. */
+    private static function replace(string $pattern, string $replacement, string $subject): string
+    {
+        return preg_replace($pattern, $replacement, $subject) ?? throw new RegexFailed;
     }
 
     /** @return list<string>|null */
@@ -374,3 +424,6 @@ final class Dkim
         return $out;
     }
 }
+
+/** A regular expression that failed (PCRE's limits): the mail is refused, never read as another. */
+final class RegexFailed extends RuntimeException {}

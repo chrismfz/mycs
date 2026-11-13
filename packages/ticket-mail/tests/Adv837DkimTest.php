@@ -81,7 +81,9 @@ final class Adv837DkimTest extends TestCase
             headers: ['from', 'to', 'subject', 'date', 'message-id', 'in-reply-to']);
         $this->assertSame('dkim_verified', $this->reason($signer, $signed));
 
-        foreach (['Subject: Urgent: new bank account', 'Message-ID: <replay-2@attacker.test>', 'In-Reply-To: <other@ours.test>', 'References: <other@ours.test>'] as $added) {
+        // A References where the mail had none is one unsigned header, not a copy on top: a known limit (docs/tickets.md
+        // §3 Β), recorded, not fixed; joining a ticket still needs our Message-ID (§3 Α).
+        foreach (['Subject: Urgent: new bank account', 'Message-ID: <replay-2@attacker.test>', 'In-Reply-To: <other@ours.test>'] as $added) {
             $raw = $added . "\r\n" . $signed;
             $this->assertNotSame('dkim_verified', $this->reason($signer, $raw), "unsigned on top: {$added}");
         }

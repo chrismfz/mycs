@@ -215,4 +215,19 @@ final class DkimTest extends TestCase
         $this->assertSame('dkim_no_key', $this->reason($signer, $signed));
         $this->assertCount(Dkim::MAX_SIGNATURES, $this->lookups);
     }
+
+    /** Review of #837: blank lines cost linear time (REV-837-2); a signed header twice is refused (REV-837-4). */
+    public function test_blank_lines_are_cheap_and_a_signed_header_twice_vouches_for_nothing(): void
+    {
+        $signer = DkimSigner::rsa();
+        $signed = $signer->sign($this->mail());
+        $start = microtime(true);
+        $this->assertSame('dkim_body_hash', $this->reason($signer, $signed . str_repeat("\r\n", 15_000) . "x\r\n" . str_repeat("\r\n", 200_000)));
+        $this->assertLessThan(2.0, microtime(true) - $start);
+
+        $this->assertSame('dkim_header_twice', $this->reason($signer, "To: someone@else.test\r\n" . $signed));
+        $this->assertSame('dkim_header_twice', $this->reason($signer, "T_o: someone@else.test\r\n" . $signed));
+        $this->assertSame('dkim_header_twice', $this->reason($signer, "Message_ID: <x@y.test>\r\n" . $signed));
+        $this->assertSame('dkim_verified', $this->reason($signer, "Received: from a\r\nReceived: from b\r\n" . $signed), 'an unsigned header twice is no matter');
+    }
 }
