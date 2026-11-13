@@ -13,7 +13,7 @@ use App\Models\Order;
 use App\Models\Service;
 
 /**
- * WHMCS's «New Order Notification»: a customer placed an order at checkout, staff are told (the System Email Address),
+ * WHMCS's «New Order Notification»: a customer placed an order at checkout, staff are told (the system notices' recipients),
  * with its lines, its invoice, the customer's notes and links to the order, the account and the invoice. Not for an
  * order staff create themselves. `mail_staff_new_order` turns it off.
  */

@@ -241,8 +241,10 @@ tickets, affiliates, emails, orders`. Στην πράξη: «όλα» ή μικ�
 - Οι roles και τα permissions υπάρχουν μόνο εδώ (`staff.role_id`). Το `users.role_id` φεύγει.
 - Ό,τι σήμερα δείχνει «ποιος από το staff» γίνεται `staff_id` ή morph: `tickets.assigned_to`, τα API keys, ο causer
   στα audits, ο `actor` στα money_events (υπάρχει ήδη morph), οι συντάκτες των σημειώσεων.
-- Ειδοποιήσεις προς staff: σήμερα πάνε σε μία διεύθυνση (`system_email_address`), και μένει έτσι. Ειδοποιήσεις
-  ανά μέλος του staff έρχονται αργότερα.
+- Ειδοποιήσεις συστήματος προς staff: στα μέλη που διαλέγει η ρύθμιση `system_notice_recipients` (ενεργά, το καθένα
+  στη δική του διεύθυνση)· κανένα ή κανένα ενεργό → `system_email_address` (owner 2026-11-13). Τα tickets έχουν τη
+  δική τους επιλογή ανά τμήμα και η ημερήσια σύνοψη τη δική της (`cron_summary_recipients`, χωρίς επιλογή → ό,τι οι
+  ειδοποιήσεις συστήματος).
 
 ### Users και πρόσβαση σε λογαριασμούς
 - `client_user`: `owner` (ακριβώς ένας ανά λογαριασμό), `permissions` με τα ονόματα του WHMCS (`profile`,
