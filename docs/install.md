@@ -123,7 +123,8 @@ MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
 - **Cron και worker:** το crontab του χρήστη με το πλήρες path:
   `* * * * * cd ~/mycs && /opt/cpanel/ea-php84/root/usr/bin/php artisan schedule:run >> /dev/null 2>&1`. Ο worker
   τρέχει ως unit του systemd (`/etc/systemd/system/<user>-queue.service`) με `User=<user>`, `WorkingDirectory` το `~/mycs`,
-  και `ExecStart` το ea-php84 με `artisan queue:work --tries=3 --max-time=3600`.
+  και `ExecStart` το ea-php84 με `artisan queue:work --tries=3 --max-time=3600`. **`Restart=always`**: το `queue:restart`
+  και το `--max-time` κλείνουν τον worker με κωδικό 0, οπότε με `on-failure` δεν θα ξαναξεκινούσε (review του #830).
 - **https:** cPanel → Domains → «Force HTTPS Redirect» στο domain. Το MyCS δεν ανακατευθύνει μόνο του. Οι agents του
   ZoneCloud καλούν το `zlic.php` πάντα με https (logs του Οκτωβρίου 2026: 0 κλήσεις με http).
 - **WHM με reseller token:** ο server της nixpal μπαίνει ως reseller (`nxpulsar`), όχι ως root. Όλες οι ενέργειες
