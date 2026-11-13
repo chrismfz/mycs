@@ -73,6 +73,8 @@ class Rev844AdversarialTest extends TestCase
     public function test_adv_844_1_in_app_body_of_a_credit_paid_invoice_still_says_zero(): void
     {
         $invoice = $this->invoice('1.80');
+        // The factory's own «new invoice» went before its lines existed (a total of 0): only the ones sent for it now.
+        Notification::query()->delete();
         $this->subjects($invoice);
 
         $bodies = Notification::query()->where('user_id', $invoice->client->owner()->id)->pluck('body')->all();

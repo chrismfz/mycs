@@ -93,7 +93,7 @@ class EmailTemplateSeeder extends Seeder
                 If you have already paid, please ignore this message.
                 HTML,
             'in_app_title' => 'New invoice #{{ invoice_number }}',
-            'in_app_body' => 'Invoice #{{ invoice_number }} of {{ total }}, due {{ invoice.due_at|date("d/m/Y") }}.',
+            'in_app_body' => 'Invoice #{{ invoice_number }} of {{ amount }}, due {{ invoice.due_at|date("d/m/Y") }}.',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about new invoices',
@@ -139,7 +139,7 @@ class EmailTemplateSeeder extends Seeder
                 You can see all your payments in your client area at any time.
                 HTML,
             'in_app_title' => 'Payment received: invoice #{{ invoice_number }}',
-            'in_app_body' => 'Your payment for invoice #{{ invoice_number }} ({{ total }}) was received. Thank you!',
+            'in_app_body' => 'Your payment for invoice #{{ invoice_number }} ({{ amount }}) was received. Thank you!',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Notify me about successful payments',
@@ -1286,7 +1286,7 @@ class EmailTemplateSeeder extends Seeder
                     Αν έχετε ήδη πληρώσει, παραβλέψτε αυτό το μήνυμα.
                     HTML,
                 'in_app_title' => 'Νέο προτιμολόγιο #{{ invoice_number }}',
-                'in_app_body' => 'Προτιμολόγιο #{{ invoice_number }} ποσού {{ total }}, λήξη {{ invoice.due_at|date("d/m/Y") }}.',
+                'in_app_body' => 'Προτιμολόγιο #{{ invoice_number }} ποσού {{ amount }}, λήξη {{ invoice.due_at|date("d/m/Y") }}.',
             ],
         ],
         'invoice_paid' => [
@@ -1330,7 +1330,7 @@ class EmailTemplateSeeder extends Seeder
                     Μπορείτε να δείτε το ιστορικό των πληρωμών σας ανά πάσα στιγμή από την περιοχή πελατών.
                     HTML,
                 'in_app_title' => 'Επιβεβαίωση πληρωμής: #{{ invoice_number }}',
-                'in_app_body' => 'Η πληρωμή σας για το προτιμολόγιο #{{ invoice_number }} ({{ total }}) ελήφθη. Σας ευχαριστούμε!',
+                'in_app_body' => 'Η πληρωμή σας για το προτιμολόγιο #{{ invoice_number }} ({{ amount }}) ελήφθη. Σας ευχαριστούμε!',
             ],
         ],
         'credit_applied' => [

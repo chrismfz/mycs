@@ -16,7 +16,15 @@ return new class extends Migration
         'Payment received: invoice #{{ invoice_number }} | {{ total }}' => 'Payment received: invoice #{{ invoice_number }} | {{ amount }}',
         'Νέο προτιμολόγιο #{{ invoice_number }} | Λήξη {{ invoice.due_at|date("d/m/Y") }} | {{ total }}' => 'Νέο προτιμολόγιο #{{ invoice_number }} | Λήξη {{ invoice.due_at|date("d/m/Y") }} | {{ amount }}',
         'Επιβεβαίωση πληρωμής: προτιμολόγιο #{{ invoice_number }} | {{ total }}' => 'Επιβεβαίωση πληρωμής: προτιμολόγιο #{{ invoice_number }} | {{ amount }}',
+        // The same two in the bell and the push (ADV-844-1).
+        'Invoice #{{ invoice_number }} of {{ total }}, due {{ invoice.due_at|date("d/m/Y") }}.' => 'Invoice #{{ invoice_number }} of {{ amount }}, due {{ invoice.due_at|date("d/m/Y") }}.',
+        'Your payment for invoice #{{ invoice_number }} ({{ total }}) was received. Thank you!' => 'Your payment for invoice #{{ invoice_number }} ({{ amount }}) was received. Thank you!',
+        'Προτιμολόγιο #{{ invoice_number }} ποσού {{ total }}, λήξη {{ invoice.due_at|date("d/m/Y") }}.' => 'Προτιμολόγιο #{{ invoice_number }} ποσού {{ amount }}, λήξη {{ invoice.due_at|date("d/m/Y") }}.',
+        'Η πληρωμή σας για το προτιμολόγιο #{{ invoice_number }} ({{ total }}) ελήφθη. Σας ευχαριστούμε!' => 'Η πληρωμή σας για το προτιμολόγιο #{{ invoice_number }} ({{ amount }}) ελήφθη. Σας ευχαριστούμε!',
     ];
+
+    /** The fields that name the amount: the mail's subject, the bell's and the push's text. */
+    private const FIELDS = ['subject', 'in_app_body'];
 
     public function up(): void
     {
@@ -31,17 +39,21 @@ return new class extends Migration
     /** @param  array<string, string>  $map  a subject exactly as it was => its new form */
     private function each(array $map): void
     {
-        foreach (DB::table('notification_templates')->whereIn('key', ['new_invoice_created', 'invoice_paid'])->get(['id', 'subject', 'translations']) as $row) {
+        foreach (DB::table('notification_templates')->whereIn('key', ['new_invoice_created', 'invoice_paid'])->get(['id', ...self::FIELDS, 'translations']) as $row) {
             $changes = [];
-            if (isset($map[(string) $row->subject])) {
-                $changes['subject'] = $map[(string) $row->subject];
+            foreach (self::FIELDS as $field) {
+                if (isset($map[(string) $row->{$field}])) {
+                    $changes[$field] = $map[(string) $row->{$field}];
+                }
             }
             $translations = is_string($row->translations) ? json_decode($row->translations, true) : null;
             $translated = false;
             foreach (is_array($translations) ? $translations : [] as $locale => $fields) {
-                if (is_array($fields) && is_string($fields['subject'] ?? null) && isset($map[$fields['subject']])) {
-                    $translations[$locale]['subject'] = $map[$fields['subject']];
-                    $translated = true;
+                foreach (self::FIELDS as $field) {
+                    if (is_array($fields) && is_string($fields[$field] ?? null) && isset($map[$fields[$field]])) {
+                        $translations[$locale][$field] = $map[$fields[$field]];
+                        $translated = true;
+                    }
                 }
             }
             if ($translated) { // re-encoded only when a subject in it changed: the rest stays byte for byte
