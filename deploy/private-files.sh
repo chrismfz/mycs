@@ -34,7 +34,14 @@ private=()
 for dir in bootstrap/cache storage/logs storage/framework storage/debugbar; do
   if [[ -d "$dir" ]]; then private+=("$dir"); fi
 done
-while IFS= read -r -d '' dir; do private+=("$dir"); done < <(find storage/app -mindepth 1 -maxdepth 1 ! -name public ! -name .gitignore -print0 2>/dev/null)
+# storage/app's own entries but public/ (the web server's) and .gitignore. A glob, not a process substitution of find: CageFS has no /dev/fd,
+# so a process substitution failed there and these stayed readable (orion, 2026-11-13).
+shopt -s dotglob nullglob
+for dir in storage/app/*; do
+  case "${dir##*/}" in public | .gitignore) continue ;; esac
+  private+=("$dir")
+done
+shopt -u dotglob nullglob
 if [[ ${#private[@]} -gt 0 ]]; then
   find "${private[@]}" -user "$me" -exec chmod go-rwx {} + 2>/dev/null
   others="$(find "${private[@]}" ! -user "$me" -print 2>/dev/null | head -5)"

@@ -40,3 +40,31 @@
 - Το επόμενο πρωί: ο πρώτος έλεγχος PayPal (06:10) και ο έλεγχος χρημάτων (06:30), `first-days.md`.
 - Καθάρισμα (runbook §4): νέο API κλειδί του WHMCS, αφαίρεση του `DecryptPassword` και της IP από το API, τα αρχεία με
   μυστικά και οι scratch βάσεις στον devbox.
+
+## Πώς έγινε (2026-11-12/13) και τι κρατάμε για το myip
+Το WHMCS πάγωσε στις 00:18 και το MyCS άνοιξε στις 00:59:47 στο `clients.nixpal.com`. Πριν, έγιναν 4 πρόβες στον ίδιο
+server, με το WHMCS ζωντανό: η τελευταία με API, logins και CC hash έφερε όλα όσα μπορούσαν να έρθουν. Η εγκατάσταση
+στον cPanel είναι στο `install.md`, «Σε server cPanel/CloudLinux». Τι δεν ήταν γραμμένο:
+- **Η σειρά των domains:** το MyCS στήνεται και κάνει import στο `mycs.<company>` **ενώ το WHMCS κρατά ακόμα το δικό
+  του domain**, γιατί το API του και η άδειά του θέλουν το domain τους. Μετά το import: WHMCS → `clients-old` και suspend,
+  και τότε το MyCS → `clients`, με `whmapi1 modifyacct user=<user> DNS=<domain>`. Το Save του WHM δεν δούλευε, ενώ η
+  κονσόλα δούλεψε. Το suspend κόβει το API, γι' αυτό γίνεται μόνο μετά το import.
+- **Το API του WHMCS δέχεται μόνο τις IP της λίστας του:** οι κλήσεις από τον ίδιο server φτάνουν με τη δημόσια IP του.
+  Η IP του server του MyCS μπαίνει στο «API IP Access Restriction» πριν από την πρόβα με API.
+- **DNS:** στο zone του γονικού domain (`nixpal.com`, στον λογαριασμό `nixpal`) υπήρχαν εγγραφές NS για το `clients`. Το
+  `modifyacct` αρνήθηκε («A DNS entry … already exists») μέχρι να σβηστούν. Στο ενδιάμεσο το `clients.nixpal.com` δεν
+  λυνόταν καθόλου, ώσπου ο cPanel έφτιαξε το νέο zone. Για το myip: πριν το βήμα 7, `grep` για το subdomain στα zones του γονικού.
+- **AutoSSL** αμέσως μετά το `modifyacct` (`/usr/local/cpanel/bin/autossl_check --user=<user>`): μέχρι να τρέξει, το
+  domain σερβίρει self-signed.
+- **Μετά από κάθε import ξαναμπαίνουν:** `app_url`, `timezone` (Europe/Athens), `staff_2fa_required` (off στις πρόβες),
+  logo και favicon (τα αρχεία μένουν, οι ρυθμίσεις σβήνονται), και το «Captcha on sign-in». Το όνομα της εταιρείας και οι
+  default nameservers έρχονται πλέον από το WHMCS (#829).
+- **Gateways:** το `app:enable-imported-gateways` θέλει `--yes`, γιατί με `--no-interaction` δεν κάνει τίποτα. Το
+  «Webhook ID» του PayPal είναι υποχρεωτικό στη φόρμα: ένα προσωρινό `pending`, που η εντολή το αντικαθιστά με το
+  πραγματικό id. Το παλιό endpoint του Stripe αρκεί να γίνει disabled.
+- **Login πελατών:** με το «Captcha on sign-in» = `after_failure` και το ALTCHA, η φόρμα δεν έστελνε τίποτα (#828). Μέχρι
+  να γίνει merge: **Never**.
+- **Αναστολές (ιδιοκτήτης, 2026-11-13):** ξαναμπήκαν όπως στο WHMCS (Suspension on, υπενθυμίσεις 1,2) αφού η λίστα «θα
+  ανασταλούν» βγήκε άδεια. Το Termination μένει off.
+- **zlic:** οι agents ξεκίνησαν να παίρνουν απαντήσεις από το MyCS μόλις έλυσε το DNS (535 απαντήσεις 200 την πρώτη ώρα). Τα
+  «failed» του health είναι άδειες ήδη Expired, ίδιες με του WHMCS.

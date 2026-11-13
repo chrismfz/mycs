@@ -97,6 +97,39 @@ MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
   ληγμένα κλειδιά (π.χ. τα δύο αρχεία ανά επισκέπτη κάθε throttle), μόνο όταν ξαναζητηθεί το ίδιο κλειδί· ο φάκελος
   `storage/framework/cache` μεγαλώνει χωρίς όριο. Το `file` μένει για το devbox.
 
+### Σε server cPanel/CloudLinux (orion, nixpal, 2026-11-13)
+Ο λογαριασμός cPanel του MyCS (στον orion ο `mycsnixpal`, home στο `/home2`), με CageFS, LiteSpeed και ea-php. Τι
+χρειάστηκε πέρα από το «Νέο instance»:
+- **PHP 8.4 στο vhost:** `whmapi1 php_set_vhost_versions version=ea-php84 vhost=<domain>`. Το default του server
+  ήταν 7.4.
+- **`disable_functions`:** το `php.ini` του ea-php84 έκλεινε τα `proc_open`, `exec`, `popen` κ.λπ., που το MyCS θέλει
+  στο CLI (ο scheduler τρέχει κάθε εργασία σε δική της διεργασία, το σχήμα της βάσης φορτώνεται με τον client
+  `mariadb`, composer, `app:cron-wait`). Τα άνοιξε ο ιδιοκτήτης στο ea-php84 και στο ea-php85 και έκανε `cagefsctl`
+  (force update, remount).
+- **Το `php` του χρήστη:** στο shell ήταν το 7.4. Στο `~/bin/php` μπαίνει ένα script που κάνει
+  `exec /opt/cpanel/ea-php84/root/usr/bin/php "$@"`, και στο `~/.bash_profile` το `PATH=$HOME/bin:$PATH`.
+- **Document root:** ο κώδικας στο `~/mycs`. Το `public_html` γίνεται symlink: `mv public_html public_html.orig &&
+  ln -s mycs/public public_html`, με `chmod 711 mycs` και `755 mycs/public`. Το block του cPanel για την PHP
+  (`AddHandler application/x-httpd-ea-php84`) αντιγράφεται στο `~/.htaccess`, ώστε να ισχύει και κάτω από το `public/`.
+  **Προσοχή:** μια αλλαγή PHP από το cPanel (MultiPHP) γράφει μέσα στο `mycs/public/.htaccess`, που είναι αρχείο του git.
+- **Node 10, χωρίς rsync:** το `npm run build` δεν τρέχει εκεί. Το `deploy/orion.sh [ref]` χτίζει το `vendor` και τα
+  assets στον devbox στο ίδιο commit, τα στέλνει με tar πάνω από ssh, και τρέχει down, checkout, migrate, optimize,
+  `queue:restart`, up και ένα smoke check. Το `deploy/update.sh` δεν τρέχει εκεί.
+- **`deploy/private-files.sh`:** μέσα στο CageFS δεν υπάρχει `/dev/fd`, οπότε δεν γίνεται process substitution. Από τις
+  2026-11-13 το script δεν το χρειάζεται.
+- **Βάση και Redis:** η βάση δημιουργείται με `uapi --user=<user> Mysql create_database/create_user/set_privileges_on_database`.
+  Ο κωδικός μπαίνει κατευθείαν στο `.env`, και ακολουθεί `ALTER DATABASE … utf8mb4_unicode_ci`. Το `REDIS_DB` και το
+  `REDIS_CACHE_DB` παίρνουν αριθμούς που δεν χρησιμοποιεί κανείς στον host (`redis-cli INFO keyspace`· στον orion 10/11).
+- **Cron και worker:** το crontab του χρήστη με το πλήρες path:
+  `* * * * * cd ~/mycs && /opt/cpanel/ea-php84/root/usr/bin/php artisan schedule:run >> /dev/null 2>&1`. Ο worker
+  τρέχει ως unit του systemd (`/etc/systemd/system/<user>-queue.service`) με `User=<user>`, `WorkingDirectory` το `~/mycs`,
+  και `ExecStart` το ea-php84 με `artisan queue:work --tries=3 --max-time=3600`.
+- **https:** cPanel → Domains → «Force HTTPS Redirect» στο domain. Το MyCS δεν ανακατευθύνει μόνο του. Οι agents του
+  ZoneCloud καλούν το `zlic.php` πάντα με https (logs του Οκτωβρίου 2026: 0 κλήσεις με http).
+- **WHM με reseller token:** ο server της nixpal μπαίνει ως reseller (`nxpulsar`), όχι ως root. Όλες οι ενέργειες
+  δουλεύουν. Μόνο το `listresellers` απαντά «Permission denied», και η απογραφή συνεχίζει χωρίς αυτό (ένα ERROR στο log
+  σε κάθε συγχρονισμό).
+
 ## Ενημέρωση
 ```bash
 su - mycs -c 'cd /var/www/mycs && deploy/update.sh'        # ή deploy/update.sh <tag|branch>
