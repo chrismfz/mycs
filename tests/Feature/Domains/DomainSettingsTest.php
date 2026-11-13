@@ -228,6 +228,25 @@ class DomainSettingsTest extends TestCase
         $this->assertSame(['12.50', null, false], [(string) $domain->fresh()->recurring_amount, $domain->fresh()->notes, $domain->fresh()->auto_renew]);
     }
 
+    /**
+     * Second review of #831: another action on the page (here «Sync now», refused by the registrar) refills the form with
+     * what the domain holds, but never over changes staff have not saved yet.
+     */
+    public function test_a_page_action_keeps_unsaved_billing_changes_and_refills_otherwise(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $domain = $this->domain(['notes' => 'old']);
+        $staff = Staff::factory()->withPermissions(['admin.domains.viewAny', 'admin.domains.view', 'admin.domains.update'])->create();
+        $page = $this->livewireAs($staff)->test(ViewDomain::class, ['record' => $domain->id]);
+
+        $domain->forceFill(['auto_renew' => false])->save(); // meanwhile
+        $page->set('billing.notes', 'mine')->callAction('sync');
+        $page->assertSet('billing.notes', 'mine')->assertSet('billing.auto_renew', true);
+
+        $page->set('billing.notes', 'old')->callAction('sync'); // nothing of staff's own left: refilled
+        $page->assertSet('billing.auto_renew', false)->assertSet('billing.notes', 'old');
+    }
+
     public function test_a_period_no_longer_priced_is_shown_as_current_and_the_edit_form_still_saves(): void
     {
         // Code review 1: ordered or imported for 5 years, the TLD prices 1, 2 and 3.
