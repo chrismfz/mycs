@@ -39,7 +39,7 @@ class EmailTemplateSeeder extends Seeder
             'in_app_url' => '{{ urls.security }}',
         ],
         'new_invoice_created' => [
-            'subject' => 'New invoice #{{ invoice_number }} | Due {{ invoice.due_at|date("d/m/Y") }} | {{ total }}',
+            'subject' => 'New invoice #{{ invoice_number }} | Due {{ invoice.due_at|date("d/m/Y") }} | {{ amount }}',
             'body' => <<<'HTML'
                 # New invoice #{{ invoice_number }}
 
@@ -100,7 +100,7 @@ class EmailTemplateSeeder extends Seeder
             'in_app_url' => '{{ urls.invoice }}',
         ],
         'invoice_paid' => [
-            'subject' => 'Payment received: invoice #{{ invoice_number }} | {{ total }}',
+            'subject' => 'Payment received: invoice #{{ invoice_number }} | {{ amount }}',
             'body' => <<<'HTML'
                 # Payment received
 
@@ -1232,7 +1232,7 @@ class EmailTemplateSeeder extends Seeder
         ],
         'new_invoice_created' => [
             'el' => [
-                'subject' => 'Νέο προτιμολόγιο #{{ invoice_number }} | Λήξη {{ invoice.due_at|date("d/m/Y") }} | {{ total }}',
+                'subject' => 'Νέο προτιμολόγιο #{{ invoice_number }} | Λήξη {{ invoice.due_at|date("d/m/Y") }} | {{ amount }}',
                 'body' => <<<'HTML'
                     # Νέο προτιμολόγιο #{{ invoice_number }}
 
@@ -1291,7 +1291,7 @@ class EmailTemplateSeeder extends Seeder
         ],
         'invoice_paid' => [
             'el' => [
-                'subject' => 'Επιβεβαίωση πληρωμής: προτιμολόγιο #{{ invoice_number }} | {{ total }}',
+                'subject' => 'Επιβεβαίωση πληρωμής: προτιμολόγιο #{{ invoice_number }} | {{ amount }}',
                 'body' => <<<'HTML'
                     # Η πληρωμή σας ελήφθη
 

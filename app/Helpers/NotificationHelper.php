@@ -516,6 +516,9 @@ class NotificationHelper
             'invoice' => $invoice,
             'items' => $invoice->items,
             'total' => $invoice->formattedTotal->format($statement['total']),
+            // The invoice's own amount, before credit: the subject of «new invoice» and «payment received», which for an
+            // invoice credit paid would otherwise say €0,00 (nixpal 2026-11-13).
+            'amount' => $invoice->formattedTotal->format((float) $invoice->total),
             'credit' => $statement['credit'] != 0 ? $invoice->formattedTotal->format($statement['credit']) : '',
             // Δ1: the lines are net; when there is tax, the subtotal and the tax for the template (empty otherwise).
             'subtotal' => $invoice->taxTotal != 0 ? $invoice->formattedTotal->format($invoice->subtotal) : '',

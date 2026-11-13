@@ -155,7 +155,7 @@ final class TemplatePreview
         $cancellation = new ServiceCancellation(['type' => 'end_of_period', 'reason' => 'Μεταφορά αλλού']);
         $cancellation->setRelation('service', $service);
         $ticketUrl = url('/tickets/guest/' . str_repeat('x', 43));
-        $invoiceData = ['invoice' => $invoice, 'items' => $invoice->items, 'total' => $total, 'credit' => '', 'subtotal' => '', 'tax' => '',
+        $invoiceData = ['invoice' => $invoice, 'items' => $invoice->items, 'total' => $total, 'amount' => $total, 'credit' => '', 'subtotal' => '', 'tax' => '',
             'has_subscription' => false, 'auto_charge_method' => 'Visa **** 4242', 'remaining' => (string) $invoice->formattedRemaining, 'partly_paid' => false, 'bank_transfer' => null, 'preferred_method' => 'PayPal'];
 
         $data = match ($key) {
