@@ -74,7 +74,8 @@ class DomainStatusByStaffTest extends TestCase
         foreach ([DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption] as $live) {
             $this->assertSame([DomainStatus::Cancelled, DomainStatus::TransferredAway], $choices($live), $live->value);
         }
-        $this->assertSame([DomainStatus::Active], $choices(DomainStatus::Cancelled));
+        $this->assertSame([], $choices(DomainStatus::Cancelled), 'ended elsewhere');
+        $this->assertSame([DomainStatus::Active], DomainRecordCorrections::statusChoices(new Domain(['status' => DomainStatus::Cancelled, 'meta' => ['cancelled_by_staff' => ['from' => 'active']]])));
         $this->assertSame([DomainStatus::Active], $choices(DomainStatus::TransferredAway));
         // The registry's and an order's: never by hand.
         foreach ([DomainStatus::Deleted, DomainStatus::PendingRegister, DomainStatus::PendingTransfer] as $fixed) {
@@ -132,14 +133,14 @@ class DomainStatusByStaffTest extends TestCase
         $this->assertSame(Invoice::STATUS_CANCELLED, $invoice->fresh()->status, 'never reopened by itself');
     }
 
-    public function test_one_ended_elsewhere_comes_back_active_without_auto_renew(): void
+    public function test_one_ended_elsewhere_is_not_brought_back(): void
     {
-        // Cancelled by the import or an order: no note of how it was, so nothing is renewed until staff say so.
+        // Cancelled by the import or an order: nothing says it exists at a registrar (ADV-848-1, 2).
         $this->domain->forceFill(['status' => DomainStatus::Cancelled, 'auto_renew' => true])->save();
 
+        $this->assertSame([], DomainRecordCorrections::statusChoices($this->domain));
+        $this->expectException(DisplayException::class);
         app(DomainRecordCorrections::class)->setStatus($this->domain, DomainStatus::Active, $this->staff);
-
-        $this->assertSame([DomainStatus::Active, false], [$this->domain->fresh()->status, $this->domain->fresh()->auto_renew]);
     }
 
     public function test_a_status_not_offered_is_refused_and_the_select_is_locked_where_none_is(): void
@@ -169,5 +170,16 @@ class DomainStatusByStaffTest extends TestCase
         $this->assertTrue($page->instance()->getSchema('recordForm')->isDisabled());
         $this->assertFalse((bool) $viewer->hasPermission('admin.domains.update'));
         $this->assertSame(DomainStatus::Active, $this->domain->fresh()->status);
+    }
+
+    /** R848-3: its status moved meanwhile (the cron, a sync): the page's stale status is no error, its name still saves. */
+    public function test_a_status_changed_meanwhile_does_not_block_its_name(): void
+    {
+        $page = $this->page();
+        $this->domain->forceFill(['status' => DomainStatus::Expired])->save();
+
+        $page->saveRecord(['fqdn' => 'example2.gr'])->assertHasNoFormErrors([], 'recordForm');
+
+        $this->assertSame(['example2.gr', DomainStatus::Expired], [$this->domain->fresh()->fqdn, $this->domain->fresh()->status]);
     }
 }

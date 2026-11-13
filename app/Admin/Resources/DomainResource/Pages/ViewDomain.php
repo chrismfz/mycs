@@ -732,9 +732,13 @@ class ViewDomain extends ViewRecord
                             ->helperText(__('As the registry writes it. A registrar never renames a domain: if it answers with another name, the sync says so.')),
                         // Only what staff may set from here, and where it is now (DomainRecordCorrections::statusChoices).
                         Select::make('status')->label(__('Status'))->live()->selectablePlaceholder(false)
-                            ->options(fn (Domain $record) => collect([$record->status, ...DomainRecordCorrections::statusChoices($record)])
+                            // With the one the form was filled with: changed meanwhile (a sync, the cron), a stale value is
+                            // not «invalid» and does not block saving its name or registrar (R848-3); «Save» skips it.
+                            ->options(fn (Domain $record) => collect([DomainStatus::tryFrom((string) ($this->recordLoaded['status'] ?? '')), $record->status,
+                                ...DomainRecordCorrections::statusChoices($record)])->filter()->unique(fn (DomainStatus $status) => $status->value)
                                 ->mapWithKeys(fn (DomainStatus $status) => [$status->value => $status->getLabel()])->all())
-                            ->disabled(fn (Domain $record) => DomainRecordCorrections::statusChoices($record) === [])
+                            // Ending a domain ends its billing: a «manage» right, as «Transferred away» was (ADV-848-4).
+                            ->disabled(fn (Domain $record) => !self::can('admin.domains.manage') || DomainRecordCorrections::statusChoices($record) === [])
                             ->helperText($statusHelp),
                         Select::make('registrar_connection_id')->label(__('Registrar'))
                             ->placeholder(fn (Domain $record) => __('Its TLD\'s (:registrar)', ['registrar' => $record->domainTld?->registrarConnection->label ?? __('none')]))
@@ -769,12 +773,18 @@ class ViewDomain extends ViewRecord
         $record = $this->getRecord();
         $corrections = app(DomainRecordCorrections::class);
         $said = [];
+        $saved = []; // what was written before one after it was refused: said too (R848-5)
         try {
             if ($changed('fqdn')) {
                 $corrections->rename($record->refresh(), (string) $data['fqdn'], $staff);
+                $saved[] = __('domains.domain');
             }
             if ($changed('registrar_connection_id')) {
                 $said[] = $corrections->moveToRegistrar($record->refresh(), self::recordValue('registrar_connection_id', $data['registrar_connection_id']), $staff);
+                $saved[] = __('Registrar');
+            }
+            if ($changed('status') && !self::can('admin.domains.manage')) {
+                throw new DisplayException(__('domains.correct.status_needs_manage'));
             }
             if ($changed('status') && ($to = DomainStatus::tryFrom((string) $data['status'])) !== null) {
                 $said[] = $corrections->setStatus($record->refresh(), $to, $staff);
@@ -782,7 +792,8 @@ class ViewDomain extends ViewRecord
             $said = array_filter($said);
             Notification::make()->success()->title(__('Saved.'))->body($said === [] ? null : e(implode(' ', $said)))->send();
         } catch (DisplayException $e) {
-            Notification::make()->danger()->title(__('Not corrected'))->body(e($e->getMessage()))->send();
+            Notification::make()->danger()->title(__('Not corrected'))
+                ->body(e(trim(($saved === [] ? '' : __('Saved: :fields.', ['fields' => implode(', ', $saved)]) . ' ') . $e->getMessage())))->send();
         }
         $this->record->refresh();
         $this->refreshFormData([]);

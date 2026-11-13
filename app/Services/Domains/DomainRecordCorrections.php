@@ -116,7 +116,9 @@ class DomainRecordCorrections
 
     /**
      * The statuses staff may set from where it is now (owner 2026-11-13, as WHMCS's select, kept to three): a live one
-     * ended (cancelled here, or at another registrar now), an ended one back. The rest (expired, grace, redemption,
+     * ended (cancelled here, or at another registrar now), and back only what was ended that way: one cancelled by staff
+     * here, or transferred away. A cancelled order never registered, a recalled registration, one the import or «name
+     * taken» closed are not brought back (ADV-848-1, 2: they exist at no registrar). The rest (expired, grace, redemption,
      * deleted, pending) are its registrar's and its dates', set by the sync and the daily cron, never by hand.
      *
      * @return list<DomainStatus>
@@ -125,7 +127,8 @@ class DomainRecordCorrections
     {
         return match (true) {
             in_array($domain->status, self::LIVE, true) => [DomainStatus::Cancelled, DomainStatus::TransferredAway],
-            in_array($domain->status, [DomainStatus::Cancelled, DomainStatus::TransferredAway], true) => [DomainStatus::Active],
+            $domain->status === DomainStatus::TransferredAway,
+            $domain->status === DomainStatus::Cancelled && is_array($domain->meta['cancelled_by_staff'] ?? null) => [DomainStatus::Active],
             default => [],
         };
     }
@@ -192,8 +195,8 @@ class DomainRecordCorrections
     }
 
     /**
-     * Back as it was before it ended (staff's own note of it), else active with auto-renew off: one ended elsewhere (an
-     * order cancelled, a recall, the import) renews only when staff turn auto-renew on.
+     * Back as it was before it ended (staff's own note of it); a transferred away one marked by the sync, with no auto-renew
+     * noted, renews only when staff turn it on. Never while another row holds its name (ADV-848-3): said, not a 500.
      */
     private function resume(Domain $domain, Staff $staff): void
     {
@@ -203,8 +206,13 @@ class DomainRecordCorrections
         $from = DomainStatus::tryFrom((string) ($was['from'] ?? ''));
         unset($meta['cancelled_by_staff'], $meta['transferred_away']);
         $meta['resumed'] = ['at' => now()->toIso8601String(), 'staff_id' => $staff->id];
-        $domain->forceFill(['status' => in_array($from, self::LIVE, true) ? $from : DomainStatus::Active,
-            'auto_renew' => (bool) ($was['auto_renew'] ?? false), 'meta' => $meta])->save(); // audited
+        try {
+            $domain->forceFill(['status' => in_array($from, self::LIVE, true) ? $from : DomainStatus::Active,
+                'auto_renew' => (bool) ($was['auto_renew'] ?? false), 'meta' => $meta])->save(); // audited
+        } catch (UniqueConstraintViolationException) {
+            $holder = DomainNameHold::holder($domain->fqdn);
+            throw new DisplayException(__('domains.correct.name_held', ['domain' => $domain->fqdn, 'holder' => $holder === null ? '—' : '#' . $holder->id]));
+        }
         // Where its dates put it now (a month later it is no longer «active»), for one no registrar API reads.
         app(DomainLifecycle::class)->advance($domain);
     }
