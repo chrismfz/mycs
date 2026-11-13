@@ -134,6 +134,8 @@ final class QuarantineActions
             'via' => TicketMessage::VIA_EMAIL,
             // Its Message-ID stays with the quarantine row (skipped next time): the message needs none.
             'email_message_id' => null,
+            // As our server judged it when it came (owner 2026-11-13): what staff read beside the message.
+            'mail' => TicketMessage::mailDetails($email, (string) $quarantine->raw(), (bool) $quarantine->authenticated, (string) $quarantine->auth_detail),
         ];
     }
 }
