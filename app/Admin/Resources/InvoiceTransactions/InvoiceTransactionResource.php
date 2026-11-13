@@ -14,6 +14,9 @@ class InvoiceTransactionResource extends Resource
 {
     protected static ?string $model = InvoiceTransaction::class;
 
+    // Its tab's place in the Invoice cluster: Invoices, Transactions, PayPal Transactions (owner 2026-11-13).
+    protected static ?int $navigationSort = 2;
+
     // One name for the page, WHMCS's, in the top menu, the sidebar and its title (owner 2026-10-21).
     protected static ?string $navigationLabel = 'Transactions';
 

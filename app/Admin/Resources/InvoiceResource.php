@@ -69,6 +69,9 @@ class InvoiceResource extends Resource
 {
     protected static ?string $model = Invoice::class;
 
+    // Its tab's place in the Invoice cluster: Invoices, Transactions, PayPal Transactions (owner 2026-11-13).
+    protected static ?int $navigationSort = 1;
+
     /**
      * What a cancellation does to the periods it bills (Δ3a, ADV-4), the same on the list and the invoice's page. Said as
      * what happens to the service (owner 2026-10-24): «as usual» to re-issue an invoice left an active service suspended

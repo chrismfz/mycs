@@ -25,6 +25,9 @@ class GatewayTransactionResource extends Resource
 {
     protected static ?string $model = GatewayTransaction::class;
 
+    // Its tab's place in the Invoice cluster: Invoices, Transactions, PayPal Transactions (owner 2026-11-13).
+    protected static ?int $navigationSort = 3;
+
     protected static ?string $navigationLabel = 'PayPal Transactions';
 
     protected static ?string $pluralModelLabel = 'PayPal Transactions';
