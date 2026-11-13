@@ -710,7 +710,15 @@ class ViewDomain extends ViewRecord
     private function refillBillingUnlessEdited(): void
     {
         foreach ($this->billingLoaded as $key => $value) {
-            if (array_key_exists($key, $this->billing ?? []) && self::billingValue($key, $this->billing[$key]) !== self::billingValue($key, $value)) {
+            if (!array_key_exists($key, $this->billing ?? [])) {
+                continue;
+            }
+            try {
+                $edited = self::billingValue($key, $this->billing[$key]) !== self::billingValue($key, $value);
+            } catch (Throwable) {
+                $edited = true; // not validated yet (a price «12,50»): staff's own, kept for «Save» to refuse (review of #835)
+            }
+            if ($edited) {
                 return;
             }
         }

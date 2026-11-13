@@ -245,6 +245,10 @@ class DomainSettingsTest extends TestCase
 
         $page->set('billing.notes', 'old')->callAction('sync'); // nothing of staff's own left: refilled
         $page->assertSet('billing.auto_renew', false)->assertSet('billing.notes', 'old');
+
+        // A price not validated yet is staff's own too, not an error on the page (review of #835).
+        $page->set('billing.recurring_amount', '12,50')->callAction('sync');
+        $page->assertSet('billing.recurring_amount', '12,50');
     }
 
     public function test_a_period_no_longer_priced_is_shown_as_current_and_the_edit_form_still_saves(): void
