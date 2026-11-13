@@ -126,7 +126,7 @@
     {{-- Closed periods --}}
     @if ($periods->isNotEmpty())
     <div>
-        <div class="font-medium mb-1">Closed periods</div>
+        <div class="font-medium mb-1">Closed periods <span class="text-xs font-normal text-gray-500">net amounts</span></div>
         <table class="w-full">
             <thead>
                 <tr class="text-left text-gray-500">
@@ -146,9 +146,9 @@
                     <td class="py-1.5 pe-3">{{ $closed->actual }}</td>
                     <td class="py-1.5">
                         @if ((float) $closed->adjustment > 0)
-                            +{{ $closed->adjustment }}{{ $closed->adjustmentItem ? ' · invoice #' . $closed->adjustmentItem->invoice_id : ' · on the next invoice' }}
+                            +{{ $closed->adjustment }}{{ in_array($closed->id, $owed, true) ? ' · on the next invoice' : ' · invoice #' . $closed->adjustmentItem?->invoice_id }}
                         @elseif ((float) $closed->adjustment < 0)
-                            {{ $closed->adjustment }} · credit
+                            {{ $closed->adjustment }} · credit (net; credited with its tax)
                         @else
                             —
                         @endif

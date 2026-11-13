@@ -98,6 +98,8 @@ class BulkLicenseStaff extends Component
             'moving' => $this->moving($license),
             'history' => $this->history($license),
             'periods' => $license->usagePeriods()->with('adjustmentItem')->orderByDesc('period_start')->limit(12)->get(),
+            // Still to bill, as billing reads it (BulkUsage::owed): its invoice cancelled or its line gone (review of #851).
+            'owed' => BulkUsage::owed($license)->pluck('id')->all(),
             'silentSince' => $silentSince,
         ]);
     }

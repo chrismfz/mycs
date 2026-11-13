@@ -6,6 +6,8 @@ use App\Admin\Resources\LicenseResource\Pages\ListLicenses;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Helpers\ExtensionHelper;
 use App\Livewire\Admin\BulkLicenseStaff;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\LicenseIp;
 use App\Models\LicenseUsagePeriod;
 use App\Models\Product;
@@ -18,6 +20,7 @@ use App\Models\User;
 use App\Rules\BulkTiers;
 use App\Services\Licensing\BulkConvert;
 use App\Services\Licensing\BulkLicenseIps;
+use App\Services\Licensing\BulkUsage;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -160,5 +163,23 @@ class BulkLicenseStaffTest extends TestCase
         $this->assertTrue($bad->fails());
         $this->assertStringContainsString('is not a tier', $bad->errors()->first('tiers'));
         $this->assertTrue(Validator::make(['tiers' => '51=1.50'], ['tiers' => [new BulkTiers]])->fails(), 'they start at 1');
+    }
+
+    /** Review of #851: a correction whose invoice was cancelled is still owed (BulkUsage::owed), never shown as billed. */
+    public function test_a_correction_on_a_cancelled_invoice_is_shown_as_owed(): void
+    {
+        $invoice = Invoice::factory()->create(['client_id' => $this->bulk->client_id, 'status' => Invoice::STATUS_CANCELLED]);
+        $item = InvoiceItem::factory()->create(['invoice_id' => $invoice->id]);
+        LicenseUsagePeriod::query()->create(['license_id' => $this->bulk->license->id, 'period_start' => '2026-10-10', 'period_end' => '2026-11-10',
+            'ips' => 61, 'actual' => '106.50', 'billed' => '90.00', 'adjustment' => '16.50', 'tiers' => '[]', 'closed_at' => now(), 'adjustment_item_id' => $item->id]);
+        $this->assertCount(1, BulkUsage::owed($this->bulk->license), 'billing still owes it');
+
+        $this->livewireAs($this->staff)->test(BulkLicenseStaff::class, ['service' => $this->bulk])
+            ->assertDontSee('+16.50 · invoice #' . $invoice->id)
+            ->assertSee('+16.50 · on the next invoice');
+
+        $invoice->update(['status' => Invoice::STATUS_UNPAID]);
+        $this->livewireAs($this->staff)->test(BulkLicenseStaff::class, ['service' => $this->bulk])
+            ->assertSee('+16.50 · invoice #' . $invoice->id);
     }
 }
