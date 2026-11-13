@@ -100,6 +100,7 @@
                                             $message->via === 'form' => [__('Contact form'), 'heroicon-m-clipboard-document-list'],
                                             $message->via === 'link' => [__('Guest page'), 'heroicon-m-link'],
                                             $message->via === 'whmcs' => ['WHMCS', 'heroicon-m-archive-box'],
+                                            $message->via === 'api' => ['API', 'heroicon-m-code-bracket'],
                                             !$message->isFromStaff() && !$message->is_internal => [__('Client area'), 'heroicon-m-user-circle'],
                                             default => [null, null],
                                         };
@@ -158,7 +159,9 @@
                                             <p class="text-sm font-semibold">{{ __('Headers') }}</p>
                                             <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-2 text-xs dark:bg-white/5">{{ $mail['headers'] }}</pre>
                                         @endif
-                                        <pre class="whitespace-pre-wrap text-sm">{{ $message->body_original }}</pre>
+                                        @if (filled($message->body_original))
+                                            <pre class="whitespace-pre-wrap text-sm">{{ $message->body_original }}</pre>
+                                        @endif
                                     </x-filament::modal>
                                 </dd>
                             </dl>

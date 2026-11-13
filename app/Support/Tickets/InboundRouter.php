@@ -263,8 +263,8 @@ class InboundRouter
         return $grants->count() === 1 ? ['client_id' => (int) $grants->first()->client_id, 'user' => $user] : null;
     }
 
-    /** @param  array<string, mixed>  $mail */
-    private function reply(Ticket $ticket, InboundEmail $email, string $messageId, array $mail, ?User $author, ?string $copied = null): InboundOutcome
+    /** @param  array<string, mixed>|null  $mail */
+    private function reply(Ticket $ticket, InboundEmail $email, string $messageId, ?array $mail, ?User $author, ?string $copied = null): InboundOutcome
     {
         return $this->unique(fn () => TicketFiles::transaction(function () use ($ticket, $email, $messageId, $mail, $author, $copied) {
             $message = $ticket->messages()->create(['sender_email' => $copied, 'mail' => $mail] + $this->messageData($email, $messageId, $author, ReplyText::clean($email->body)));
@@ -275,10 +275,10 @@ class InboundRouter
     }
 
     /**
-     * @param  array<string, mixed>  $mail
+     * @param  array<string, mixed>|null  $mail
      * @param  array{client_id: int, user: User}|null  $account
      */
-    private function open(TicketDepartment $department, InboundEmail $email, string $messageId, array $mail, ?array $account, bool $vouched): InboundOutcome
+    private function open(TicketDepartment $department, InboundEmail $email, string $messageId, ?array $mail, ?array $account, bool $vouched): InboundOutcome
     {
         return $this->unique(fn () => TicketFiles::transaction(function () use ($department, $email, $messageId, $mail, $account, $vouched) {
             $ticket = Ticket::query()->create([
