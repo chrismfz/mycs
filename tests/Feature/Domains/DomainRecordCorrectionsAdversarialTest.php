@@ -120,7 +120,7 @@ class DomainRecordCorrectionsAdversarialTest extends TestCase
     public function test_the_renewal_price_by_hand_is_kept_to_the_cent(): void
     {
         Livewire::test(ViewDomain::class, ['record' => $this->domain->getRouteKey()])
-            ->callAction('edit', ['auto_renew' => true, 'years' => 1, 'recurring_amount' => '999999999999999.99', 'notes' => '']);
+            ->saveBilling(['auto_renew' => true, 'years' => 1, 'recurring_amount' => '999999999999999.99', 'notes' => '']);
 
         $this->assertContains((string) $this->domain->refresh()->recurring_amount, ['999999999999999.99', ''],
             'kept as typed, or refused; not rounded through a float to one the column cannot hold');
@@ -131,8 +131,8 @@ class DomainRecordCorrectionsAdversarialTest extends TestCase
     public function test_a_renewal_price_too_large_is_refused(): void
     {
         Livewire::test(ViewDomain::class, ['record' => $this->domain->getRouteKey()])
-            ->callAction('edit', ['auto_renew' => true, 'years' => 1, 'recurring_amount' => '100000000000000000', 'notes' => ''])
-            ->assertHasActionErrors(['recurring_amount']);
+            ->saveBilling(['auto_renew' => true, 'years' => 1, 'recurring_amount' => '100000000000000000', 'notes' => ''])
+            ->assertHasFormErrors(['recurring_amount'], 'billingForm');
     }
 }
 

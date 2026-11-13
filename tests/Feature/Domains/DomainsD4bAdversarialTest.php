@@ -332,7 +332,11 @@ class DomainsD4bAdversarialTest extends TestCase
         $forge($page(['admin.domains.viewAny', 'admin.domains.epp']), 'nameservers', ['nameservers' => ['ns1.evil.test', 'ns2.evil.test']]);
         $forge($page(['admin.domains.viewAny', 'admin.domains.epp']), 'lock');
         $forge($page(['admin.domains.viewAny', 'admin.domains.update']), 'registrarContacts');
-        $forge($page(['admin.domains.viewAny', 'admin.domains.manage', 'admin.domains.epp']), 'edit', ['auto_renew' => false, 'notes' => 'after']);
+        // The «Billing» form's «Save» (owner 2026-11-13): its fields set and its action called, as a forged request would.
+        $billing = $page(['admin.domains.viewAny', 'admin.domains.manage', 'admin.domains.epp']);
+        $this->swallow(fn () => $billing->set('billing.notes', 'after')->set('billing.auto_renew', false));
+        $this->swallow(fn () => $billing->call('mountAction', 'saveBilling', [], ['schemaComponent' => 'billing_section']));
+        $this->swallow(fn () => $billing->call('callMountedAction'));
         $page(['admin.domains.viewAny', 'admin.domains.epp']); // the page alone reads no code
 
         $this->assertSame([0, [], 0], [$this->authcodeReads, $this->puts, DomainRegistrarLog::query()->count()]);

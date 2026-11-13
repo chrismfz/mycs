@@ -85,11 +85,11 @@ class DomainRecordCorrectionsTest extends TestCase
     public function test_the_renewal_price_by_hand_and_back_to_the_tlds_from_edit(): void
     {
         Livewire::test(ViewDomain::class, ['record' => $this->domain->getRouteKey()])
-            ->callAction('edit', ['auto_renew' => true, 'years' => 1, 'recurring_amount' => '9.5', 'notes' => ''])->assertHasNoActionErrors();
+            ->saveBilling(['auto_renew' => true, 'years' => 1, 'recurring_amount' => '9.5', 'notes' => ''])->assertHasNoFormErrors([], 'billingForm');
         $this->assertSame('9.50', (string) $this->domain->refresh()->recurring_amount);
 
         Livewire::test(ViewDomain::class, ['record' => $this->domain->getRouteKey()])
-            ->callAction('edit', ['auto_renew' => true, 'years' => 1, 'recurring_amount' => null, 'notes' => ''])->assertHasNoActionErrors();
+            ->saveBilling(['auto_renew' => true, 'years' => 1, 'recurring_amount' => null, 'notes' => ''])->assertHasNoFormErrors([], 'billingForm');
         $this->assertNull($this->domain->refresh()->recurring_amount);
     }
 

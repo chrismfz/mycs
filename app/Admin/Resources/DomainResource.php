@@ -24,6 +24,7 @@ use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\EmbeddedSchema;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Group;
 use Filament\Schemas\Components\Section;
@@ -262,8 +263,6 @@ class DomainResource extends Resource
             TextEntry::make('redemption_ends')->label(__('Redemption until'))->placeholder('—')
                 ->state(fn (Domain $record) => self::stageEnd($record->redemptionEndsOn(), $record->status === DomainStatus::Redemption)),
             TextEntry::make('years')->label(__('Period (years)')),
-            TextEntry::make('recurring_amount')->label(__('Recurring amount'))->placeholder(__('The TLD\'s renew price')),
-            TextEntry::make('auto_renew')->label(__('Auto renew'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
             // What the cron does with it, and why not (owner 2026-11-01, #568).
             TextEntry::make('auto_charge_status')->label(__('Automatic charge'))->state(fn (Domain $record) => ItemPaymentMethod::autoChargeStatus($record)),
             TextEntry::make('transfer_lock')->label(__('Transfer lock'))->formatStateUsing(fn (bool $state) => $yesNo($state)),
@@ -356,6 +355,8 @@ class DomainResource extends Resource
                 // registrar's column (owner 2026-10-23).
                 Group::make([
                     $domain,
+                    // Its billing, edited here (ViewDomain::billingForm, owner 2026-11-13): no «Edit» modal.
+                    EmbeddedSchema::make('billingForm')->visible(fn ($livewire) => method_exists($livewire, 'billingForm')),
                     $contacts,
                     // As last read from the registrar (its «Read child nameservers»): the forgotten ones too.
                     Section::make(__('Child nameservers'))
@@ -426,9 +427,6 @@ class DomainResource extends Resource
                                     . (is_string($record->meta['dnssec']['note_at'] ?? null) ? ' (' . $record->meta['dnssec']['note_at'] . ')' : '')),
                         ]),
                 ]),
-            ]),
-            Section::make(__('Admin notes'))->schema([
-                TextEntry::make('notes')->hiddenLabel()->placeholder('—')->prose(),
             ]),
         ]);
     }

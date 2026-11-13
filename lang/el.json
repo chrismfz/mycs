@@ -512,6 +512,8 @@
     "Request": "Αίτημα",
     "Response": "Απάντηση",
     "Saved.": "Αποθηκεύτηκε.",
+    "Save": "Αποθήκευση",
+    "Unsaved changes": "Μη αποθηκευμένες αλλαγές",
     "Staff only.": "Μόνο για το staff.",
     "The code transfers the domain to whoever has it. Read from the registrar now, never stored; the read is logged.": "Ο κωδικός μεταφέρει το domain σε όποιον τον έχει. Διαβάζεται τώρα από τον registrar, δεν αποθηκεύεται· η ανάγνωση καταγράφεται.",
     "The registrar did not accept it.": "Ο registrar δεν το δέχτηκε.",

@@ -279,13 +279,16 @@ class DomainManagementTest extends TestCase
         app(DomainSyncService::class)->sync($domain);
         $page = fn (array $permissions) => $this->livewireAs($this->staff($permissions))->test(ViewDomain::class, ['record' => $domain->getRouteKey()]);
 
-        $page(['admin.domains.viewAny'])->assertSee('CP935231-GR')->assertSee('ns1.nixpal.com 192.0.2.6')
-            ->assertActionHidden('nameservers')->assertActionHidden('eppCode')->assertActionHidden('edit');
+        $viewOnly = $page(['admin.domains.viewAny'])->assertSee('CP935231-GR')->assertSee('ns1.nixpal.com 192.0.2.6')
+            ->assertActionHidden('nameservers')->assertActionHidden('eppCode');
+        // Its «Billing» read-only, with no «Save» (owner 2026-11-13: on the page, no «Edit» modal).
+        $this->assertTrue($viewOnly->instance()->getSchema('billingForm')->isDisabled());
+        $this->assertFalse($page(['admin.domains.viewAny', 'admin.domains.update'])->instance()->getSchema('billingForm')->isDisabled());
         $page(['admin.domains.viewAny', 'admin.domains.manage'])->assertActionVisible('nameservers')->assertActionVisible('lock')->assertActionHidden('eppCode');
         $page(['admin.domains.viewAny', 'admin.domains.epp'])->assertActionVisible('eppCode')->assertActionHidden('nameservers');
 
-        $page(['admin.domains.viewAny', 'admin.domains.update'])->callAction('edit', ['auto_renew' => false, 'notes' => 'Customer asked to let it go.'])
-            ->assertHasNoActionErrors();
+        $page(['admin.domains.viewAny', 'admin.domains.update'])->saveBilling(['auto_renew' => false, 'notes' => 'Customer asked to let it go.'])
+            ->assertHasNoFormErrors([], 'billingForm');
         $this->assertSame([false, 'Customer asked to let it go.'], [$domain->fresh()->auto_renew, $domain->fresh()->notes]);
         $this->assertTrue($domain->audits()->where('event', 'updated')->get()->contains(fn ($audit) => array_key_exists('notes', $audit->new_values)));
 

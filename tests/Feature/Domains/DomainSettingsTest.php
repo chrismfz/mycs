@@ -198,9 +198,34 @@ class DomainSettingsTest extends TestCase
         $staff = Staff::factory()->withPermissions(['admin.domains.viewAny', 'admin.domains.view', 'admin.domains.update'])->create();
 
         $this->livewireAs($staff)->test(ViewDomain::class, ['record' => $domain->id])
-            ->callAction('edit', data: ['auto_renew' => true, 'notes' => '', 'years' => 3])->assertHasNoActionErrors();
+            ->saveBilling(['auto_renew' => true, 'notes' => '', 'years' => 3])->assertHasNoFormErrors([], 'billingForm');
 
         $this->assertSame([3, '2029-11-01', '66.00'], [$domain->fresh()->years, $line->fresh()->period_end->toDateString(), (string) $line->fresh()->price]);
+    }
+
+    /**
+     * The «Billing» form on the page (owner 2026-11-13): «Save» writes only what staff changed there, so a page left open
+     * does not put back a price or period someone else changed meanwhile; then it shows what the domain holds.
+     */
+    public function test_the_billing_form_saves_only_what_staff_changed_on_it(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $domain = $this->domain(['recurring_amount' => '20.00', 'notes' => 'old']);
+        $staff = Staff::factory()->withPermissions(['admin.domains.viewAny', 'admin.domains.view', 'admin.domains.update'])->create();
+        $page = $this->livewireAs($staff)->test(ViewDomain::class, ['record' => $domain->id])
+            ->assertSet('billing.recurring_amount', '20.00')->assertSet('billing.notes', 'old')->assertSee(__('Billing'));
+
+        // Meanwhile someone else: another price, auto renew off.
+        $domain->forceFill(['recurring_amount' => '15.00', 'auto_renew' => false])->save();
+
+        $page->saveBilling(['notes' => 'checked'])->assertHasNoFormErrors([], 'billingForm')->assertNotified(__('Saved.'));
+        $domain->refresh();
+        $this->assertSame(['15.00', false, 'checked'], [(string) $domain->recurring_amount, $domain->auto_renew, $domain->notes]);
+        // Filled again from the domain: a second «Save» puts nothing back either.
+        $page->assertSet('billing.recurring_amount', '15.00')->assertSet('billing.auto_renew', false);
+
+        $page->saveBilling(['recurring_amount' => '12.5', 'notes' => ''])->assertHasNoFormErrors([], 'billingForm');
+        $this->assertSame(['12.50', null, false], [(string) $domain->fresh()->recurring_amount, $domain->fresh()->notes, $domain->fresh()->auto_renew]);
     }
 
     public function test_a_period_no_longer_priced_is_shown_as_current_and_the_edit_form_still_saves(): void
@@ -212,7 +237,7 @@ class DomainSettingsTest extends TestCase
         $staff = Staff::factory()->withPermissions(['admin.domains.viewAny', 'admin.domains.view', 'admin.domains.update'])->create();
 
         $this->livewireAs($staff)->test(ViewDomain::class, ['record' => $domain->id])
-            ->callAction('edit', data: ['auto_renew' => false, 'notes' => 'checked', 'years' => 5])->assertHasNoActionErrors();
+            ->saveBilling(['auto_renew' => false, 'notes' => 'checked', 'years' => 5])->assertHasNoFormErrors([], 'billingForm');
         $this->assertSame([5, false, 'checked'], [$domain->fresh()->years, $domain->fresh()->auto_renew, $domain->fresh()->notes]);
         Livewire::actingAs($this->user)->test(Show::class, ['domain' => $domain->fresh()])->assertSee(__('domains.portal.years_current_unpriced'));
     }

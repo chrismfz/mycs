@@ -461,7 +461,7 @@ class ChargeByGatewayMethodTest extends TestCase
         $admin = Staff::factory()->create(['role_id' => Role::create(['name' => 'Owner' . uniqid(), 'permissions' => ['*']])->id]);
 
         $this->livewireAs($admin)->test(ViewDomain::class, ['record' => $domain->getRouteKey()])
-            ->callAction('edit', ['no_auto_charge' => true, 'auto_renew' => true]);
+            ->saveBilling(['no_auto_charge' => true, 'auto_renew' => true]);
 
         $this->assertTrue($domain->fresh()->no_auto_charge);
     }
