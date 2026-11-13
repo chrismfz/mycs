@@ -61,6 +61,12 @@ abstract class TestCase extends BaseTestCase
             return $this->fillForm($data, 'billingForm')->callAction(TestAction::make('saveBilling')->schemaComponent('billing_section', 'billingForm'));
         });
 
+        // The «Domain» card's own form (ViewDomain::recordForm, owner 2026-11-13: name, status, registrar), then «Save».
+        Testable::macro('saveRecord', function (array $data = []) {
+            /** @var Testable $this */
+            return $this->fillForm($data, 'recordForm')->callAction(TestAction::make('saveRecord')->schemaComponent('record_section', 'recordForm'));
+        });
+
         // A daily cron run that finds another one waits up to 10 minutes for it: never in a test (it holds the lock itself).
         CronJob::$lockWait = 0;
 

@@ -8,6 +8,8 @@ use App\Models\Domain;
 use App\Models\DomainNameserver;
 use App\Models\DomainRegistrarConnection;
 use App\Models\DomainTld;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Staff;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -107,6 +109,112 @@ class DomainRecordCorrections
         } catch (Throwable $e) {
             return mb_substr($e->getMessage(), 0, 300);
         }
+    }
+
+    /** Still with us: its registrar or its dates move it between these; staff may end it from any of them. */
+    private const LIVE = [DomainStatus::Active, DomainStatus::Expired, DomainStatus::Grace, DomainStatus::Redemption];
+
+    /**
+     * The statuses staff may set from where it is now (owner 2026-11-13, as WHMCS's select, kept to three): a live one
+     * ended (cancelled here, or at another registrar now), and back only what was ended that way: one cancelled by staff
+     * here, or transferred away. A cancelled order never registered, a recalled registration, one the import or «name
+     * taken» closed are not brought back (ADV-848-1, 2: they exist at no registrar). The rest (expired, grace, redemption,
+     * deleted, pending) are its registrar's and its dates', set by the sync and the daily cron, never by hand.
+     *
+     * @return list<DomainStatus>
+     */
+    public static function statusChoices(Domain $domain): array
+    {
+        return match (true) {
+            in_array($domain->status, self::LIVE, true) => [DomainStatus::Cancelled, DomainStatus::TransferredAway],
+            $domain->status === DomainStatus::TransferredAway,
+            $domain->status === DomainStatus::Cancelled && is_array($domain->meta['cancelled_by_staff'] ?? null) => [DomainStatus::Active],
+            default => [],
+        };
+    }
+
+    /**
+     * Its status set by staff, our record only (nothing sent to any registrar). Ended, auto-renew goes off and the sync
+     * and billing stop; the daily cron cancels its open renewal invoices (cancelled: that night; transferred away: a day
+     * later, D7), one with money on it left for staff. Back: its status and auto-renew as before it ended, then synced;
+     * invoices cancelled meanwhile stay cancelled. Audited before → after.
+     *
+     * @return string|null what the sync said after it came back, or why it could not read it
+     */
+    public function setStatus(Domain $domain, DomainStatus $to, Staff $staff): ?string
+    {
+        $domain->refresh();
+        if ($domain->status === $to) {
+            return null;
+        }
+        if (!in_array($to, self::statusChoices($domain), true)) {
+            throw new DisplayException(__('domains.correct.status_not_allowed', ['from' => $domain->status->getLabel(), 'to' => $to->getLabel()]));
+        }
+        $before = ['status' => $domain->status->value, 'auto_renew' => (bool) $domain->auto_renew];
+        // Under the registrar's lock: never while a renewal or another write to it is under way (D-17).
+        $lock = cache()->lock("domain-registrar:{$domain->id}", 30);
+        if (!$lock->get()) {
+            throw new DisplayException(__('domains.manage.busy', ['domain' => $domain->fqdn]));
+        }
+        try {
+            $domain->refresh(); // as it is under the lock
+            if (!in_array($to, self::statusChoices($domain), true)) {
+                throw new DisplayException(__('domains.correct.status_not_allowed', ['from' => $domain->status->getLabel(), 'to' => $to->getLabel()]));
+            }
+            match ($to) {
+                DomainStatus::TransferredAway => $this->manage->markTransferredAway($domain, $staff),
+                DomainStatus::Cancelled => $this->endHere($domain, $staff),
+                default => $this->resume($domain, $staff),
+            };
+        } finally {
+            $lock->release();
+        }
+        $domain->refresh();
+        $this->audit($domain, 'record_status', $before, ['status' => $domain->status->value, 'auto_renew' => (bool) $domain->auto_renew], $staff);
+        if ($to !== DomainStatus::Active || !$this->sync->isSyncable($domain)) {
+            return null;
+        }
+        try {
+            $changes = $this->sync->sync($domain);
+
+            return $changes === [] ? __('Nothing changed.') : implode(', ', array_keys($changes));
+        } catch (Throwable $e) {
+            return mb_substr($e->getMessage(), 0, 300); // its sync error shown on the page; back all the same
+        }
+    }
+
+    /** Cancelled here: what it was, for «Active» to put back, and its open invoices then (as «Transferred away» keeps). */
+    private function endHere(Domain $domain, Staff $staff): void
+    {
+        $open = InvoiceItem::query()->where('reference_type', Domain::class)->where('reference_id', $domain->id)
+            ->whereHas('invoice', fn ($invoice) => $invoice->whereIn('status', Invoice::OPEN_STATUSES))->pluck('invoice_id')->unique()->values()->all();
+        $meta = $domain->meta ?? [];
+        $meta['cancelled_by_staff'] = array_filter(['at' => now()->toIso8601String(), 'staff_id' => $staff->id, 'from' => $domain->status->value,
+            'auto_renew' => (bool) $domain->auto_renew, 'open_invoices' => $open ?: null], fn ($v) => $v !== null);
+        $domain->forceFill(['status' => DomainStatus::Cancelled, 'auto_renew' => false, 'meta' => $meta])->save(); // audited
+    }
+
+    /**
+     * Back as it was before it ended (staff's own note of it); a transferred away one marked by the sync, with no auto-renew
+     * noted, renews only when staff turn it on. Never while another row holds its name (ADV-848-3): said, not a 500.
+     */
+    private function resume(Domain $domain, Staff $staff): void
+    {
+        $meta = $domain->meta ?? [];
+        $key = $domain->status === DomainStatus::Cancelled ? 'cancelled_by_staff' : 'transferred_away';
+        $was = is_array($meta[$key] ?? null) ? $meta[$key] : [];
+        $from = DomainStatus::tryFrom((string) ($was['from'] ?? ''));
+        unset($meta['cancelled_by_staff'], $meta['transferred_away']);
+        $meta['resumed'] = ['at' => now()->toIso8601String(), 'staff_id' => $staff->id];
+        try {
+            $domain->forceFill(['status' => in_array($from, self::LIVE, true) ? $from : DomainStatus::Active,
+                'auto_renew' => (bool) ($was['auto_renew'] ?? false), 'meta' => $meta])->save(); // audited
+        } catch (UniqueConstraintViolationException) {
+            $holder = DomainNameHold::holder($domain->fqdn);
+            throw new DisplayException(__('domains.correct.name_held', ['domain' => $domain->fqdn, 'holder' => $holder === null ? '—' : '#' . $holder->id]));
+        }
+        // Where its dates put it now (a month later it is no longer «active»), for one no registrar API reads.
+        app(DomainLifecycle::class)->advance($domain);
     }
 
     /** Its nameservers set here, where no registrar API keeps them (a domain kept by hand): ours only. */

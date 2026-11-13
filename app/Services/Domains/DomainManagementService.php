@@ -320,26 +320,6 @@ class DomainManagementService
         $domain->forceFill(['status' => DomainStatus::TransferredAway, 'auto_renew' => false, 'meta' => $meta])->save(); // audited
     }
 
-    /** Staff undo it (a wrong setting, a mistake): its status and auto-renew as they were, then synced. Audited. */
-    public function resumeNotTransferredAway(Domain $domain, Staff $staff): void
-    {
-        $domain->refresh();
-        $away = $domain->meta['transferred_away'] ?? null;
-        if ($domain->status !== DomainStatus::TransferredAway || !is_array($away)) {
-            throw new DisplayException(__('domains.manage.not_resumable', ['domain' => $domain->fqdn]));
-        }
-        $meta = $domain->meta;
-        unset($meta['transferred_away']);
-        $meta['resumed'] = ['at' => now()->toIso8601String(), 'staff_id' => $staff->id];
-        $domain->forceFill(['status' => DomainStatus::tryFrom((string) ($away['from'] ?? '')) ?? DomainStatus::Active,
-            'auto_renew' => (bool) ($away['auto_renew'] ?? false), 'meta' => $meta])->save(); // audited
-        try {
-            $this->sync->sync($domain->refresh());
-        } catch (Throwable $e) {
-            report($e); // its sync error shown on the page; resumed all the same
-        }
-    }
-
     /** Whether its registrar keeps nameservers as objects of their own (child nameservers with glue: the .gr registry). */
     public function managesChildHosts(Domain $domain): bool
     {
