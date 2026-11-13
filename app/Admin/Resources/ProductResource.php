@@ -12,6 +12,7 @@ use App\Helpers\TemplateRenderer;
 use App\Models\Currency;
 use App\Models\Product;
 use App\Models\Server;
+use App\Models\Service;
 use App\Support\ProductSettings;
 use Exception;
 use Filament\Actions\Action;
@@ -434,13 +435,21 @@ class ProductResource extends Resource
         return $table
             // As WHMCS's product list (owner 2026-10-23): what sets it up, how it is paid, its stock, when it is set up,
             // whether it is shown; read with the rows.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['server', 'plans']))
+            // Its services by status, counted in one query for the page (owner 2026-11-14): a quick look at how many are sold.
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['server', 'plans'])->withCount(collect(Service::STATUSES)
+                ->mapWithKeys(fn (string $status) => ["services as {$status}_services" => fn (Builder $services) => $services->where('status', $status)])
+                ->all()))
             ->columns([
                 TextColumn::make('name')->searchable(query: function (Builder $query, string $search): Builder {
                     return $query->where('products.name', 'like', "%{$search}%");
                 }),
                 TextColumn::make('slug')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('category.name')->searchable(),
+                // Active ones, and the suspended beside them; every status in the tooltip. Ended ones are history, not sold.
+                TextColumn::make('active_services')->label('Services')->sortable()
+                    ->state(fn (Product $record) => self::servicesLine($record))
+                    ->color(fn (Product $record) => (int) $record->getAttribute('active_services') + (int) $record->getAttribute('suspended_services') === 0 ? 'gray' : null)
+                    ->tooltip(fn (Product $record) => self::servicesTooltip($record)),
                 TextColumn::make('type')->label('Type')
                     ->state(fn (Product $record) => $record->server !== null ? $record->server->extension : __('Other')),
                 TextColumn::make('pay_type')->label('Pay Type')
@@ -468,6 +477,23 @@ class ProductResource extends Resource
                     ->orderBy('sort', 'asc');
             })
             ->defaultGroup('category.name');
+    }
+
+    /** «238» or «238 · 3 susp.»: its active services, and the suspended ones if any. */
+    public static function servicesLine(Product $product): string
+    {
+        $active = (int) $product->getAttribute('active_services');
+        $suspended = (int) $product->getAttribute('suspended_services');
+
+        return $suspended > 0 ? __(':active · :suspended susp.', ['active' => $active, 'suspended' => $suspended]) : (string) $active;
+    }
+
+    /** Its services in every status: «Active 238 · Suspended 3 · Pending 0 · Terminated 410 · Cancelled 12». */
+    public static function servicesTooltip(Product $product): string
+    {
+        return collect([Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED, Service::STATUS_PENDING, Service::STATUS_TERMINATED, Service::STATUS_CANCELLED])
+            ->map(fn (string $status) => __(ucfirst($status)) . ' ' . (int) $product->getAttribute("{$status}_services"))
+            ->implode(' · ');
     }
 
     public static function getPages(): array

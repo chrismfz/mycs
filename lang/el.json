@@ -1678,6 +1678,7 @@
     ":count to terminate": ":count για τερματισμό",
     ":ok/:declined cards": "κάρτες :ok/:declined",
     ":s susp. · :t term.": ":s αναστ. · :t τερμ.",
+    ":active · :suspended susp.": ":active · :suspended αναστ.",
     ":s to suspend · :t to terminate": ":s για αναστολή · :t για τερματισμό",
     "Calendar": "Ημερολόγιο",
     "Charges of saved methods": "Χρεώσεις αποθηκευμένων μεθόδων",
