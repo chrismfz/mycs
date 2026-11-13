@@ -9,6 +9,7 @@ use Illuminate\Console\Command;
 use MyCS\BankAlerts\Authenticity;
 use MyCS\Extensions\Gateways\BankTransfer\BankTransfer;
 use MyCS\TicketMail\AuthenticationResults;
+use MyCS\TicketMail\Dkim;
 use MyCS\TicketMail\Parser;
 use ZBateson\MailMimeParser\Message;
 
@@ -18,7 +19,7 @@ use ZBateson\MailMimeParser\Message;
  */
 class MailAuthCheck extends Command
 {
-    protected $signature = 'app:mail-auth-check {file=- : A raw message, or only its headers (- reads stdin)}
+    protected $signature = 'app:mail-auth-check {file=- : A raw message, or only its headers (- reads stdin; the own DKIM check needs the whole message)}
         {--from= : The From to check (default: the mail\'s own)}
         {--bank : Check as a bank alert (the Bank transfer gateway\'s authserv-id and ARC sealer)}
         {--authserv= : This authserv-id, not the configured ones}
@@ -63,6 +64,11 @@ class MailAuthCheck extends Command
             $this->line(sprintf('%s %s: header on top %s, readable %s, %s (%s)', $this->option('bank') ? 'bank' : 'tickets', $id,
                 $top !== null && $top['authserv_id'] === strtolower(trim($id)) ? 'yes' : 'no', $top !== null ? 'yes' : 'no',
                 $verdict->authenticated ? 'VOUCHED' : 'not vouched', $verdict->reason));
+        }
+        // Our own DKIM check, which tickets fall back on when our server vouches for nothing (docs/tickets.md §3 Β).
+        if (!$this->option('bank')) {
+            $dkim = app(Dkim::class)->verdict($raw, $from);
+            $this->line(sprintf('tickets, own DKIM check: %s (%s)', $dkim->authenticated ? 'VOUCHED' : 'not vouched', $dkim->reason));
         }
 
         return self::SUCCESS;

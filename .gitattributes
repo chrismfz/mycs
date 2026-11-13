@@ -9,3 +9,6 @@
 /.github export-ignore
 CHANGELOG.md export-ignore
 .styleci.yml export-ignore
+
+# Signed mail: the bytes as signed (CRLF), never normalised.
+packages/ticket-mail/tests/fixtures/dkim/*.eml -text
