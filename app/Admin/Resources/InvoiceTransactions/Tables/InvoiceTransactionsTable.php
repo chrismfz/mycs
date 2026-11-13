@@ -24,11 +24,13 @@ class InvoiceTransactionsTable
             // Each row's amounts are formatted in its invoice's currency: loaded with the page, not a query a row.
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['invoice.currency', 'gateway']))
             ->columns([
-                TextColumn::make('invoice_id')
+                // An id, not an amount: «#7283», never «7,283» (owner 2026-11-13), as the other lists show it.
+                TextColumn::make('invoice_id')->label(__('Invoice'))->prefix('#')
                     ->url(fn (InvoiceTransaction $record): string => InvoiceResource::getUrl('edit', ['record' => $record->invoice_id]))
-                    ->numeric()
+                    ->searchable()
                     ->sortable(),
-                TextColumn::make('gateway.name')
+                // No gateway: paid from credit or recorded by hand.
+                TextColumn::make('gateway.name')->label(__('Gateway'))->placeholder('—')
                     ->sortable(),
                 TextColumn::make('formattedAmount')
                     ->label('Amount')
@@ -36,7 +38,7 @@ class InvoiceTransactionsTable
                 TextColumn::make('formattedFee')
                     ->label('Fee')
                     ->sortable(),
-                TextColumn::make('transaction_id')
+                TextColumn::make('transaction_id')->placeholder('—')
                     ->searchable(),
                 TextColumn::make('status')
                     ->sortable()
