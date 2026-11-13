@@ -43,7 +43,8 @@ class DashboardLayoutReviewTest extends TestCase
 
     /**
      * R1. Two columns that stack on their own (2026-11-04): the money on the left, the work on the right, the cards and
-     * bars above; Staff and sessions under Payments tracking (owner 2026-11-04: «small like Servers»). Staff without admin.reports.view have no income: Revenue
+     * bars above. Rebalanced 2026-11-14: the renewals (money to come) on the left, Staff and sessions on the right beside
+     * Support and Recent activity. Staff without admin.reports.view have no income: Revenue
      * alone, and the work beside it.
      */
     public function test_the_money_is_one_column_and_the_work_the_other(): void
@@ -53,28 +54,28 @@ class DashboardLayoutReviewTest extends TestCase
         $layout = (new Dashboard)->layout();
 
         $this->assertSame([Overview::class], $layout['above']);
-        $this->assertSame([Revenue::class, EstimatedIncome::class, StaffAndSessions::class], $layout['left']);
-        $this->assertSame([NeedsAttention::class, CronToday::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class], $layout['right']);
+        $this->assertSame([Revenue::class, EstimatedIncome::class, ServiceRenewals::class, DomainRenewals::class], $layout['left']);
+        $this->assertSame([NeedsAttention::class, CronToday::class, Servers::class, Support::class, StaffAndSessions::class, RecentActivity::class], $layout['right']);
         $this->assertSame([], $layout['below']);
     }
 
     /** Payments tracking is back on the left with Recent activity on the right (devbox 2026-11-04: 1435 against 1170 px). */
     public function test_payments_tracking_is_in_the_money_column(): void
     {
-        $this->assertSame([Revenue::class, EstimatedIncome::class, PaymentsTracking::class, StaffAndSessions::class], Dashboard::LEFT);
+        $this->assertSame([Revenue::class, EstimatedIncome::class, PaymentsTracking::class, ServiceRenewals::class, DomainRenewals::class], Dashboard::LEFT);
         $this->assertNotContains(PaymentsTracking::class, Dashboard::RIGHT);
     }
 
     /** A column nobody can see is not left empty beside the other: the page does not render a hole. */
     public function test_a_staff_member_with_only_the_work_gets_one_column(): void
     {
-        $this->actAs(['admin.widgets.support', 'admin.widgets.renewals', 'admin.domains.viewAny', 'admin.services.viewAny']);
+        $this->actAs(['admin.widgets.support']);
 
         $layout = (new Dashboard)->layout();
 
         $this->assertSame([], $layout['left']);
         $this->assertNotContains(Support::class, $layout['above']);
-        $this->assertContains(DomainRenewals::class, $layout['right']);
+        $this->assertContains(Support::class, $layout['right']);
         $html = $this->get('/sysadmin')->assertOk()->getContent();
         $this->assertStringContainsString('--cols-default: repeat(1, minmax(0, 1fr)); --cols-lg: repeat(1', $html, 'the columns grid is one column wide');
         $this->assertStringNotContainsString('--cols-default: repeat(1, minmax(0, 1fr)); --cols-lg: repeat(2', $html, 'no half-width column beside nothing');
@@ -99,7 +100,7 @@ class DashboardLayoutReviewTest extends TestCase
         $html = $this->get('/sysadmin')->assertOk()->getContent();
         $at = fn (string $widget): int => (int) strpos($html, "content.{$widget}-");
 
-        $order = [Overview::class, Revenue::class, EstimatedIncome::class, StaffAndSessions::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class];
+        $order = [Overview::class, Revenue::class, EstimatedIncome::class, ServiceRenewals::class, DomainRenewals::class, Servers::class, Support::class, StaffAndSessions::class, RecentActivity::class];
         $offsets = array_map($at, $order);
         $this->assertNotContains(0, $offsets, 'every widget is on the page');
         $sorted = $offsets;
