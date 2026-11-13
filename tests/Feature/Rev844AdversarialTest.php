@@ -135,6 +135,10 @@ class Rev844AdversarialTest extends TestCase
     public function test_adv_844_sound_odd_translations_never_fail_nor_change(): void
     {
         $odd = [null, '', 'not json', '"a string"', '[]', '{}', '{"el":"just text"}', '{"el":{"subject":null}}', '{"el":{"subject":["x"]}}', '42'];
+        if (DB::getDriverName() !== 'sqlite') {
+            // MariaDB's JSON column refuses text that is not JSON: such a value cannot be in its database.
+            $odd = array_values(array_filter($odd, fn (?string $value) => $value === null || json_validate($value)));
+        }
         foreach ($odd as $translations) {
             DB::table('notification_templates')->where('key', 'new_invoice_created')->update(['subject' => self::OLD_EN, 'translations' => $translations]);
 
