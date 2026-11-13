@@ -25,6 +25,7 @@ use App\Models\Service;
 use App\Models\Setting;
 use App\Providers\SettingsProvider;
 use App\Services\Billing\ClientGroupPricing;
+use App\Services\Domains\DomainManagementService;
 use App\Services\Import\WhmcsAddonImport;
 use App\Services\Import\WhmcsAnnouncementImport;
 use App\Services\Import\WhmcsApi;
@@ -497,7 +498,7 @@ class ImportFromWhmcs extends Command
      * This instance's own settings, as mycs:install stored them (Install::saveSettings): kept over the import's reset. The
      * seed would put them back to the code's defaults (UTC, http://localhost), which then override .env (SettingsProvider:
      * app.timezone, app.url, date_default_timezone_set): sweep F-CUTOVER-DAY-2. What the import brings of them (the default
-     * currency) is written after, and wins.
+     * currency, and the company's name since nixpal's cut-over) is written after, and wins.
      */
     public const INSTANCE_SETTINGS = ['company_name', 'app_url', 'app_language', 'allowed_languages', 'admin_language', 'timezone', 'default_currency'];
 
@@ -749,7 +750,8 @@ class ImportFromWhmcs extends Command
             . " 'SendThirdOverdueInvoiceReminder', 'NoAutoApplyCredit', 'CreateInvoiceDaysBeforeMonthly', 'CreateInvoiceDaysBeforeQuarterly',"
             . " 'CreateInvoiceDaysBeforeSemiAnnually', 'CreateInvoiceDaysBeforeAnnually', 'CreateInvoiceDaysBeforeBiennially',"
             . " 'CreateInvoiceDaysBeforeTriennially', 'AddFundsEnabled', 'CreditOnDowngrade', 'AddFundsMinimum', 'AddFundsMaximum',"
-            . " 'AddFundsMaximumBalance', 'OrderDaysGrace', 'EnableTOSAccept', 'TermsOfService', 'InvoicePayTo')")->fetchAll(PDO::FETCH_KEY_PAIR);
+            . " 'AddFundsMaximumBalance', 'OrderDaysGrace', 'EnableTOSAccept', 'TermsOfService', 'InvoicePayTo', 'CompanyName',"
+            . " 'DefaultNameserver1', 'DefaultNameserver2', 'DefaultNameserver3', 'DefaultNameserver4', 'DefaultNameserver5')")->fetchAll(PDO::FETCH_KEY_PAIR);
         // Customers with a balance: their credit is spendable here only with credit on (round 3 of #518).
         try {
             $balances = (int) ($this->pdo->query('SELECT COUNT(*) FROM tblclients WHERE credit > 0')->fetchColumn() ?: 0);
@@ -862,6 +864,15 @@ class ImportFromWhmcs extends Command
             // «Order Days Grace»: a new order's invoice is due after it (WG-4: myip 8, nixpal 0, the same day).
             'order_days_grace' => ($v = $days('OrderDaysGrace')) !== null ? ['string', $v] : null,
             'tos' => $tos,
+            // The company's name and the nameservers a new domain gets (nixpal's cut-over, 2026-11-13: neither came, the
+            // admin showed «MyCS» and Settings → Domains no nameservers). A nameserver that is not a host name is kept as MyCS's own.
+            'company_name' => ($name = mb_substr(trim(html_entity_decode((string) ($config['CompanyName'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')), 0, 255)) !== ''
+                ? ['string', $name] : null,
+            ...collect(range(1, 5))->mapWithKeys(function (int $n) use ($config) {
+                $host = mb_strtolower(rtrim(trim((string) ($config["DefaultNameserver{$n}"] ?? '')), '.'));
+
+                return ["domain_nameserver_{$n}" => preg_match(DomainManagementService::HOST, $host) === 1 ? ['string', $host] : null];
+            })->all(),
             // WHMCS's «Pay To Text» (WG-17): the company's block on every invoice, Bill To Text here (shown escaped, its lines
             // kept). Decoded first, as WHMCS keeps its texts escaped (review of #664: «&amp;» would show as such); a <br> and
             // the newline after it are one line break; its tags are dropped, never taken as HTML; empty keeps MyCS's own.
@@ -871,6 +882,13 @@ class ImportFromWhmcs extends Command
         ];
         $rows = [];
         foreach ($settings as $key => $setting) {
+            // A nameserver WHMCS has but that is not a host name (an IP, «host:53»): said with its value, never a silent
+            // «kept» (review of #829).
+            if ($setting === null && preg_match('/^domain_nameserver_(\d)$/', $key, $n) === 1 && trim((string) ($config['DefaultNameserver' . $n[1]] ?? '')) !== '') {
+                $rows[] = [$key, 'kept: WHMCS\'s «' . trim((string) $config['DefaultNameserver' . $n[1]]) . '» is not a host name'];
+
+                continue;
+            }
             if ($setting === null) {
                 $rows[] = [$key, $key === 'cronjob_time' && $hour === 3 ? 'kept: never 03:xx, the clock changes then (BIL-16)' : 'kept (WHMCS has none, or one out of range)'];
 

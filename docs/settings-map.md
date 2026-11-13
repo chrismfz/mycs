@@ -40,6 +40,7 @@
 | Random usernames | off | P~ ανά server extension |
 | Signup Anniversary Prorata | off | — |
 | Cross-selling | off | — |
+| Company Name (`CompanyName`) | MyIP net-Works | ✓ `company_name` (το φέρνει το import, #829) |
 | Pay To Text (`InvoicePayTo`) | MyIP Networks, διεύθυνση, τηλέφωνο, email | — | ✓ `bill_to_text` (WG-17: το φέρνει το import, οι γραμμές του κρατιούνται, ποτέ HTML) |
 | Conversion παραγγελίας (hook `myip_branding.php`, GA4 `purchase`) | on (myip, με Consent Mode) | ✓ `theme_order_complete_code` (WG-13): HTML στην πρώτη σελίδα μετά την παραγγελία, μία φορά, με placeholders (`{purchase}` κ.ά.), το καθένα τιμή JSON με τα εισαγωγικά του: γυμνά μέσα σε `<script>`, ποτέ μέσα σε εισαγωγικά ή σε attribute (review του #657)· το gtag και το consent στο «Custom <head> HTML». Το sessionStorage του snippet το στέλνει μία φορά και μετά από «Back» (το Livewire navigate ξανατρέχει τα scripts). Στο cut-over του myip: `<script>(function(){var p={purchase};function s(){if(typeof gtag!=='function')return;try{var k='myip-purchase-'+p.transaction_id;if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,'1');}catch(e){}gtag('event','purchase',p);if(typeof myipLoadGtag==='function')myipLoadGtag();}document.readyState==='loading'?document.addEventListener('DOMContentLoaded',s,{once:true}):s();})();</script>` |
 
@@ -54,7 +55,7 @@
 | To-Do entries για αποτυχίες | on | Ν (λίστα εκκρεμοτήτων admin / ειδοποίηση) |
 | IDN | on | Ν (`lib/myopenprovider` idn_encoder, `lib/domain-tools`) |
 | Grace & Redemption Fees | on, **στο υπάρχον τιμολόγιο** | Ν |
-| Default nameservers | ns1–ns3.myip.gr | Ν (ανά instance) |
+| Default nameservers (`DefaultNameserver1–5`) | ns1–ns3.myip.gr | Ν (ανά instance): ✓ `domain_nameserver_1–5`, τα φέρνει το import (από το cut-over της nixpal, #829· ό,τι δεν είναι όνομα host μένει και το λέει) |
 | Use client details για contacts | on | Ν |
 
 ## Support (myip)
