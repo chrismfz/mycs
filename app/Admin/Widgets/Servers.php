@@ -56,6 +56,8 @@ class Servers extends Widget
                         default => 'primary',
                     },
                     'url' => ServerResource::canEdit($server) ? ServerResource::getUrl('edit', ['record' => $server]) : null,
+                    // Its count opens its services (owner 2026-11-13).
+                    'services_url' => ServerResource::servicesUrl($server),
                 ];
             })
             // By the share itself, not the rounded and capped percent: 6 of 4 before 10 of 10.
