@@ -15,6 +15,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Domains\DomainManagementService;
 use App\Services\Domains\DomainNotFoundAtRegistrar;
+use App\Services\Domains\DomainRecordCorrections;
 use App\Services\Domains\DomainSyncService;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Services\Domains\Registrars\OpenproviderRegistrar;
@@ -125,7 +126,7 @@ class DomainTransferredAwayTest extends TestCase
         GrEppRegistrar::reset();
         $this->transport->fixture('02-hello-response.xml', ['JSESSIONID=A'])->fixture('04-login-response.xml');
         $this->answer(2201);
-        app(DomainManagementService::class)->resumeNotTransferredAway($away, Staff::factory()->create());
+        app(DomainRecordCorrections::class)->setStatus($away, DomainStatus::Active, Staff::factory()->create()); // the Status of the «Domain» card
         $this->assertSame([DomainStatus::Active, true], [$domain->fresh()->status, $domain->fresh()->auto_renew]);
     }
 

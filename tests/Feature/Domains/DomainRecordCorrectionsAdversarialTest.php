@@ -106,8 +106,9 @@ class DomainRecordCorrectionsAdversarialTest extends TestCase
         $op = DomainRegistrarConnection::query()->create(['registrar' => 'fakeop', 'label' => 'OP', 'is_active' => true, 'mode' => 'production']);
 
         Livewire::test(ViewDomain::class, ['record' => $this->domain->getRouteKey()])
-            ->callAction('correctRecord', ['fqdn' => 'exmaple.gr', 'registrar_connection_id' => $op->id, 'nameservers' => "ns1.old.gr\nns2.old.gr"])
-            ->assertHasNoActionErrors();
+            ->saveRecord(['registrar_connection_id' => $op->id])->assertHasNoFormErrors([], 'recordForm')
+            // Its nameservers are the registrar's now: no button to set them by hand.
+            ->assertActionHidden('nameserversByHand');
 
         $this->assertSame($op->id, $this->domain->refresh()->registrar_connection_id, 'moved');
         $this->assertSame($op->id, $this->domain->registrar_connection_id);

@@ -274,6 +274,7 @@ class ViewDomain extends ViewRecord
         }
         $this->record->refresh();
         $this->refreshFormData([]);
+        $this->refillRecordUnlessEdited();
         $this->refillBillingUnlessEdited();
     }
 
@@ -282,61 +283,45 @@ class ViewDomain extends ViewRecord
         return [
             // D7a: its next period invoiced now, before its time (renewed when paid, D5b-2): first, as on the service's page.
             InvoiceSelectedItemsAction::nextPeriod()->visible(fn (Domain $record) => in_array($record->status, RenewalBilling::BILLED_DOMAINS, true)),
-            // Sync and correct together (owner 2026-10-23): the sync reads the registrar into our record; the correction is
-            // for what the registrar cannot tell (which registrar it is at, its name, nameservers kept by hand) and syncs after.
-            ActionGroup::make([
-                // The registrar's truth now (docs/domains.md D-9): reads the registrar, changes nothing there.
-                Action::make('sync')->label(__('Sync now'))->icon('heroicon-o-arrow-path')
-                    ->visible(fn (Domain $record) => self::can('admin.domains.update') && app(DomainSyncService::class)->isSyncable($record))
-                    ->action(function (Domain $record) {
-                        try {
-                            $changes = app(DomainSyncService::class)->sync($record);
-                            app(DomainLifecycle::class)->advance($record->refresh());
-                            Notification::make()->success()->title(__('Synced.'))
-                                ->body($changes === [] ? __('Nothing changed.') : implode(', ', array_keys($changes)))->send();
-                        } catch (Throwable $e) {
-                            Notification::make()->danger()->title(__('The registrar could not be read.'))->body(e($e->getMessage()))->send();
-                        }
-                        $this->refreshFormData([]);
-                        $this->refillBillingUnlessEdited();
-                    }),
-                // Our record corrected when something changed outside MyCS (owner 2026-10-23): nothing asked of a registrar,
-                // each change audited before → after (DomainRecordCorrections).
-                Action::make('correctRecord')->label(__('Correct the record'))->icon('heroicon-o-wrench-screwdriver')->color('gray')
-                    ->visible(fn () => self::can('admin.domains.update'))
-                    ->modalDescription(__('Our record only: nothing is sent to any registrar. Each change is in the domain\'s activity, before → after.'))
-                    ->fillForm(fn (Domain $record) => ['fqdn' => $record->fqdn, 'registrar_connection_id' => $record->registrar_connection_id,
-                        'nameservers' => $record->nameservers()->orderBy('sort')->pluck('host')->implode("\n")])
-                    ->schema(fn (Domain $record) => [
-                        TextInput::make('fqdn')->label(__('Name'))->required()->maxLength(255)
-                            ->helperText(__('As the registry writes it. A registrar never renames a domain: if it answers with another name, the sync says so.')),
-                        Select::make('registrar_connection_id')->label(__('Registrar'))
-                            ->placeholder(__('Its TLD\'s (:registrar)', ['registrar' => $record->domainTld->registrarConnection->label ?? __('none')]))
-                            ->options(DomainRegistrarConnection::query()->orderBy('label')->get()->mapWithKeys(fn (DomainRegistrarConnection $c) => [$c->id => $c->label
-                                . ($c->registrar === DomainRegistrarConnection::MANUAL ? ' (' . __('by hand') . ')' : '') . ($c->is_active ? '' : ' (' . __('inactive') . ')')])->all())
-                            ->helperText(__('Where it is (moved by hand). Then it is read from there, if it has an API.')),
-                        Textarea::make('nameservers')->label(__('Nameservers'))->rows(4)
-                            ->visible(fn () => !app(DomainManagementService::class)->isManageable($record))
-                            ->helperText(__('One a line. Only for a domain kept by hand: one at a registrar changes them there (Nameservers).')),
-                    ])
-                    ->action(function (Domain $record, array $data) {
-                        $staff = self::staff() ?? throw new \RuntimeException('No staff.');
-                        abort_unless(self::can('admin.domains.update'), 403);
-                        $corrections = app(DomainRecordCorrections::class);
-                        try {
-                            $corrections->rename($record, (string) $data['fqdn'], $staff);
-                            $said = $corrections->moveToRegistrar($record->refresh(), filled($data['registrar_connection_id'] ?? null) ? (int) $data['registrar_connection_id'] : null, $staff);
-                            // Only while no registrar API keeps them: moved to one just now, they are read from there (ADV-5 of #403).
-                            if (array_key_exists('nameservers', $data) && !app(DomainManagementService::class)->isManageable($record->refresh())) {
-                                $corrections->setNameserversByHand($record, preg_split('/\R/', (string) $data['nameservers']) ?: [], $staff);
-                            }
-                            Notification::make()->success()->title(__('Corrected.'))->body(e($said))->send();
-                        } catch (DisplayException $e) {
-                            Notification::make()->danger()->title(__('Not corrected'))->body(e($e->getMessage()))->send();
-                        }
-                        $this->redirect(DomainResource::getUrl('view', ['record' => $record->refresh()]));
-                    }),
-            ])->label(__('Sync'))->icon('heroicon-o-arrow-path')->button()->color('primary'),
+            // The registrar's truth now (docs/domains.md D-9): reads the registrar, changes nothing there. One button: its name,
+            // its registrar and its status are corrected in the «Domain» card (recordForm, owner 2026-11-13).
+            Action::make('sync')->label(__('Sync now'))->icon('heroicon-o-arrow-path')->color('primary')
+                ->visible(fn (Domain $record) => self::can('admin.domains.update') && app(DomainSyncService::class)->isSyncable($record))
+                ->action(function (Domain $record) {
+                    try {
+                        $changes = app(DomainSyncService::class)->sync($record);
+                        app(DomainLifecycle::class)->advance($record->refresh());
+                        Notification::make()->success()->title(__('Synced.'))
+                            ->body($changes === [] ? __('Nothing changed.') : implode(', ', array_keys($changes)))->send();
+                    } catch (Throwable $e) {
+                        Notification::make()->danger()->title(__('The registrar could not be read.'))->body(e($e->getMessage()))->send();
+                    }
+                    $this->refreshFormData([]);
+                    $this->refillRecordUnlessEdited();
+                    $this->refillBillingUnlessEdited();
+                }),
+
+            // Its nameservers kept here, where no registrar API keeps them (a domain kept by hand): our record only.
+            Action::make('nameserversByHand')->label(__('Nameservers'))->icon('heroicon-o-server-stack')->color('gray')
+                ->visible(fn (Domain $record) => self::can('admin.domains.update') && !self::manageable($record))
+                ->modalDescription(__('Our record only: nothing is sent to any registrar. Each change is in the domain\'s activity, before → after.'))
+                ->fillForm(fn (Domain $record) => ['nameservers' => $record->nameservers()->orderBy('sort')->pluck('host')->implode("\n")])
+                ->schema([
+                    Textarea::make('nameservers')->label(__('Nameservers'))->rows(4)
+                        ->helperText(__('One a line. Only for a domain kept by hand: one at a registrar changes them there (Nameservers).')),
+                ])
+                ->action(function (Domain $record, array $data) {
+                    $staff = self::staff() ?? throw new \RuntimeException('No staff.');
+                    abort_unless(self::can('admin.domains.update'), 403);
+                    try {
+                        app(DomainRecordCorrections::class)->setNameserversByHand($record->refresh(), preg_split('/\R/', (string) ($data['nameservers'] ?? '')) ?: [], $staff);
+                        Notification::make()->success()->title(__('Corrected.'))->send();
+                    } catch (DisplayException $e) {
+                        Notification::make()->danger()->title(__('Not corrected'))->body(e($e->getMessage()))->send();
+                    }
+                    $this->record->refresh();
+                    $this->refreshFormData([]);
+                }),
 
             // Everything at the registrar and the rest (owner 2026-10-23): its commands are also one row above the details
             // (registrarCommands), each opening the action here.
@@ -390,6 +375,7 @@ class ViewDomain extends ViewRecord
                         }
                         $this->record->refresh();
                         $this->refreshFormData([]);
+                        $this->refillRecordUnlessEdited();
                         $this->refillBillingUnlessEdited();
                     }),
 
@@ -552,29 +538,7 @@ class ViewDomain extends ViewRecord
                     ->modalSubmitAction(false)->modalCancelActionLabel(__('Close'))
                     ->modalContent(fn (Domain $record) => $this->registrarContacts($record)),
 
-                // Read when the modal opens and only rendered in it (review 4): not a notification, which Filament keeps in
-                // the cache and the page's state until shown. Each read is logged, the code never.
-                // Its registrar says it is not ours (the sync's note): staff confirm it moved, after a look at its whois.
-                Action::make('markTransferredAway')->label(__('Transferred away'))->icon('heroicon-o-arrow-right-on-rectangle')->color('danger')
-                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && is_array($record->meta['not_ours'] ?? null)
-                        && !$record->status->isTerminal())
-                    ->requiresConfirmation()
-                    ->modalDescription(fn (Domain $record) => __('Its registrar says it is not ours since :since (:said). Check its WHOIS first: if a setting of its connection is wrong, fix that instead. Ended here: auto-renew off, no more sync or billing; its open renewal invoices are cancelled a day later. Logged.',
-                        ['since' => (string) ($record->meta['not_ours']['since'] ?? '—'), 'said' => (string) ($record->meta['not_ours']['said'] ?? '—')]))
-                    ->action(fn (Domain $record) => $this->attempt(
-                        fn () => app(DomainManagementService::class)->markTransferredAway($record, self::staff() ?? throw new \RuntimeException('No staff.')),
-                        __('Marked transferred away.'),
-                    )),
-
-                Action::make('resumeNotAway')->label(__('Not transferred away: resume'))->icon('heroicon-o-arrow-uturn-left')
-                    ->visible(fn (Domain $record) => self::can('admin.domains.manage') && $record->status === DomainStatus::TransferredAway
-                        && is_array($record->meta['transferred_away'] ?? null))
-                    ->requiresConfirmation()
-                    ->modalDescription(__('Its status and auto-renew as they were, then synced. Logged.'))
-                    ->action(fn (Domain $record) => $this->attempt(
-                        fn () => app(DomainManagementService::class)->resumeNotTransferredAway($record, self::staff() ?? throw new \RuntimeException('No staff.')),
-                        __('Resumed.'),
-                    )),
+                // «Transferred away» and back: the Status of the «Domain» card (recordForm, owner 2026-11-13).
 
                 // A .gr change of holder (G8-5b): a name change or a transfer, charged, sent once paid, never recalled.
                 Action::make('ownerChange')->label(__('domains.owner_change.title'))->icon('heroicon-o-user-group')->color('warning')
@@ -692,7 +656,139 @@ class ViewDomain extends ViewRecord
     public function mount(int|string $record): void
     {
         parent::mount($record);
+        $this->fillRecord();
         $this->fillBilling();
+    }
+
+    /**
+     * Its name, registrar and status, in the «Domain» card rather than a «Correct the record» modal (owner 2026-11-13, as
+     * WHMCS's): our record only, nothing sent to any registrar (DomainRecordCorrections), each change audited.
+     *
+     * @var array<string, mixed>|null
+     */
+    public ?array $recordData = [];
+
+    /** @var array<string, mixed> what the form was filled with: «Save» does only what staff changed since */
+    #[Locked]
+    public array $recordLoaded = [];
+
+    /** @return array<string, mixed> */
+    private static function recordState(Domain $record): array
+    {
+        return ['fqdn' => $record->fqdn, 'status' => $record->status->value,
+            'registrar_connection_id' => $record->registrar_connection_id === null ? null : (int) $record->registrar_connection_id];
+    }
+
+    private function fillRecord(): void
+    {
+        /** @var Domain $record */
+        $record = $this->getRecord();
+        $this->recordLoaded = self::recordState($record);
+        $this->recordSchema()->fill($this->recordLoaded);
+    }
+
+    /** After another action: refilled unless staff have changes of their own in it not saved yet (as the billing form). */
+    private function refillRecordUnlessEdited(): void
+    {
+        foreach ($this->recordLoaded as $key => $value) {
+            if (self::recordValue($key, $this->recordData[$key] ?? null) !== self::recordValue($key, $value)) {
+                return;
+            }
+        }
+        $this->fillRecord();
+    }
+
+    private function recordSchema(): Schema
+    {
+        return $this->getSchema('recordForm') ?? throw new \LogicException('The domain page has no record form.');
+    }
+
+    /** A field's value to compare: the connection an int or none, the name as typed but trimmed. */
+    private static function recordValue(string $key, mixed $value): mixed
+    {
+        return match ($key) {
+            'registrar_connection_id' => filled($value) ? (int) $value : null,
+            'fqdn' => trim((string) $value),
+            default => $value === null ? null : (string) $value,
+        };
+    }
+
+    public function recordForm(Schema $schema): Schema
+    {
+        $statusHelp = fn (?string $state, Domain $record) => match (true) {
+            DomainRecordCorrections::statusChoices($record) === [] => __('domains.correct.status_help_fixed'),
+            $state === DomainStatus::Cancelled->value && $record->status !== DomainStatus::Cancelled => __('domains.correct.status_help_cancelled'),
+            $state === DomainStatus::TransferredAway->value && $record->status !== DomainStatus::TransferredAway => __('domains.correct.status_help_transferred_away'),
+            $state === DomainStatus::Active->value && $record->status->isTerminal() => __('domains.correct.status_help_active'),
+            default => __('domains.correct.status_help'),
+        };
+
+        return $schema->statePath('recordData')->model($this->getRecord())
+            ->disabled(fn () => !self::can('admin.domains.update'))
+            ->components([
+                Section::make()->key('record_section')->compact()->columns(['default' => 1, 'md' => 2])
+                    ->schema([
+                        TextInput::make('fqdn')->label(__('domains.domain'))->required()->maxLength(255)
+                            ->helperText(__('As the registry writes it. A registrar never renames a domain: if it answers with another name, the sync says so.')),
+                        // Only what staff may set from here, and where it is now (DomainRecordCorrections::statusChoices).
+                        Select::make('status')->label(__('Status'))->live()->selectablePlaceholder(false)
+                            ->options(fn (Domain $record) => collect([$record->status, ...DomainRecordCorrections::statusChoices($record)])
+                                ->mapWithKeys(fn (DomainStatus $status) => [$status->value => $status->getLabel()])->all())
+                            ->disabled(fn (Domain $record) => DomainRecordCorrections::statusChoices($record) === [])
+                            ->helperText($statusHelp),
+                        Select::make('registrar_connection_id')->label(__('Registrar'))
+                            ->placeholder(fn (Domain $record) => __('Its TLD\'s (:registrar)', ['registrar' => $record->domainTld?->registrarConnection->label ?? __('none')]))
+                            ->options(fn () => DomainRegistrarConnection::query()->orderBy('label')->get()->mapWithKeys(fn (DomainRegistrarConnection $c) => [$c->id => $c->label
+                                . ($c->registrar === DomainRegistrarConnection::MANUAL ? ' (' . __('by hand') . ')' : '') . ($c->is_active ? '' : ' (' . __('inactive') . ')')])->all())
+                            ->helperText(__('Where it is (moved by hand). Then it is read from there, if it has an API.')),
+                    ])
+                    ->footer([
+                        Action::make('saveRecord')->label(__('Save'))->icon('heroicon-o-check')
+                            ->visible(fn () => self::can('admin.domains.update'))
+                            ->action(fn () => $this->saveRecord()),
+                        Text::make(__('Unsaved changes'))->color('warning')
+                            ->extraAttributes(['wire:dirty' => true, 'wire:target' => 'recordData', 'style' => 'display:none']),
+                    ]),
+            ]);
+    }
+
+    /**
+     * «Save»: only the fields staff changed, the name, then the registrar, then the status (ended or back by where it is
+     * now). Each is its own audited correction; one refused stops the ones after it, and says why.
+     */
+    private function saveRecord(): void
+    {
+        if (!self::can('admin.domains.update')) {
+            return;
+        }
+        $staff = self::staff() ?? throw new \RuntimeException('No staff.');
+        $data = $this->recordSchema()->getState();
+        $loaded = $this->recordLoaded;
+        $changed = fn (string $key) => array_key_exists($key, $data) && self::recordValue($key, $data[$key]) !== self::recordValue($key, $loaded[$key] ?? null);
+        /** @var Domain $record */
+        $record = $this->getRecord();
+        $corrections = app(DomainRecordCorrections::class);
+        $said = [];
+        try {
+            if ($changed('fqdn')) {
+                $corrections->rename($record->refresh(), (string) $data['fqdn'], $staff);
+            }
+            if ($changed('registrar_connection_id')) {
+                $said[] = $corrections->moveToRegistrar($record->refresh(), self::recordValue('registrar_connection_id', $data['registrar_connection_id']), $staff);
+            }
+            if ($changed('status') && ($to = DomainStatus::tryFrom((string) $data['status'])) !== null) {
+                $said[] = $corrections->setStatus($record->refresh(), $to, $staff);
+            }
+            $said = array_filter($said);
+            Notification::make()->success()->title(__('Saved.'))->body($said === [] ? null : e(implode(' ', $said)))->send();
+        } catch (DisplayException $e) {
+            Notification::make()->danger()->title(__('Not corrected'))->body(e($e->getMessage()))->send();
+        }
+        $this->record->refresh();
+        $this->refreshFormData([]);
+        $this->fillRecord();
+        // An ended one has auto-renew off: shown, unless staff have billing changes of their own not saved yet.
+        $this->refillBillingUnlessEdited();
     }
 
     /** @return array<string, mixed> */

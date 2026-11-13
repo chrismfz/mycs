@@ -253,12 +253,16 @@ class DomainResource extends Resource
     {
         $yesNo = fn (?bool $state) => $state === null ? '—' : ($state ? __('Yes') : __('No'));
 
+        // Its name, status and registrar edited in it on its page (ViewDomain::recordForm, owner 2026-11-13: no «Correct the
+        // record» modal); shown as text where there is no such form.
+        $form = fn ($livewire) => method_exists($livewire, 'recordForm');
         $domain = Section::make(__('domains.domain'))->columns(['default' => 1, 'xl' => 2])->schema([
-            TextEntry::make('fqdn')->label(__('domains.domain')),
-            TextEntry::make('status')->label(__('Status'))->badge(),
-            TextEntry::make('client.name')->label(__('Client')),
-            TextEntry::make('registrar')->label(__('Registrar'))
+            EmbeddedSchema::make('recordForm')->visible($form)->columnSpanFull(),
+            TextEntry::make('fqdn')->label(__('domains.domain'))->hidden($form),
+            TextEntry::make('status')->label(__('Status'))->badge()->hidden($form),
+            TextEntry::make('registrar')->label(__('Registrar'))->hidden($form)
                 ->state(fn (Domain $record) => $record->effectiveRegistrarConnection()->label ?? '—'),
+            TextEntry::make('client.name')->label(__('Client')),
             TextEntry::make('registered_at')->label(__('Registered'))->date()->placeholder('—'),
             TextEntry::make('expires_at')->label(__('Expires'))->date()->placeholder('—'),
             // Where it stands after expiry (D5a): each stage's last day, the registrar's or from the TLD's days, and the
@@ -384,7 +388,7 @@ class DomainResource extends Resource
                     Section::make(__('Nameservers'))->schema([
                         TextEntry::make('nameservers.host')->hiddenLabel()->listWithLineBreaks()->placeholder('—'),
                     ]),
-                    // Its registrar says it is not ours: for staff to confirm «Transferred away» or fix its connection.
+                    // Its registrar says it is not ours: for staff to set its Status «Transferred away» or fix its connection.
                     Section::make(__('Not ours at its registrar'))
                         ->visible(fn (Domain $record) => is_array($record->meta['not_ours'] ?? null))
                         ->schema([

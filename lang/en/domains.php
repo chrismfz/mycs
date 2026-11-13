@@ -482,5 +482,11 @@ return [
         'not_a_name' => '«:name» is not a domain name.',
         'no_connection' => 'No such registrar connection.',
         'at_the_registrar' => 'Its nameservers are at its registrar: change them with «Nameservers».',
+        'status_not_allowed' => 'Its status cannot go from «:from» to «:to» by hand: that one is set by its registrar and its dates.',
+        'status_help' => 'Ended here: cancelled (we stopped it) or transferred away (at another registrar now). Our record only.',
+        'status_help_fixed' => 'Set by its registrar and its dates (the sync and the daily cron), not by hand.',
+        'status_help_cancelled' => 'On «Save»: auto-renew off, no more sync or billing; tonight\'s cron cancels its open renewal invoices (one with money on it stays for staff). Nothing is sent to its registrar.',
+        'status_help_transferred_away' => 'On «Save»: auto-renew off, no more sync or billing; its open renewal invoices are cancelled a day later (time to undo a mistake). Nothing is sent to its registrar.',
+        'status_help_active' => 'On «Save»: back as it was before it ended (its status and auto-renew; else active with auto-renew off), then synced. Invoices cancelled meanwhile stay cancelled.',
     ],
 ];

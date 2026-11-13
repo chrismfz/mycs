@@ -95,8 +95,10 @@ class DomainRecordCorrectionsTest extends TestCase
 
     public function test_the_page_corrects_the_record_in_one_go(): void
     {
-        Livewire::test(ViewDomain::class, ['record' => $this->domain->getRouteKey()])->assertActionVisible('correctRecord')
-            ->callAction('correctRecord', ['fqdn' => 'example.gr', 'registrar_connection_id' => $this->domain->registrar_connection_id, 'nameservers' => "ns1.a.gr\nns2.a.gr"])
+        // Its name in the «Domain» card, its nameservers kept by hand with their own button (owner 2026-11-13).
+        Livewire::test(ViewDomain::class, ['record' => $this->domain->getRouteKey()])
+            ->saveRecord(['fqdn' => 'example.gr'])->assertHasNoFormErrors([], 'recordForm')
+            ->assertActionVisible('nameserversByHand')->callAction('nameserversByHand', ['nameservers' => "ns1.a.gr\nns2.a.gr"])
             ->assertHasNoActionErrors();
 
         $this->assertSame('example.gr', $this->domain->refresh()->fqdn);
