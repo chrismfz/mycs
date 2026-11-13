@@ -8,6 +8,7 @@ use App\Admin\Resources\TicketResource;
 use App\Models\Client;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
+use App\Support\ServiceIdentifier;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
@@ -54,7 +55,7 @@ class ShowTickets extends ManageRelatedRecords
         return $table
             // As the tickets' list: its last reply (the customer's or staff's, never an internal note), read with the rows,
             // and whose it was.
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['department', 'assignedTo', 'service.product'])
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['department', 'assignedTo', 'service.product', ...array_map(fn (string $relation) => 'service.' . $relation, ServiceIdentifier::RELATIONS)])
                 ->withMax('publicMessages as last_reply_at', 'created_at')
                 ->withCount('publicMessages as messages_count')
                 ->addSelect(['last_reply_by_staff' => TicketMessage::query()
