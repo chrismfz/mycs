@@ -5044,11 +5044,13 @@
             "dist": {
                 "type": "path",
                 "url": "packages/ticket-mail",
-                "reference": "caf2ed73fe64559e43da7bf8c65a71316b0cbb11"
+                "reference": "70f3e5ba18b5d587173f3f6ee283837141d49980"
             },
             "require": {
                 "directorytree/imapengine": "^1.25",
                 "ext-fileinfo": "*",
+                "ext-openssl": "*",
+                "ext-sodium": "*",
                 "php": "^8.3",
                 "willdurand/email-reply-parser": "^2.10",
                 "zbateson/mail-mime-parser": "^3.0|^4.0"
@@ -5070,7 +5072,7 @@
             "license": [
                 "MIT"
             ],
-            "description": "Inbound ticket email: parses raw RFC 822, trusts only our own server's Authentication-Results, tells automated mail, our 128-bit Message-IDs, safe attachments, an IMAP poller. Framework-free (docs/tickets.md §3).",
+            "description": "Inbound ticket email: parses raw RFC 822, trusts only our own server's Authentication-Results or its own DKIM check, tells automated mail, our 128-bit Message-IDs, safe attachments, an IMAP poller. Framework-free (docs/tickets.md §3).",
             "transport-options": {
                 "symlink": true,
                 "relative": true

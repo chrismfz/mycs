@@ -1,11 +1,13 @@
 {
     "name": "mycs/ticket-mail",
-    "description": "Inbound ticket email: parses raw RFC 822, trusts only our own server's Authentication-Results, tells automated mail, our 128-bit Message-IDs, safe attachments, an IMAP poller. Framework-free (docs/tickets.md §3).",
+    "description": "Inbound ticket email: parses raw RFC 822, trusts only our own server's Authentication-Results or its own DKIM check, tells automated mail, our 128-bit Message-IDs, safe attachments, an IMAP poller. Framework-free (docs/tickets.md §3).",
     "license": "MIT",
     "version": "1.0.0",
     "require": {
         "php": "^8.3",
         "ext-fileinfo": "*",
+        "ext-openssl": "*",
+        "ext-sodium": "*",
         "zbateson/mail-mime-parser": "^3.0|^4.0",
         "willdurand/email-reply-parser": "^2.10",
         "directorytree/imapengine": "^1.25"

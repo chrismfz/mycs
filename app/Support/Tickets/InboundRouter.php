@@ -19,6 +19,7 @@ use Illuminate\Support\Str;
 use MyCS\TicketMail\AuthenticationResults;
 use MyCS\TicketMail\AuthVerdict;
 use MyCS\TicketMail\Automation;
+use MyCS\TicketMail\Dkim;
 use MyCS\TicketMail\InboundEmail;
 use MyCS\TicketMail\ReplyText;
 
@@ -28,11 +29,11 @@ use MyCS\TicketMail\ReplyText;
  *   2. no sender, two senders, our own address, automated mail, a giant, a mail sent before the department's
  *      `mail_since`: quarantine (§3 Ε);
  *   3. a reply joins a ticket ONLY by one of our Message-IDs (§3 Α), ONLY from its owner (the guest's address, or a login
- *      of its account with the tickets permission), and with «Require DMARC» ONLY when our server vouches for the From
- *      (§3 Β); otherwise quarantine, the ticket suggested to staff;
+ *      of its account with the tickets permission), and with «Require DMARC» ONLY when the From is vouched
+ *      for (§3 Β: our server, or our own DKIM check); otherwise quarantine, the ticket suggested to staff;
  *   4. a mail naming a ticket (its number in the subject) without our Message-ID: quarantine, the ticket suggested only
  *      when its owner wrote it (§5α: replies to old WHMCS mail);
- *   5. anything else is a new ticket: in an account only when our server vouches for the From and it is a login, its
+ *   5. anything else is a new ticket: in an account only when the From is vouched for (§3 Β) and it is a login, its
  *      address verified or WHMCS's own, of exactly one account; else a guest's (§3 Δ). Never To or Cc into a ticket (§3 Γ).
  */
 class InboundRouter
@@ -81,7 +82,7 @@ class InboundRouter
             return $this->quarantine($department, $email, $raw, 'before_mail_since', $messageId);
         }
 
-        $verdict = AuthenticationResults::verdict($email->authenticationResults, (string) $department->authserv_id, $from);
+        $verdict = self::verdict($email, $raw, (string) $department->authserv_id);
         $vouched = $verdict->authenticated || !$department->require_dmarc;
 
         // 3. A reply: by our Message-ID only.
@@ -146,6 +147,23 @@ class InboundRouter
         }
 
         return $outcome;
+    }
+
+    /**
+     * Whether the From is vouched for (§3 Β): by our server's Authentication-Results, on top; else by our own check of the
+     * mail's DKIM signatures, for a receiving server that vouches for little (cPanel's exim, nixpal 2026-11-13). Not
+     * vouched, staff read both reasons.
+     */
+    public static function verdict(InboundEmail $email, string $raw, string $authservId): AuthVerdict
+    {
+        $verdict = AuthenticationResults::verdict($email->authenticationResults, $authservId, $email->fromEmail);
+        if ($verdict->authenticated) {
+            return $verdict;
+        }
+        $dkim = app(Dkim::class)->verdict($raw, $email->fromEmail);
+
+        // auth_detail holds 40 characters.
+        return $dkim->authenticated ? $dkim : new AuthVerdict(false, mb_substr($verdict->reason . '+' . $dkim->reason, 0, 40));
     }
 
     /**
