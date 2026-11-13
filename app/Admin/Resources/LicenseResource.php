@@ -8,6 +8,7 @@ use App\Models\License;
 use App\Services\Ops\Scrub;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -32,7 +33,10 @@ class LicenseResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['service.product', 'service.client.primaryContact', 'service.client.ownerGrant.user'])) // what Client::name reads (review R2)
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['service.product', 'service.client.primaryContact', 'service.client.ownerGrant.user', 'bulkLicense']) // what Client::name reads (review R2)
+                // A bulk license's IPs, and the silent ones (docs/zonecloud-bulk-license.md §7.2).
+                ->withCount(['ips as listed_ips' => fn (Builder $ips) => $ips->whereNull('removed_at'),
+                    'ips as silent_ips' => fn (Builder $ips) => $ips->whereNull('removed_at')->whereNotNull('last_ok_at')->where('last_ok_at', '<', now()->subDays(self::SILENT_DAYS))]))
             ->defaultSort('last_access', 'desc')
             ->columns([
                 // The whole key opens the customer's software (a bearer value): only to staff who can change services, the
@@ -50,6 +54,15 @@ class LicenseResource extends Resource
                     License::STATUS_ACTIVE => 'success', License::STATUS_EXPIRED => 'danger', default => 'warning',
                 }),
                 TextColumn::make('valid_ip')->label('Bound to')->placeholder('—')->searchable(),
+                // A bulk license's list («62 · 3 silent»), or a standalone one moving into a bulk license («joins 02/12/2026»).
+                TextColumn::make('bulk_ips')->label('IPs')->placeholder('—')
+                    ->state(fn (License $record) => match (true) {
+                        $record->listed_ips > 0 => $record->listed_ips . ($record->silent_ips > 0 ? ' · ' . $record->silent_ips . ' silent' : ''),
+                        $record->bulk_license_id !== null && $record->merged_at !== null => 'joined bulk #' . $record->bulkLicense?->service_id,
+                        $record->bulk_license_id !== null => 'joins bulk' . ($record->service?->expires_at ? ' ' . $record->service->expires_at->format('d/m/Y') : ''),
+                        default => null,
+                    })
+                    ->color(fn (License $record) => $record->silent_ips > 0 ? 'warning' : null),
                 TextColumn::make('last_ok_at')->label('Last good check')->since()->dateTimeTooltip()->sortable()->placeholder('Never'),
                 TextColumn::make('last_access')->label('Last call')->since()->dateTimeTooltip()->sortable()->placeholder('Never'),
                 TextColumn::make('last_seen_ip')->label('From')->toggleable(),
@@ -58,6 +71,10 @@ class LicenseResource extends Resource
             ])
             ->filters([
                 SelectFilter::make('status')->options(array_combine($s = [License::STATUS_ACTIVE, License::STATUS_REISSUED, License::STATUS_SUSPENDED, License::STATUS_EXPIRED], $s)),
+                Filter::make('bulk')->label('Bulk only')->query(fn (Builder $query) => $query->whereHas('ips')), // ever had a list
+                Filter::make('silent_ips')->label('Has silent IPs')->query(fn (Builder $query) => $query->whereHas('ips', fn (Builder $ips) => $ips->whereNull('removed_at')
+                    ->whereNotNull('last_ok_at')->where('last_ok_at', '<', now()->subDays(self::SILENT_DAYS)))),
+                Filter::make('moving')->label('Moving into bulk')->query(fn (Builder $query) => $query->whereNotNull('bulk_license_id')->whereNull('merged_at')),
             ])
             ->recordUrl(fn (License $record) => ServiceResource::getUrl('edit', ['record' => $record->service_id]));
     }

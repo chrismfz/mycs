@@ -311,7 +311,7 @@ class BulkLicense extends Component
     }
 
     /** «1.80 from the 1st · 1.50 from the 51st»: each step's first IP and price, read from a very long breakdown. */
-    private static function tiersLine(Tiers $tiers): string
+    public static function tiersLine(Tiers $tiers): string
     {
         $parts = [];
         $from = 1;

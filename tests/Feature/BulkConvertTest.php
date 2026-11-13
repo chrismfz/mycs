@@ -7,6 +7,7 @@ use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Jobs\Server\TerminateJob;
+use App\Livewire\Admin\BulkLicenseStaff;
 use App\Models\EmailLog;
 use App\Models\Invoice;
 use App\Models\License;
@@ -295,8 +296,9 @@ class BulkConvertTest extends TestCase
         $this->livewireAs($staff)->test(EditService::class, ['record' => $a->getRouteKey()])->assertActionHidden('moveLicensesIn')->assertActionHidden('undoMoveToBulk');
         $this->livewireAs($staff)->test(EditService::class, ['record' => $this->bulk->getRouteKey()])
             ->callAction('moveLicensesIn', ['ids' => [$a->id, $b->id]])
-            ->assertHasNoActionErrors()
-            ->assertSee('2 joining (next 20/11/2026), 0 joined');
+            ->assertHasNoActionErrors();
+        $this->livewireAs($staff)->test(BulkLicenseStaff::class, ['service' => $this->bulk->fresh()])
+            ->assertSee('Moving in: 2 joining (next 20/11/2026), 0 joined');
         $this->assertSame([$this->bulk->license->id, $this->bulk->license->id], [$a->license->fresh()->bulk_license_id, $b->license->fresh()->bulk_license_id]);
 
         $this->livewireAs($staff)->test(EditService::class, ['record' => $b->getRouteKey()])
