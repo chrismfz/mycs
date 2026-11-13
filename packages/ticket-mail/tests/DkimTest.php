@@ -229,5 +229,9 @@ final class DkimTest extends TestCase
         $this->assertSame('dkim_header_twice', $this->reason($signer, "T_o: someone@else.test\r\n" . $signed));
         $this->assertSame('dkim_header_twice', $this->reason($signer, "Message_ID: <x@y.test>\r\n" . $signed));
         $this->assertSame('dkim_verified', $this->reason($signer, "Received: from a\r\nReceived: from b\r\n" . $signed), 'an unsigned header twice is no matter');
+        // REV-837-5: a signed trace header is many in real mail.
+        $trace = $signer->sign("Received: from b\r\n" . $this->mail(), headers: ['from', 'subject', 'received']);
+        $this->assertSame('dkim_verified', $this->reason($signer, "Received: from a\r\n" . $trace));
+        $this->assertSame('dkim_header_twice', $this->reason($signer, "Content-Type: text/html\r\n" . $signed));
     }
 }

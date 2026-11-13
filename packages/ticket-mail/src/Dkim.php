@@ -18,9 +18,8 @@ use RuntimeException;
  *   library also takes «F-rom» for it), so the From signed is the From the router reads;
  * - an expired x=, a key in testing (t=y), revoked (empty p=), of another algorithm or service, more than one key
  *   record, or a DNS failure: nothing vouches;
- * - the headers the router reads (From, Subject, Message-ID, In-Reply-To, References) and every header h= names must be
- *   in the mail once at most (also by the MIME library's loose reading of names): the
- *   library shows the first, DKIM signs the last (review of #837, REV-837-4);
+ * - the headers the parser shows or the router reads (READ) must be in the mail once at most (also by the MIME
+ *   library's loose reading of names): the library shows the first, DKIM signs the last (review of #837, REV-837-4);
  * - at most MAX_SIGNATURES aligned signatures are looked up in DNS (each one a lookup of the sender's choosing); an
  *   unaligned one never;
  * - no regular expression may fail into a value: a failed one (PCRE's limits) refuses the mail (REV-837-1).
@@ -31,8 +30,11 @@ final class Dkim
 
     public const VERIFIED = 'dkim_verified';
 
-    /** The headers the router reads: each once at most (From exactly once), by its own name. */
-    private const READ = ['from', 'subject', 'message-id', 'in-reply-to', 'references'];
+    /**
+     * The headers the parser shows or the router reads: each once at most (From exactly once), by its own name. Not
+     * every name h= signs: Received or DKIM-Signature are many in real mail (REV-837-5).
+     */
+    private const READ = ['from', 'subject', 'message-id', 'in-reply-to', 'references', 'to', 'cc', 'content-type'];
 
     /** @var Closure(string): (list<string>|null) */
     private readonly Closure $txt;
@@ -164,12 +166,6 @@ final class Dkim
         $signed = array_values(array_filter(array_map(fn (string $name) => strtolower(trim($name)), explode(':', $tags['h'])), fn (string $name) => $name !== ''));
         if (!in_array('from', $signed, true)) {
             return 'dkim_from_unsigned';
-        }
-        $names = array_count_values(array_map(fn (array $field) => self::loose($field[0]), $fields));
-        foreach ($signed as $name) {
-            if (($names[self::loose($name)] ?? 0) > 1) {
-                return 'dkim_header_twice';
-            }
         }
         foreach (['t', 'x'] as $time) {
             if (isset($tags[$time]) && preg_match('/^\d{1,12}$/', $tags[$time]) !== 1) {
