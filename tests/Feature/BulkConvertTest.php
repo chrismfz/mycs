@@ -348,6 +348,14 @@ class BulkConvertTest extends TestCase
 
         $this->assertSame(Service::STATUS_ACTIVE, $old->fresh()->status, 'nothing ended');
         $this->assertSame('Active', $this->check($old->license->license_key, '203.0.113.10')['status'], 'its servers keep working');
+
+        // Days past its Suspend Days, still refused: never suspended as unpaid (owner 2026-11-13).
+        try {
+            $this->cron('2026-12-05 10:00:00');
+        } catch (DisplayException) {
+        }
+        $this->assertSame(Service::STATUS_ACTIVE, $old->fresh()->status, 'not suspended while it waits to join');
+        $this->assertSame('Active', $this->check($old->license->license_key, '203.0.113.10')['status']);
     }
 
     public function test_a_bulk_service_taking_licenses_in_cannot_be_deleted(): void
