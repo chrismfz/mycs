@@ -1849,5 +1849,16 @@
     "A license may have :max IP addresses: :count would be on the list. Contact us for more.": "Μια άδεια μπορεί να έχει ως :max διευθύνσεις IP: θα ήταν :count στη λίστα. Επικοινωνήστε μαζί μας για περισσότερες.",
     "This IP address is no longer on the list.": "Αυτή η διεύθυνση IP δεν είναι πια στη λίστα.",
     "Give one IP address.": "Δώστε μία διεύθυνση IP.",
-    "This IP address is already on the list.": "Αυτή η διεύθυνση IP είναι ήδη στη λίστα."
+    "This IP address is already on the list.": "Αυτή η διεύθυνση IP είναι ήδη στη λίστα.",
+    "Ticket": "Ticket",
+    "Opened": "Άνοιξε",
+    "Open only": "Μόνο ανοιχτά",
+    "client": "πελάτης",
+    "by email": "μέσω email",
+    "from the client area": "από την περιοχή πελάτη",
+    "from the contact form": "από τη φόρμα επικοινωνίας",
+    "by API": "μέσω API",
+    "from WHMCS": "από το WHMCS",
+    "by staff": "από το προσωπικό",
+    ":count message|:count messages": ":count μήνυμα|:count μηνύματα"
 }
