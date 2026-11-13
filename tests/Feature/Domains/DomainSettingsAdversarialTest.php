@@ -192,7 +192,7 @@ class DomainSettingsAdversarialTest extends TestCase
         $staff = Staff::factory()->withPermissions(['admin.domains.viewAny', 'admin.domains.view', 'admin.domains.update'])->create();
 
         $this->livewireAs($staff)->test(ViewDomain::class, ['record' => $domain->id])
-            ->callAction('edit', data: ['auto_renew' => true, 'notes' => '', 'years' => 3]);
+            ->saveBilling(['auto_renew' => true, 'notes' => '', 'years' => 3]);
 
         $line->refresh();
         $this->assertFalse($line->period_end->toDateString() === '2029-11-01' && bccomp((string) $line->price, '10.00', 2) === 0,

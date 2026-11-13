@@ -249,7 +249,7 @@
    λείπει και τα στοιχεία του registrar (`meta.registrar`, από allow-list: ποτέ auth code). «At the registrar»:
    nameservers (2–13, glue από το DNS για NS μέσα στο domain), lock, privacy, επαφές (του λογαριασμού· νέα επαφή → νέο
    handle· αν ο registrar αρνηθεί, οι ρόλοι μένουν ως ήταν), «Contacts at the registrar», «Get EPP code» (δείχνεται μία
-   φορά, ούτε στο log). «Edit»: auto-renew και admin notes, μόνο εδώ. Permissions `admin.domains.manage`,
+   φορά, ούτε στο log). Ενότητα «Billing» μέσα στη σελίδα, κάτω από το «Domain» (2026-11-13, όχι πια popup «Edit»): auto-renew, «Do not charge automatically», τιμή ανανέωσης με «Recalculate», τρόπος πληρωμής, περίοδος, admin notes, μόνο εδώ· το «Save» γράφει μόνο ό,τι άλλαξε το staff στη φόρμα. Permissions `admin.domains.manage`,
    `admin.domains.epp`. Καρτέλα «Registrar log» (με ποιος, `staff_id`). Καμία ενέργεια που χρεώνει: το restore πάει στο D5.
    Code + adversarial. Κανόνες μετά τα reviews:
    - Handle από τον registrar μόνο σε ρόλο **με** επαφή και χωρίς handle, και **μόνο αν η εγγραφή του στον registrar έχει

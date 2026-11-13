@@ -332,11 +332,20 @@ class DomainsD4bAdversarialTest extends TestCase
         $forge($page(['admin.domains.viewAny', 'admin.domains.epp']), 'nameservers', ['nameservers' => ['ns1.evil.test', 'ns2.evil.test']]);
         $forge($page(['admin.domains.viewAny', 'admin.domains.epp']), 'lock');
         $forge($page(['admin.domains.viewAny', 'admin.domains.update']), 'registrarContacts');
-        $forge($page(['admin.domains.viewAny', 'admin.domains.manage', 'admin.domains.epp']), 'edit', ['auto_renew' => false, 'notes' => 'after']);
+        // The «Billing» form's «Save» (owner 2026-11-13): its fields set and its action called, as a forged request would.
+        $billing = $page(['admin.domains.viewAny', 'admin.domains.manage', 'admin.domains.epp']);
+        $this->swallow(fn () => $billing->set('billing.notes', 'after')->set('billing.auto_renew', false));
+        $this->swallow(fn () => $billing->call('mountAction', 'saveBilling', [], ['schemaComponent' => 'billingForm.billing_section']));
+        $this->swallow(fn () => $billing->call('callMountedAction'));
         $page(['admin.domains.viewAny', 'admin.domains.epp']); // the page alone reads no code
 
         $this->assertSame([0, [], 0], [$this->authcodeReads, $this->puts, DomainRegistrarLog::query()->count()]);
         $this->assertSame(['before', true], [$domain->fresh()->notes, $domain->fresh()->transfer_lock]);
+
+        // The same forged «Save» by staff who may: it saves, so the refusal above is the permission's, not a wrong path.
+        $allowed = $page(['admin.domains.viewAny', 'admin.domains.update']);
+        $allowed->set('billing.notes', 'after')->call('mountAction', 'saveBilling', [], ['schemaComponent' => 'billingForm.billing_section'])->call('callMountedAction');
+        $this->assertSame('after', $domain->fresh()->notes);
     }
 
     public function test_holds_a_domain_on_a_manual_or_inactive_connection_or_ended_is_not_written(): void
