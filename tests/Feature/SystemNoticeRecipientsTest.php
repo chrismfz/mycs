@@ -80,11 +80,17 @@ class SystemNoticeRecipientsTest extends TestCase
         $this->assertSame(['dept@example.test'], $this->sentTo());
     }
 
-    public function test_the_daily_summary_with_no_one_chosen_follows_the_system_notices(): void
+    public function test_the_daily_summary_with_no_one_chosen_follows_the_system_notices_who_may_see_cron_stats(): void
     {
         $ann = Staff::factory()->admin()->create(['email' => 'ann@example.test']);
-        $this->storeSettings(['system_notice_recipients' => [(string) $ann->id]]);
+        $billing = Staff::factory()->withPermissions(['admin.invoices.view'])->create(['email' => 'billing@example.test']);
+        $this->storeSettings(['system_notice_recipients' => [(string) $ann->id, (string) $billing->id]]);
         $this->assertSame(['ann@example.test'], CronSummary::recipients());
+
+        // Only staff without Cron stats get the system notices: the summary goes to the System Email Address.
+        $this->storeSettings(['system_notice_recipients' => [(string) $billing->id]]);
+        $this->assertSame(['ops@example.test'], CronSummary::recipients());
+        $this->storeSettings(['system_notice_recipients' => [(string) $ann->id]]);
 
         // Its own choice wins.
         $may = Staff::factory()->withPermissions(['admin.cron_stats.view'])->create(['email' => 'may@example.test']);
@@ -100,6 +106,8 @@ class SystemNoticeRecipientsTest extends TestCase
 
         $options = Settings::systemNoticeRecipientOptions();
         $this->assertArrayHasKey($ann->id, $options);
+        $noMail = Staff::factory()->admin()->create(['email' => '']);
+        $this->assertArrayNotHasKey($noMail->id, Settings::systemNoticeRecipientOptions());
         $this->assertStringContainsString(__('not sent to: inactive or no access'), $options[$gone->id]);
     }
 

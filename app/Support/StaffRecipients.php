@@ -53,7 +53,7 @@ class StaffRecipients
     {
         try {
             $options = Staff::query()->where('active', true)->with('role')->orderBy('first_name')->get()
-                ->filter(fn (Staff $staff) => $permission === null || $staff->hasPermission($permission))
+                ->filter(fn (Staff $staff) => trim((string) $staff->email) !== '' && ($permission === null || $staff->hasPermission($permission)))
                 ->mapWithKeys(fn (Staff $staff) => [$staff->id => $staff->name . ' <' . $staff->email . '>'])->all();
             foreach (array_diff(self::ids($setting), array_keys($options)) as $id) {
                 $staff = Staff::query()->find($id);

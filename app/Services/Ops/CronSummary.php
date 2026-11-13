@@ -30,6 +30,9 @@ use Throwable;
  */
 final class CronSummary
 {
+    /** Who may get it: those who may see Cron stats. */
+    public const PERMISSION = 'admin.cron_stats.view';
+
     /** The last day a summary covered (whether it was sent or nothing had failed): the next one starts after it. */
     public const COVERED = 'cron_summary_covered';
 
@@ -221,14 +224,17 @@ final class CronSummary
     }
 
     /**
-     * The addresses: the chosen staff that are still active and may see Cron stats; none chosen (or none left), those
-     * of the system notices (StaffRecipients::systemNotices), not silence (code review of #689).
+     * The addresses: the chosen staff that are still active and may see Cron stats; none chosen (or none left), the
+     * staff of the system notices who may see them; none of those either, the System Email Address, not silence (code
+     * review of #689). Never staff without Cron stats (review of the system notices' recipients).
      *
      * @return list<string>
      */
     public static function recipients(): array
     {
-        return StaffRecipients::chosen('cron_summary_recipients', 'admin.cron_stats.view') ?: StaffRecipients::systemNotices();
+        return StaffRecipients::chosen('cron_summary_recipients', self::PERMISSION)
+            ?: StaffRecipients::chosen(StaffRecipients::SYSTEM_NOTICES, self::PERMISSION)
+            ?: StaffRecipients::systemAddress();
     }
 
     /** @param  array<string, mixed>  $data */

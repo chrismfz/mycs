@@ -676,7 +676,7 @@ class Settings
                     'database_type' => 'array',
                     'multiple' => true,
                     'default' => [],
-                    'description' => 'Active staff who may see Cron stats. None chosen: those of the system notices.',
+                    'description' => 'Active staff who may see Cron stats. None chosen: those of the system notices who may see them, else the System Email Address.',
                 ],
                 [
                     'name' => 'cron_summary_time',
