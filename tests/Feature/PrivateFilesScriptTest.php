@@ -59,4 +59,10 @@ class PrivateFilesScriptTest extends TestCase
         $this->assertSame('644', $this->mode('storage/app/public/brand/logo.png'));
         $this->assertSame('644', $this->mode('public/index.php'));
     }
+
+    /** CageFS (orion, 2026-11-13) has no /dev/fd: a process substitution failed there and storage/app stayed readable. */
+    public function test_the_script_needs_no_process_substitution(): void
+    {
+        $this->assertStringNotContainsString('< <(', (string) file_get_contents(base_path('deploy/private-files.sh')));
+    }
 }
