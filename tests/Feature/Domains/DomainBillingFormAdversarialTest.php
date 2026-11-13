@@ -76,7 +76,7 @@ class DomainBillingFormAdversarialTest extends TestCase
         return Staff::factory()->withPermissions(['admin.domains.viewAny', 'admin.domains.view', 'admin.domains.update'])->create();
     }
 
-    /** @return array<string, mixed> */
+    /** @return list<mixed> */
     private function billing(Domain $domain): array
     {
         $domain->refresh();
