@@ -274,7 +274,7 @@ class ViewDomain extends ViewRecord
         }
         $this->record->refresh();
         $this->refreshFormData([]);
-        $this->fillBilling(); // what the action changed (a sync turns auto renew off): shown, and the base of «Save»
+        $this->refillBillingUnlessEdited();
     }
 
     protected function getHeaderActions(): array
@@ -298,7 +298,7 @@ class ViewDomain extends ViewRecord
                             Notification::make()->danger()->title(__('The registrar could not be read.'))->body(e($e->getMessage()))->send();
                         }
                         $this->refreshFormData([]);
-                        $this->fillBilling(); // what the action changed (a sync turns auto renew off): shown, and the base of «Save»
+                        $this->refillBillingUnlessEdited();
                     }),
                 // Our record corrected when something changed outside MyCS (owner 2026-10-23): nothing asked of a registrar,
                 // each change audited before → after (DomainRecordCorrections).
@@ -390,7 +390,7 @@ class ViewDomain extends ViewRecord
                         }
                         $this->record->refresh();
                         $this->refreshFormData([]);
-                        $this->fillBilling(); // what the action changed (a sync turns auto renew off): shown, and the base of «Save»
+                        $this->refillBillingUnlessEdited();
                     }),
 
                 Action::make('nameservers')->label(__('Nameservers'))->icon('heroicon-o-server-stack')
@@ -702,6 +702,29 @@ class ViewDomain extends ViewRecord
             'recurring_amount' => $record->recurring_amount, 'payment_gateway_id' => $record->payment_gateway_id, 'notes' => $record->notes];
     }
 
+    /**
+     * After another action on the page: what it changed (a sync turns auto renew off) shown, and the base of «Save» —
+     * unless staff have changes of their own not saved yet, which an action is not to wipe (second review of #831).
+     * Those stay; «Save» then writes only them, keeping what the action changed.
+     */
+    private function refillBillingUnlessEdited(): void
+    {
+        foreach ($this->billingLoaded as $key => $value) {
+            if (!array_key_exists($key, $this->billing ?? [])) {
+                continue;
+            }
+            try {
+                $edited = self::billingValue($key, $this->billing[$key]) !== self::billingValue($key, $value);
+            } catch (Throwable) {
+                $edited = true; // not validated yet (a price «12,50»): staff's own, kept for «Save» to refuse (review of #835)
+            }
+            if ($edited) {
+                return;
+            }
+        }
+        $this->fillBilling();
+    }
+
     private function fillBilling(): void
     {
         /** @var Domain $record */
@@ -811,12 +834,26 @@ class ViewDomain extends ViewRecord
         };
         $untouched = array_values(array_filter($meanwhile, fn (string $key) => !$changed($key)));
         if ($untouched !== []) {
-            $body = trim(($body ?? '') . ' ' . __('Changed by someone else meanwhile, kept as they left it and shown now: :fields.', ['fields' => implode(', ', $untouched)]));
+            $body = trim(($body ?? '') . ' ' . __('Changed by someone else meanwhile, kept as they left it and shown now: :fields.', ['fields' => implode(', ', array_map(fn (string $key) => self::billingLabel($key), $untouched))]));
         }
         Notification::make()->success()->title(__('Saved.'))->body($body)->send();
         $this->record->refresh();
         $this->refreshFormData([]);
         $this->fillBilling();
+    }
+
+    /** A field's label, as the form shows it. */
+    private static function billingLabel(string $key): string
+    {
+        return match ($key) {
+            'auto_renew' => __('Auto renew'),
+            'no_auto_charge' => __('Do not charge automatically'),
+            'recurring_amount' => __('Renewal price'),
+            'payment_gateway_id' => __('Payment method'),
+            'years' => __('Renewal period (years)'),
+            'notes' => __('Admin notes'),
+            default => $key,
+        };
     }
 
     /** A field's value as the column holds it, to compare and to write: the price decimal (never a float), no empty notes. */
