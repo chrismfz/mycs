@@ -208,7 +208,8 @@ final class BulkUsage
      */
     private static function lineNet(InvoiceItem $line): string
     {
-        $price = BigDecimal::of((string) $line->getRawOriginal('price'))->minus(BigDecimal::of((string) ($line->getRawOriginal('setup_fee') ?? '0')));
+        // Never below zero, as PaidForPeriod (review of #832).
+        $price = BigDecimal::max(BigDecimal::zero(), BigDecimal::of((string) $line->getRawOriginal('price'))->minus(BigDecimal::of((string) ($line->getRawOriginal('setup_fee') ?? '0'))));
 
         return (string) $price->multipliedBy(max(1, (int) $line->quantity))->toScale(2, RoundingMode::HalfUp);
     }
