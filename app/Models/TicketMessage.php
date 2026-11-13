@@ -61,11 +61,12 @@ class TicketMessage extends Model implements Auditable
      * topmost Received, our own line), whether our server vouched for the From and why, and the header block. Never
      * shown to the customer.
      *
-     * Never blocks the mail: details that cannot be stored are left out (adversarial review of #846).
+     * Never blocks the mail: details that cannot be stored are left out (adversarial review of #846). $vouched null: our
+     * server's check never ran on it (a mail quarantined before it, review 3 of #846).
      *
-     * @return array{from: string, server: string|null, vouched: bool, reason: string, headers: string}|null
+     * @return array{from: string, server: string|null, vouched: bool|null, reason: string, headers: string}|null
      */
-    public static function mailDetails(InboundEmail $email, string $raw, bool $vouched, string $reason): ?array
+    public static function mailDetails(InboundEmail $email, string $raw, ?bool $vouched, string $reason): ?array
     {
         $from = $email->fromName !== null && $email->fromName !== '' ? $email->fromName . ' <' . $email->fromEmail . '>' : $email->fromEmail;
         $details = [

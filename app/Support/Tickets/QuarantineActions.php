@@ -135,7 +135,14 @@ final class QuarantineActions
             // Its Message-ID stays with the quarantine row (skipped next time): the message needs none.
             'email_message_id' => null,
             // As our server judged it when it came (owner 2026-11-13): what staff read beside the message.
-            'mail' => TicketMessage::mailDetails($email, (string) $quarantine->raw(), (bool) $quarantine->authenticated, (string) $quarantine->auth_detail),
+            // Quarantined before the check (automated, too large, …): no verdict, «not checked», never «forged» (review 3).
+            'mail' => TicketMessage::mailDetails($email, (string) $quarantine->raw(), self::checked($quarantine) ? (bool) $quarantine->authenticated : null, self::checked($quarantine) ? (string) $quarantine->auth_detail : ''),
         ];
+    }
+
+    /** Whether our server's check ran on it: a verdict always leaves its reason; an automated one's detail is not one. */
+    private static function checked(TicketQuarantine $quarantine): bool
+    {
+        return $quarantine->reason !== 'automated' && filled($quarantine->auth_detail);
     }
 }

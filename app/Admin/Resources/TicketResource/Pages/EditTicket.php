@@ -584,6 +584,22 @@ class EditTicket extends EditRecord
         return "{$record->product->name} #{$record->id} - " . ucfirst($record->status) . ($record->label == $record->baseLabel ? '' : " ({$record->label})");
     }
 
+    /** The message whose whole mail is open: one of this ticket's, read when asked for (review 3 of #846). */
+    public ?int $mailShown = null;
+
+    public function showMail(int $id): void
+    {
+        $this->mailShown = $this->record instanceof Ticket ? $this->record->messages()->whereKey($id)->value('id') : null;
+        if ($this->mailShown !== null) {
+            $this->dispatch('open-modal', id: 'ticket-mail');
+        }
+    }
+
+    public function shownMail(): ?TicketMessage
+    {
+        return $this->mailShown !== null && $this->record instanceof Ticket ? $this->record->messages()->find($this->mailShown) : null;
+    }
+
     public function deleteMessage(TicketMessage $message): void
     {
         if (auth()->user()->can('delete', $message)) {

@@ -25,11 +25,16 @@ final class MailHeaders
      * «mail.example.gr [203.0.113.25]»: who handed the mail to our server, from our own topmost Received. Lines our
      * server added on its loopback are passed over; the first other line is ours, and when it names no address (a local
      * submission) there is none: every line under it is the sender's to write (adversarial review of #846). The host
-     * is only the reverse name our server looked up, never the name the sender said hello with.
+     * is only the reverse name our server looked up, never the name the sender said hello with. Our delivery agent's
+     * line («by orion with LMTP», Dovecot on cPanel and mailcow) is passed over too: the one under it is our MTA's
+     * (review 3 of #846, seen on orion's mail).
      */
     public static function sendingServer(string $raw): ?string
     {
         foreach (self::received(self::block($raw)) as $line) {
+            if (preg_match('/\sby\s+\S+\s+with\s+LMTPS?\b/i', $line)) {
+                continue;
+            }
             // What our server says of the sender: before «by», without what the sender chose (helo=, ident=).
             $from = preg_split('/\s+by\s+/i', $line, 2)[0];
             $from = preg_replace('/\b(?:helo|ident)=[^\s)]+/i', '', $from) ?? $from;

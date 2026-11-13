@@ -1870,5 +1870,7 @@
     "Not verified: it may be forged": "Δεν επαληθεύτηκε: μπορεί να είναι πλαστό",
     "The whole mail and its headers": "Όλο το mail και τα headers",
     "Headers": "Headers",
-    "Delete this message?": "Διαγραφή αυτού του μηνύματος;"
+    "Delete this message?": "Διαγραφή αυτού του μηνύματος;",
+    "Not checked": "Δεν ελέγχθηκε",
+    "The whole mail": "Όλο το mail"
 }

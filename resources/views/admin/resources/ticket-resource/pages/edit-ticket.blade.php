@@ -60,6 +60,7 @@
                             'border-warning-300 dark:border-warning-600' => $message->is_internal,
                             'border-gray-200 dark:border-white/10' => !$message->is_internal,
                         ])
+                        wire:key="ticket-message-{{ $message->id }}"
                         data-ticket-message="{{ $message->id }}"
                         @if ($loop->last) x-data x-init="$el.scrollIntoView()" @endif>
                         <div @class([
@@ -139,8 +140,10 @@
                                     <dt class="text-gray-400">{{ __('Server') }}</dt><dd class="break-all">{{ $mail['server'] ?? '—' }}</dd>
                                     <dt class="text-gray-400">{{ __('Check') }}</dt>
                                     <dd>
-                                        @if ($mail['vouched'] ?? false)
+                                        @if (($mail['vouched'] ?? null) === true)
                                             <span class="text-success-600 dark:text-success-400">✓ {{ __('Verified') }}</span>
+                                        @elseif (($mail['vouched'] ?? null) === null)
+                                            <span class="text-gray-500">{{ __('Not checked') }}</span>
                                         @else
                                             <span class="text-warning-600 dark:text-warning-400">⚠ {{ __('Not verified: it may be forged') }}</span>
                                         @endif
@@ -151,18 +154,8 @@
                                 @endif
                                 <dt></dt>
                                 <dd>
-                                    <x-filament::modal width="4xl">
-                                        <x-slot name="trigger">
-                                            <span class="cursor-pointer text-primary-600 hover:underline dark:text-primary-400">{{ $mail !== null ? __('The whole mail and its headers') : __('By email: the whole mail') }}</span>
-                                        </x-slot>
-                                        @if (filled($mail['headers'] ?? null))
-                                            <p class="text-sm font-semibold">{{ __('Headers') }}</p>
-                                            <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-2 text-xs dark:bg-white/5">{{ $mail['headers'] }}</pre>
-                                        @endif
-                                        @if (filled($message->body_original))
-                                            <pre class="whitespace-pre-wrap text-sm">{{ $message->body_original }}</pre>
-                                        @endif
-                                    </x-filament::modal>
+                                    {{-- The whole mail is fetched when asked for, not with every refresh of the thread (review 3). --}}
+                                    <button type="button" wire:click="showMail({{ $message->id }})" class="cursor-pointer text-primary-600 hover:underline dark:text-primary-400">{{ $mail !== null ? __('The whole mail and its headers') : __('By email: the whole mail') }}</button>
                                 </dd>
                             </dl>
                         @endif
@@ -186,6 +179,17 @@
                     </div>
                 @endforeach
             </div>
+            <x-filament::modal id="ticket-mail" width="4xl" :heading="__('The whole mail')">
+                @if ($shownMail = $this->shownMail())
+                    @if (filled($shownMail->mail['headers'] ?? null))
+                        <p class="text-sm font-semibold">{{ __('Headers') }}</p>
+                        <pre class="max-h-[40vh] overflow-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-2 text-xs dark:bg-white/5" data-ticket-mail-headers>{{ $shownMail->mail['headers'] }}</pre>
+                    @endif
+                    @if (filled($shownMail->body_original))
+                        <pre class="whitespace-pre-wrap text-sm">{{ $shownMail->body_original }}</pre>
+                    @endif
+                @endif
+            </x-filament::modal>
             @foreach ($drafts as $draft)
                 {{-- An MCP agent's draft (Proposals::TICKET_REPLY): the text as written, never sent by itself. --}}
                 <x-filament::section class="mt-4" wire:key="draft-{{ $draft->id }}" :heading="__('Drafted reply (MCP)')"

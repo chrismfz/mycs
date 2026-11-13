@@ -88,6 +88,24 @@ class TicketMailDetailsTest extends TestCase
         $mail = $ticket->messages()->sole()->mail;
         $this->assertSame('eve@example.com', $mail['from']);
         $this->assertSame('mx.example.com [192.0.2.9]', $mail['server']);
+        // Quarantined as automated, before our server's check: «not checked», never «may be forged» (review 3).
+        $this->assertNull($mail['vouched']);
+        $this->actingAs(Staff::factory()->admin()->create(), 'staff')
+            ->get(EditTicket::getUrl(['record' => $ticket]))->assertOk()
+            ->assertSee(__('Not checked'))
+            ->assertDontSee(__('Not verified: it may be forged'));
+    }
+
+    public function test_the_whole_mail_is_read_only_when_asked_for_and_only_of_this_ticket(): void
+    {
+        $ticket = $this->route(Eml::make(['X-Probe' => 'probe-header-value'], 'Body here'));
+        $other = $this->route(Eml::make(['X-Probe' => 'other-ticket-header', 'Message-ID' => '<m2@example.com>', 'Subject' => 'Other']));
+        $staff = Staff::factory()->admin()->create();
+
+        $page = $this->livewireAs($staff)->test(EditTicket::class, ['record' => $ticket->getRouteKey()])
+            ->assertDontSee('probe-header-value');
+        $page->call('showMail', $ticket->messages()->sole()->id)->assertSee('probe-header-value')->assertDispatched('open-modal');
+        $page->call('showMail', $other->messages()->sole()->id)->assertDontSee('other-ticket-header')->assertSet('mailShown', null);
     }
 
     public function test_messages_without_mail_details_still_show(): void
