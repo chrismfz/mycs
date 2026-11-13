@@ -62,7 +62,9 @@ final class MoveToClient
                 throw new DisplayException(__('clients.move.cancellation'));
             }
             // A bulk license with the first client's licenses joining or joined (ADV-850-3): their IPs and keys are theirs.
-            if (License::query()->where('service_id', $service->id)->whereHas('joining')->exists()) {
+            // One that ended without joining holds nothing (review of #850).
+            if (License::query()->where('service_id', $service->id)->whereHas('joining', fn ($joining) => $joining->whereNotNull('merged_at')
+                ->orWhereHas('service', fn ($moving) => $moving->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])))->exists()) {
                 throw new DisplayException(__('clients.move.bulk_joining'));
             }
             // An addon is its parent's (docs/addons.md): it moves with it, never on its own; its addons with it, their

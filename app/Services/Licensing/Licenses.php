@@ -124,7 +124,7 @@ class Licenses
     {
         $settings = ExtensionHelper::settingsToArray($license->service?->product->settings ?? collect());
 
-        return $license->status === License::STATUS_ACTIVE && !self::isBulk($license->service)
+        return $license->status === License::STATUS_ACTIVE && !self::isBulk($license->service) && $license->bulk_license_id === null
             && filter_var($settings['allow_reissue'] ?? false, FILTER_VALIDATE_BOOLEAN)
             && $license->reissues < self::MAX_REISSUES;
     }
@@ -144,8 +144,9 @@ class Licenses
             if ($byStaff && !in_array($locked->status, [License::STATUS_ACTIVE, License::STATUS_REISSUED], true)) {
                 throw new DisplayException(__('Only an active license can be reissued.'));
             }
-            // A bulk license has no binding to clear: its IPs are a list (staff too).
-            if (self::isBulk($license->service)) {
+            // A bulk license has no binding to clear: its IPs are a list (staff too). One moving into a bulk license keeps its
+            // binding: its IPs are what joins the list (review of #850).
+            if (self::isBulk($license->service) || $locked->bulk_license_id !== null) {
                 throw new DisplayException(__('This license cannot be reissued.'));
             }
             $locked->update([

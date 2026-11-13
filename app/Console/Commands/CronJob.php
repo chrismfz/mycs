@@ -42,6 +42,7 @@ use App\Services\Invoice\CancelOpenInvoices;
 use App\Services\Invoice\ChangeOpenLine;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Invoice\ProcessPaidInvoiceService;
+use App\Services\Licensing\BulkConvert;
 use App\Services\Licensing\Licenses;
 use App\Services\Licensing\ZlicLimiter;
 use App\Services\Mcp\Proposals;
@@ -1430,6 +1431,10 @@ class CronJob extends Command
 
         AfterCommit::job(new TerminateJob($service));
         $service->forceFill(['status' => Service::STATUS_CANCELLED])->save();
+        // A license moving into a bulk one joins it now, in this transaction (docs/zonecloud-bulk-license.md §8.1): its key
+        // never answers Expired while the queued terminate waits (review of #850). Refused (its IP on another bulk list),
+        // nothing ends: it keeps working as it is and staff see it in the run's failures.
+        BulkConvert::join($service);
         $this->leftOpen(CancelPendingUpgrades::forService($service, __('invoices.cancellation_reasons.cancellation_request')));
         // Overdue ones past the days set stay as a debt where «keep overdue invoices» is on (Δ3a).
         $this->cancelInvoices(CancelOpenInvoices::onServiceEnd($service->invoices()->whereIn('invoices.status', Invoice::OPEN_STATUSES)->get(), $service),

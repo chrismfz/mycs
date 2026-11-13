@@ -647,7 +647,7 @@ class EditService extends EditRecord
                 // licensing admin page).
                 // Only an Active one (a suspended or expired license is not moved: review R1).
                 Action::make('reissueLicense')->label('Reissue license')->icon('ri-refresh-line')->color('gray')
-                    ->visible(fn (Service $record) => $record->license?->status === License::STATUS_ACTIVE && !Licenses::isBulk($record))
+                    ->visible(fn (Service $record) => $record->license?->status === License::STATUS_ACTIVE && !Licenses::isBulk($record) && $record->license->bulk_license_id === null)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Its bindings are cleared and the next server that checks it takes it (staff: whatever the limit).')

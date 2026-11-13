@@ -21,12 +21,14 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Licensing\BulkConvert;
 use App\Services\Licensing\BulkLicenseIps;
+use App\Services\Licensing\Licenses;
 use App\Services\Service\DeleteService;
 use Database\Seeders\EmailTemplateSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 /**
@@ -304,5 +306,56 @@ class BulkConvertTest extends TestCase
         $this->assertNull($b->license->fresh()->bulk_license_id);
         $this->assertNull($b->fresh()->cancellation);
         $this->assertSame([$b->id], BulkConvert::candidates($this->bulk)->pluck('id')->all());
+    }
+
+    public function test_a_license_moving_into_bulk_is_not_reissued_its_binding_is_what_joins(): void
+    {
+        $old = $this->service($this->standalone, Carbon::parse('2026-11-20 00:00:00'), '203.0.113.10');
+        BulkConvert::convert($this->bulk, [$old->id]);
+
+        $this->assertFalse(Licenses::canReissue($old->license->fresh()->setRelation('service', $old)));
+        $this->expectException(DisplayException::class);
+        Licenses::reissue($old->license->fresh(), '203.0.113.10', byStaff: true);
+    }
+
+    public function test_it_joins_in_the_crons_own_run_its_key_never_answers_expired_while_the_terminate_is_queued(): void
+    {
+        $old = $this->service($this->standalone, Carbon::parse('2026-11-20 00:00:00'), '203.0.113.10');
+        BulkConvert::convert($this->bulk, [$old->id]);
+        Queue::fake();
+
+        $this->cron('2026-11-20 10:00:00');
+
+        Queue::assertPushed(TerminateJob::class);
+        $this->assertNotNull($old->license->fresh()->merged_at, 'joined by the cron, not by the worker (review of #850)');
+        $this->assertSame(['Active', (string) $this->bulk->id], array_values(array_intersect_key(
+            $this->check($old->license->license_key, '203.0.113.10'), ['status' => 1, 'serviceid' => 1])));
+    }
+
+    public function test_a_join_refused_at_its_expiry_leaves_it_running_as_it_is_for_staff(): void
+    {
+        $old = $this->service($this->standalone, Carbon::parse('2026-11-20 00:00:00'), '203.0.113.10');
+        BulkConvert::convert($this->bulk, [$old->id]);
+        $other = $this->service($this->bulk->product, now()->addMonths(2), clientId: User::factory()->create()->client()->id);
+        BulkLicenseIps::add($other->license, '203.0.113.10');
+
+        try {
+            $this->cron('2026-11-20 10:00:00');
+            $this->fail('the run fails and says why (staff get «Cron Job Error»)');
+        } catch (DisplayException $e) {
+            $this->assertStringContainsString('203.0.113.10', $e->getMessage());
+        }
+
+        $this->assertSame(Service::STATUS_ACTIVE, $old->fresh()->status, 'nothing ended');
+        $this->assertSame('Active', $this->check($old->license->license_key, '203.0.113.10')['status'], 'its servers keep working');
+    }
+
+    public function test_a_bulk_service_taking_licenses_in_cannot_be_deleted(): void
+    {
+        $old = $this->service($this->standalone, Carbon::parse('2026-11-20 00:00:00'), '203.0.113.10');
+        BulkConvert::convert($this->bulk, [$old->id]);
+
+        $this->expectException(DisplayException::class);
+        (new DeleteService)->handle($this->bulk->fresh());
     }
 }
