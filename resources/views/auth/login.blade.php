@@ -18,11 +18,13 @@
     </div>
 
     {{-- On the page from the start, hidden until needed: a captcha added by a later render never works (its scripts run
-         before the morph puts it on the page; a provider's script never loads), review of #684. --}}
+         before the morph puts it on the page; a provider's script never loads), review of #684. Disabled while hidden:
+         ALTCHA's checkbox is «required», and a hidden required field the browser cannot show stops the form without a
+         word, so no sign-in was ever sent (nixpal's cut-over, 2026-11-13). A disabled fieldset's fields are not checked. --}}
     @if (config('settings.captcha_login', 'after_failure') !== 'never')
-        <div @class(['hidden' => !$this->captchaNeeded()]) data-login-captcha>
+        <fieldset @class(['m-0 min-w-0 border-0 p-0', 'hidden' => !$this->captchaNeeded()]) @disabled(!$this->captchaNeeded()) data-login-captcha>
             <x-captcha :form="'login'" />
-        </div>
+        </fieldset>
     @endif
 
     <x-button.primary class="w-full" type="submit">{{ __('auth.sign_in') }}</x-button.primary>
