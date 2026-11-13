@@ -534,8 +534,9 @@ class PayPal extends Gateway implements ListsTransactions
                 // A 200 that is not PayPal's answer (an HTML page, an empty body) is not an empty list (ADV-810-3, 4).
                 $details = is_object($response) ? ($response->transaction_details ?? null) : null;
                 // A span with nothing in it: PayPal leaves transaction_details out and says total_items 0 (nixpal
-                // 2026-11-13). Only that says so: the count, as a number, is 0.
-                if ($details === null && is_object($response) && ($response->total_items ?? null) === 0) {
+                // 2026-11-13). Only that says so: the count, as a number, is 0, and on a part's first page (a later
+                // page of a list page 1 said was longer is never its end: ADV-842-1).
+                if ($details === null && $page === 1 && is_object($response) && ($response->total_items ?? null) === 0) {
                     $details = [];
                 }
                 if (!is_array($details)) {
