@@ -3,7 +3,6 @@
 namespace App\Support\Tickets;
 
 use App\Models\ClientUser;
-use App\Models\Contact;
 use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
 use App\Models\TicketCc;
@@ -131,8 +130,8 @@ class InboundRouter
         $outcome = $this->open($department, $email, $messageId, $account, $verdict->authenticated);
         if ($outcome->kind === InboundOutcome::OPENED) {
             RateLimiter::hit($limit, 3600);
-            // «We received it», to an address our server vouched for, or to one of our own customers' (a login or a
-            // contact here) once a day: never to a stranger's, which a forged From would make us mail (backscatter). A
+            // «We received it», to an address our server vouched for, or to one of our own customers' (a login with a
+            // proven address) once a day: never to a stranger's, which a forged From would make us mail (backscatter). A
             // receiving server that vouches for little (cPanel's exim: iprev and DKIM in two headers, the first alone
             // read) left every customer without it (nixpal, 2026-11-13). Unvouched, the mail says only our words.
             if ($outcome->ticket !== null && ($verdict->authenticated || self::knownAddressOncePerDay($from))) {
@@ -192,23 +191,19 @@ class InboundRouter
     }
 
     /**
-     * Whether an address our server did not vouch for is still one of our customers' (a login, or a contact of an
-     * account), and has not had «we received it» unvouched today. The worst a forger then does: one mail a day, in our
-     * words, to our own customer.
+     * Whether an address our server did not vouch for is still one of our customers': a login whose address is proven
+     * (routes: verified, or brought from WHMCS with it), and it has not had «we received it» unvouched today. Never a
+     * contact or an unverified login: anyone can type a stranger's address into one (review of #833, REV-833-1). The
+     * worst a forger then does: one mail a day, in our words, to our own customer.
      */
     private static function knownAddressOncePerDay(string $from): bool
     {
-        $from = mb_strtolower(trim($from));
-        if ($from === '') {
-            return false;
-        }
-        $contact = Contact::query()->whereRaw('LOWER(email) = ?', [$from])->get()
-            ->contains(fn (Contact $contact) => mb_strtolower(trim((string) $contact->email)) === $from);
-        if (self::loginOf($from) === null && !$contact) {
+        $user = self::loginOf($from);
+        if ($user === null || !self::routes($user)) {
             return false;
         }
 
-        return RateLimiter::attempt('ticket-mail-received-unvouched:' . $from, 1, fn () => true, 86400) === true;
+        return RateLimiter::attempt('ticket-mail-received-unvouched:' . mb_strtolower(trim($from)), 1, fn () => true, 86400) === true;
     }
 
     /**

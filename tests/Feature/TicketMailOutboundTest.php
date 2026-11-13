@@ -175,11 +175,11 @@ class TicketMailOutboundTest extends TestCase
 
     /**
      * nixpal, 2026-11-13: its receiving server vouches for little, so no customer got «we received it». Unvouched, a
-     * known address (a login, a contact) gets it once a day, in our words only; a stranger's never.
+     * known address (a login with a proven address) gets it once a day, in our words only; a stranger's never.
      */
     public function test_we_received_it_unvouched_only_to_a_customer_once_a_day(): void
     {
-        User::factory()->create(['email' => 'Maria@Example.com']);
+        User::factory()->create(['email' => 'Maria@Example.com', 'email_verified_at' => now()]);
         $unvouched = fn (string $from, string $id, string $subject) => Eml::make(['From' => $from, 'Message-ID' => "<{$id}@example.com>",
             'Subject' => $subject, 'Authentication-Results: mymail.myip.test; iprev=pass']);
         $this->mailbox->unseen[] = $unvouched('maria@example.com', 'k1', 'Forged secret subject');
