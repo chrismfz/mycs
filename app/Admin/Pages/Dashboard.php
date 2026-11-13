@@ -33,13 +33,15 @@ class Dashboard extends BaseDashboard
      * tracking, compact and scrolling (owner 2026-11-04: «small like Servers»), where the left column had room. Payments
      * tracking is on the left since Recent activity (devbox 2026-11-04: left 1435 px, right 1170 px; without it on the
      * right, before Recent activity, the left was 774 px against 685 px and it sat below, full width).
+     * Rebalanced (owner 2026-11-14: «άδικα σκρολάρουμε», nixpal live: left 790 px, right 1740 px): the renewals are money
+     * to come, so they move left; Staff and sessions moves right beside Support and Recent activity (about 1200 / 1265 px).
      *
      * @var array<int, class-string>
      */
-    public const LEFT = [Revenue::class, EstimatedIncome::class, PaymentsTracking::class, StaffAndSessions::class];
+    public const LEFT = [Revenue::class, EstimatedIncome::class, PaymentsTracking::class, ServiceRenewals::class, DomainRenewals::class];
 
     /** @var array<int, class-string> */
-    public const RIGHT = [NeedsAttention::class, CronToday::class, Servers::class, Support::class, RecentActivity::class, ServiceRenewals::class, DomainRenewals::class, RecordsToCheck::class, ServicesToCheck::class];
+    public const RIGHT = [NeedsAttention::class, CronToday::class, Servers::class, Support::class, StaffAndSessions::class, RecentActivity::class, RecordsToCheck::class, ServicesToCheck::class];
 
     /**
      * What the viewer sees, in four groups: the full width above, the two columns, the full width below.

@@ -113,6 +113,9 @@ server module (`getActions`) και τα shortcuts του είναι φόρμα 
   - Η σειρά: κάρτες, registrars, Revenue | Support, Income | Upcoming domain renewals (στον χώρο δίπλα στο Income), μετά
     οι υπόλοιπες λίστες ανά δύο, και το «Staff and sessions» (Staff online και Active Users σε μία
     κάρτα, 2026-11-04) στην αριστερή στήλη κάτω από το Payments tracking, με scroll.
+  - **Ισορροπία στηλών (owner 2026-11-14: «άδικα σκρολάρουμε»):** στο live η αριστερή στήλη τελείωνε στα ~790 px και
+    η δεξιά στα ~1.740. Οι ανανεώσεις υπηρεσιών και domains (έσοδα που έρχονται) πάνε αριστερά κάτω από το Income, και
+    το Staff and sessions δεξιά, μετά το Support. Περίπου 1.200 / 1.265 px. Η μοιρασιά είναι τα `Dashboard::LEFT/RIGHT`.
   - Τα widgets πλήρους πλάτους είναι μόνο στην αρχή και στο τέλος, οπότε η ροή δεν αφήνει κενά, όποια δικαιώματα κι αν
     έχει ο χρήστης του staff.
 
