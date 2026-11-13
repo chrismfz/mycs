@@ -30,6 +30,11 @@ final class Dkim
 
     public const VERIFIED = 'dkim_verified';
 
+    /** A head beyond these is refused: a giant one costs time and memory on every mail (REV2-837-1). */
+    public const MAX_HEAD_BYTES = 262_144;
+
+    public const MAX_FIELDS = 1000;
+
     /**
      * The headers the parser shows or the router reads: each once at most (From exactly once), by its own name. Not
      * every name h= signs: Received or DKIM-Signature are many in real mail (REV-837-5).
@@ -270,7 +275,9 @@ final class Dkim
         $end = str_starts_with($raw, "\r\n") ? 0 : strpos($raw, "\r\n\r\n");
         [$head, $body] = $end === false ? [$raw, ''] : [substr($raw, 0, $end), substr($raw, $end + ($end === 0 ? 2 : 4))];
 
-        if (str_contains($head, "\0")) {
+        // A NUL, or a head larger than the MIME library reads (1000 fields, 1 MB; we take 256 KB): split runs on every
+        // mail, signed or not (REV2-837-1).
+        if (str_contains($head, "\0") || strlen($head) > self::MAX_HEAD_BYTES) {
             return null;
         }
         $fields = [];
@@ -284,6 +291,9 @@ final class Dkim
                 continue;
             }
             if (preg_match('/^([\x21-\x39\x3B-\x7E]+):/', $line, $m) !== 1) {
+                return null;
+            }
+            if (count($fields) >= self::MAX_FIELDS) {
                 return null;
             }
             $fields[] = [$m[1], $line];

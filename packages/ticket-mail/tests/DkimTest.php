@@ -234,4 +234,17 @@ final class DkimTest extends TestCase
         $this->assertSame('dkim_verified', $this->reason($signer, "Received: from a\r\n" . $trace));
         $this->assertSame('dkim_header_twice', $this->reason($signer, "Content-Type: text/html\r\n" . $signed));
     }
+
+    /** REV2-837-1: a giant head is refused before it is read, also when unsigned. */
+    public function test_a_giant_head_is_refused_quickly(): void
+    {
+        $signer = DkimSigner::rsa();
+        $signed = $signer->sign($this->mail());
+        $start = microtime(true);
+        $this->assertSame('dkim_malformed', $this->reason($signer, str_repeat("a:\r\n", 1000) . $signed));
+        $this->assertSame('dkim_malformed', $this->reason($signer, 'X-Big: ' . str_repeat('x', Dkim::MAX_HEAD_BYTES) . "\r\n" . $signed));
+        $this->assertSame('dkim_malformed', $this->reason($signer, str_repeat("a:\r\n", 2_000_000) . $this->mail()));
+        $this->assertLessThan(2.0, microtime(true) - $start);
+        $this->assertSame('dkim_verified', $this->reason($signer, str_repeat("Received: from x\r\n", 900) . $signed));
+    }
 }
