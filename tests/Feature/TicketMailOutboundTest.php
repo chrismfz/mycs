@@ -173,6 +173,26 @@ class TicketMailOutboundTest extends TestCase
         $this->assertSame('One more thing', $key->ticket->messages()->latest('id')->first()->message);
     }
 
+    /**
+     * nixpal, 2026-11-13: its receiving server vouches for little, so no customer got «we received it». Unvouched, a
+     * known address (a login, a contact) gets it once a day, in our words only; a stranger's never.
+     */
+    public function test_we_received_it_unvouched_only_to_a_customer_once_a_day(): void
+    {
+        User::factory()->create(['email' => 'Maria@Example.com']);
+        $unvouched = fn (string $from, string $id, string $subject) => Eml::make(['From' => $from, 'Message-ID' => "<{$id}@example.com>",
+            'Subject' => $subject, 'Authentication-Results: mymail.myip.test; iprev=pass']);
+        $this->mailbox->unseen[] = $unvouched('maria@example.com', 'k1', 'Forged secret subject');
+        $this->mailbox->unseen[] = $unvouched('maria@example.com', 'k2', 'Second today');
+        $this->mailbox->unseen[] = $unvouched('stranger@example.org', 'k3', 'Spam');
+        $this->artisan('app:fetch-emails')->assertSuccessful();
+
+        $received = $this->sent()->filter(fn (Email $email) => $email->getHeaders()->get('Auto-Submitted')?->getBodyAsString() === 'auto-replied');
+        $this->assertSame(['maria@example.com'], $received->map(fn (Email $email) => $email->getTo()[0]->getAddress())->values()->all(), 'once a day, never a stranger');
+        $this->assertStringNotContainsString('Forged secret subject', (string) $received->first()->getSubject() . $received->first()->getHtmlBody(), 'our words only');
+        $this->assertSame(3, Ticket::query()->count(), 'the tickets open as before');
+    }
+
     public function test_staff_are_told_of_new_tickets_and_replies_never_of_their_own(): void
     {
         $role = Role::create(['name' => 'Support', 'permissions' => ['admin.tickets.viewAny']]);
