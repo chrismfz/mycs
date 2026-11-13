@@ -223,7 +223,9 @@ class ClientResource extends Resource
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['primaryContact', 'ownerGrant.user', 'credits', 'group'])
-                ->withCount(['services', 'services as active_services_count' => fn (Builder $query) => $query->where('status', 'active')]))
+                ->withCount(['services', 'services as active_services_count' => fn (Builder $query) => $query->where('status', 'active')])
+                // Its current logins only, as its Summary counts them (review of #840): a removed login's is not its activity.
+                ->withMax(['grants as last_login_at' => fn (Builder $grants) => $grants->whereNull('revoked_at')], 'last_login_at'))
             ->columns([
                 // On its group's colour, as WHMCS marks a group's clients (owner 2026-11-01).
                 TextColumn::make('id')->label('ID')->sortable()->searchable()
@@ -258,6 +260,10 @@ class ClientResource extends Resource
                     ->formatStateUsing(fn (Client $record) => $record->getAttribute('active_services_count') . ' (' . $record->getAttribute('services_count') . ')')
                     ->sortable(),
                 TextColumn::make('created_at')->label(__('Date Created'))->date()->sortable(),
+                // The last time anyone signed in to it (its logins', WHMCS's imported with them): sorted to find the quiet
+                // ones (owner 2026-11-13).
+                TextColumn::make('last_login_at')->label(__('Last login'))->dateTime()->since()
+                    ->dateTimeTooltip()->placeholder(__('Never'))->sortable()->toggleable(),
             ])
             ->filters([
                 // Accounts holding unused credit (the dashboard's «Clients with credit»): to staff who may see credits.

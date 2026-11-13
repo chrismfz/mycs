@@ -18,6 +18,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Hash;
 
@@ -85,11 +86,15 @@ class UserResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query) => $query->withMax('grants as last_login_at', 'last_login_at'))
             ->columns([
                 TextColumn::make('first_name')->searchable()->sortable(),
                 TextColumn::make('last_name')->searchable()->sortable(),
                 TextColumn::make('email')->searchable()->sortable(),
                 TextColumn::make('created_at')->dateTime()->sortable(),
+                // Its last sign-in to any of its accounts (owner 2026-11-13).
+                TextColumn::make('last_login_at')->label(__('Last login'))->dateTime()->since()
+                    ->dateTimeTooltip()->placeholder(__('Never'))->sortable()->toggleable(),
             ])
             ->filters([
                 Filter::make('email_verified')
