@@ -12,6 +12,7 @@ use App\Models\Domain;
 use App\Models\EkdosiDocument;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\License;
 use App\Models\Order;
 use App\Models\Service;
 use App\Models\ServiceUpgrade;
@@ -59,6 +60,12 @@ final class MoveToClient
             // The first client asked to end it: the new one would lose it for a request it never made.
             if (!$service->isEnded() && $service->cancellation()->exists()) {
                 throw new DisplayException(__('clients.move.cancellation'));
+            }
+            // A bulk license with the first client's licenses joining or joined (ADV-850-3): their IPs and keys are theirs.
+            // One that ended without joining holds nothing (review of #850).
+            if (License::query()->where('service_id', $service->id)->whereHas('joining', fn ($joining) => $joining->whereNotNull('merged_at')
+                ->orWhereHas('service', fn ($moving) => $moving->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])))->exists()) {
+                throw new DisplayException(__('clients.move.bulk_joining'));
             }
             // An addon is its parent's (docs/addons.md): it moves with it, never on its own; its addons with it, their
             // open invoices in the same plan (a renewal billed with the parent's stays one invoice).

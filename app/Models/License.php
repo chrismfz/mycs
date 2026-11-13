@@ -22,6 +22,8 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property int $reissues
  * @property int|null $max_ips a bulk license's own limit for its customer (Ε4), else its product's
  * @property string|null $tiers a bulk license's own prices per IP (Ε6), else its product's
+ * @property int|null $bulk_license_id the bulk license this standalone one joins at its expiry, or joined (§8)
+ * @property Carbon|null $merged_at when it joined: its key answers as the bulk license since
  * @property Carbon|null $last_access
  */
 class License extends Model implements Auditable
@@ -42,10 +44,10 @@ class License extends Model implements Auditable
      * checking it and the WHMCS row stay staff's and the client area's. Its valid IP does reach a mail, as part of its
      * service's name only (Service::mailName, owner 2026-11-03), never as a field of its own.
      */
-    public const TEMPLATE_HIDDEN = ['valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'max_ips', 'whmcs_id', 'last_access', 'last_ok_at',
+    public const TEMPLATE_HIDDEN = ['valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'max_ips', 'bulk_license_id', 'merged_at', 'whmcs_id', 'last_access', 'last_ok_at',
         'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];
 
-    protected $fillable = ['service_id', 'license_key', 'status', 'valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'max_ips', 'last_access', 'whmcs_id',
+    protected $fillable = ['service_id', 'license_key', 'status', 'valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'max_ips', 'bulk_license_id', 'merged_at', 'last_access', 'whmcs_id',
         'last_ok_at', 'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];
 
     protected $casts = [
@@ -54,6 +56,8 @@ class License extends Model implements Auditable
         'last_failure_at' => 'datetime',
         'reissues' => 'integer',
         'max_ips' => 'integer',
+        'bulk_license_id' => 'integer',
+        'merged_at' => 'datetime',
     ];
 
     /** Checks touch last_access on every call: not an audited change. */
@@ -81,6 +85,18 @@ class License extends Model implements Auditable
     public function ips(): HasMany
     {
         return $this->hasMany(LicenseIp::class);
+    }
+
+    /** @return BelongsTo<License, $this> the bulk license this one joins at its expiry, or joined (§8) */
+    public function bulkLicense(): BelongsTo
+    {
+        return $this->belongsTo(License::class, 'bulk_license_id');
+    }
+
+    /** @return HasMany<License, $this> a bulk license's standalone ones, joining or joined (§8) */
+    public function joining(): HasMany
+    {
+        return $this->hasMany(License::class, 'bulk_license_id');
     }
 
     /** @return HasMany<LicenseUsagePeriod, $this> a bulk license's closed periods */

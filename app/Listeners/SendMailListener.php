@@ -11,6 +11,7 @@ use App\Events\Order\Finalized as OrderFinalized;
 use App\Events\ServiceCancellation\Created as CancellationCreated;
 use App\Events\User\Created as UserCreated;
 use App\Helpers\NotificationHelper;
+use App\Services\Licensing\BulkConvert;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 /**
@@ -39,7 +40,8 @@ class SendMailListener implements ShouldQueue
             return $event->sendEmail !== false;
         }
         if ($event instanceof CancellationCreated) {
-            return !$event->cancellation->with_parent; // its parent's request is the one the customer made (ADV-634-4)
+            // Its parent's request is the one the customer made (ADV-634-4); a move into a bulk license is staff's (§8.1).
+            return !$event->cancellation->with_parent && !BulkConvert::moving($event->cancellation->service);
         }
         if ($event instanceof InvoiceTransactionCreated || $event instanceof InvoiceTransactionUpdated) {
             // Once, when it becomes failed (EVT-14): not again on every later save of a failed transaction.

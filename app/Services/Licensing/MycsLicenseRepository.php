@@ -27,9 +27,7 @@ final class MycsLicenseRepository implements LicenseRepository
 
     public function findByKey($licenseKey)
     {
-        $row = LicenseRow::query()->where('license_key', (string) $licenseKey)
-            ->with(['service.product.settings', 'service.plan', 'service.client.primaryContact', 'service.properties'])
-            ->first();
+        $row = self::answering((string) $licenseKey)?->load(['service.product.settings', 'service.plan', 'service.client.primaryContact', 'service.properties']);
         if ($row === null || $row->service === null) {
             return null;
         }
@@ -80,6 +78,20 @@ final class MycsLicenseRepository implements LicenseRepository
         $license->serviceTags = $tags;
 
         return $license;
+    }
+
+    /**
+     * The row that answers for $key: its own, or, once a standalone license joined a bulk one, the bulk license
+     * (docs/zonecloud-bulk-license.md §8, Ε7: its status, list and service tags). One step only: a bulk never joins another.
+     */
+    public static function answering(string $key): ?LicenseRow
+    {
+        $row = LicenseRow::query()->where('license_key', $key)->first();
+        if ($row !== null && $row->merged_at !== null && $row->bulk_license_id !== null) {
+            return LicenseRow::query()->find($row->bulk_license_id);
+        }
+
+        return $row;
     }
 
     public function touch(License $license, $now)

@@ -6,6 +6,7 @@ use App\Attributes\ExtensionMeta;
 use App\Classes\Extension\Server;
 use App\Models\License;
 use App\Models\Service;
+use App\Services\Licensing\BulkConvert;
 use App\Services\Licensing\Licenses;
 
 /**
@@ -89,6 +90,8 @@ class NixpalLicensing extends Server
 
     public function terminateServer(Service $service, $settings, $properties)
     {
+        // One moving into a bulk license joins it now (docs/zonecloud-bulk-license.md §8.1).
+        BulkConvert::join($service);
         Licenses::setStatus($service, License::STATUS_EXPIRED);
 
         return true;

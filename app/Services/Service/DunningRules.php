@@ -30,6 +30,9 @@ final class DunningRules
         $cutoff = $asOf->copy()->subDays(self::days('cronjob_order_suspend', 8))->toDateString();
         $query = self::unheldWithNoPaymentOnItsWay(Service::query()->where('status', Service::STATUS_ACTIVE), $asOf, $holdDay)
             ->whereDate('expires_at', '<', $cutoff)
+            // A license moving into a bulk one whose join is refused stays past its expiry, nothing to pay: staff get the
+            // cron's error each day; never suspended as unpaid meanwhile (owner 2026-11-13, docs/zonecloud-bulk-license.md §8.1).
+            ->whereDoesntHave('license', fn ($license) => $license->whereNotNull('bulk_license_id')->whereNull('merged_at'))
             ->tap(self::notExempt(...));
 
         return !$overdueInvoice ? $query : $query->whereHas('renewalInvoices', fn ($invoices) => $invoices

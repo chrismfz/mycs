@@ -27,6 +27,7 @@ use App\Models\Service;
 use App\Models\SslOrder;
 use App\Models\Staff;
 use App\Services\Clients\MoveToClient;
+use App\Services\Licensing\BulkConvert;
 use App\Services\Licensing\BulkLicenseIps;
 use App\Services\Licensing\BulkUsage;
 use App\Services\Licensing\Licenses;
@@ -44,6 +45,7 @@ use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Radio;
@@ -59,6 +61,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 use Livewire\Attributes\Locked;
 use MyCS\Extensions\Servers\CPanel\CPanel;
@@ -79,6 +82,19 @@ class EditService extends EditRecord
     protected function afterFill(): void
     {
         $this->filledAttributes = $this->getRecord()->getAttributes();
+    }
+
+    /** «28 licenses, 27 IPs new to the list (1 never bound), joining 20/11/2026 – 13/12/2026; then 48.60 a month.» */
+    private static function movePreview(Service $bulk, array $ids): string
+    {
+        if ($ids === []) {
+            return 'Pick the licenses to move.';
+        }
+        $p = BulkConvert::preview($bulk, $ids);
+
+        return $p['licenses'] . ' licenses, ' . $p['ips'] . ' IPs new to the list' . ($p['without'] ? ' (' . $p['without'] . ' never bound)' : '')
+            . ', joining ' . ($p['from'] === $p['to'] ? 'on ' . $p['from'] : $p['from'] . ' – ' . $p['to'])
+            . ($p['monthly'] !== null ? '; then ' . $p['monthly'] . ' a month at its prices (net), once all are in.' : '.');
     }
 
     /** The change of cycle before it is made: what the customer pays from then, and now what is credited and billed. */
@@ -631,7 +647,7 @@ class EditService extends EditRecord
                 // licensing admin page).
                 // Only an Active one (a suspended or expired license is not moved: review R1).
                 Action::make('reissueLicense')->label('Reissue license')->icon('ri-refresh-line')->color('gray')
-                    ->visible(fn (Service $record) => $record->license?->status === License::STATUS_ACTIVE && !Licenses::isBulk($record))
+                    ->visible(fn (Service $record) => $record->license?->status === License::STATUS_ACTIVE && !Licenses::isBulk($record) && $record->license->bulk_license_id === null)
                     ->authorize('update')
                     ->requiresConfirmation()
                     ->modalDescription('Its bindings are cleared and the next server that checks it takes it (staff: whatever the limit).')
@@ -691,8 +707,64 @@ class EditService extends EditRecord
                         Notification::make()->success()->title($removed . ' removed')->send();
                         $this->refreshFormData(['license']);
                     }),
+                // Standalone licenses moved into this bulk one (docs/zonecloud-bulk-license.md §8.1): each joins at its own expiry.
+                Action::make('moveLicensesIn')->label('Move standalone licenses in')->icon('ri-inbox-archive-line')->color('gray')
+                    ->visible(fn (Service $record) => $record->license !== null && Licenses::isBulk($record)
+                        && in_array($record->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true) && $record->cancellation === null)
+                    ->authorize('update')
+                    ->modalDescription('Each keeps working as it is until its own expiry, then joins this list with its IP, and its key answers as this license. Its renewal stops (a cancellation at the end of its period); no mail to the client: tell them once.')
+                    ->modalSubmitActionLabel('Move')
+                    ->schema([
+                        CheckboxList::make('ids')->label('Standalone licenses of this client')->required()->live()->bulkToggleable()->searchable()
+                            ->options(fn (Service $record) => BulkConvert::candidates($record)->mapWithKeys(fn (Service $service) => [$service->id => '#' . $service->id
+                                . ' · ' . (implode(', ', BulkConvert::ipsOf($service->license)) ?: 'never bound')
+                                . ' · until ' . $service->expires_at->format('d/m/Y') . ' · ' . $service->formatted_price . ' ' . ($service->plan->name ?? '')])->all())
+                            ->noSearchResultsMessage('None')
+                            ->helperText('Running, renewing licenses of this client checked with the same secret. One cancelling, or with a list, is not offered.'),
+                        Placeholder::make('preview')->label('What it does')
+                            ->content(fn (Get $get, Service $record) => self::movePreview($record, array_map('intval', (array) $get('ids')))),
+                    ])
+                    ->action(function (Service $record, array $data, Action $action) {
+                        try {
+                            $moved = BulkConvert::convert($record, array_map('intval', (array) $data['ids']));
+                        } catch (DisplayException $e) {
+                            Notification::make()->danger()->title('Nothing moved')->body(e($e->getMessage()))->send();
+                            $action->halt();
+
+                            return;
+                        }
+                        Notification::make()->success()->title($moved . ' moving in')->body('Each joins at its own expiry.')->send();
+                        $this->refreshFormData(['license']);
+                    }),
+                // Withdrawn before it joined: it renews again as a standalone license.
+                Action::make('undoMoveToBulk')->label('Undo move to bulk')->icon('ri-arrow-go-back-line')->color('gray')
+                    ->visible(fn (Service $record) => $record->license?->bulk_license_id !== null && $record->license->merged_at === null
+                        && in_array($record->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true))
+                    ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription('Its cancellation is withdrawn: it keeps its key and IP and renews again as a standalone license.')
+                    ->action(function (Service $record) {
+                        // Under its lock, while it still runs: the cron ending it meanwhile wins (review of #850).
+                        $withdrawn = DB::transaction(function () use ($record) {
+                            $locked = Service::query()->whereKey($record->id)->lockForUpdate()->first();
+                            if (!in_array($locked?->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true)) {
+                                return false;
+                            }
+                            $locked->cancellation()->get()->each->delete();
+
+                            return true;
+                        });
+                        if (!$withdrawn) {
+                            Notification::make()->danger()->title('Not withdrawn')->body('It ended meanwhile.')->send();
+
+                            return;
+                        }
+                        Notification::make()->success()->title('Move withdrawn')->send();
+                        $this->refreshFormData(['license']);
+                    }),
                 Action::make('editLicense')->label('Edit license')->icon('ri-key-2-line')->color('gray')
-                    ->visible(fn (Service $record) => $record->license !== null)
+                    // Not once it joined a bulk license: its key answers as that one, its own row is history (review of #850).
+                    ->visible(fn (Service $record) => $record->license !== null && $record->license->merged_at === null)
                     ->authorize('update')
                     ->fillForm(fn (Service $record) => $record->license->only(['status', 'valid_ip', 'valid_domain', 'valid_directory', 'tiers', 'max_ips']))
                     ->schema([

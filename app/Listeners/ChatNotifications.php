@@ -20,6 +20,7 @@ use App\Models\Staff;
 use App\Models\Ticket;
 use App\Services\Chat\ChatCard;
 use App\Services\Chat\ChatNotifier;
+use App\Services\Licensing\BulkConvert;
 use App\Services\Reports\IncomeReport;
 use Throwable;
 
@@ -133,8 +134,9 @@ class ChatNotifications
 
     public function handleCancellation(CancellationCreated $event): void
     {
-        if ($event->cancellation->with_parent) {
-            return; // made with its parent's request: one notice, the parent's (ADV-634-4)
+        // Made with its parent's request: one notice, the parent's (ADV-634-4); a move into a bulk license is staff's own.
+        if ($event->cancellation->with_parent || BulkConvert::moving($event->cancellation->service)) {
+            return;
         }
         [$type, $reason, $serviceId] = [$event->cancellation->type, $event->cancellation->reason, $event->cancellation->service_id];
         $this->tell(fn () => ChatNotifier::notify('cancellation_requested', function () use ($type, $reason, $serviceId) {

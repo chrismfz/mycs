@@ -9,6 +9,7 @@ use App\Helpers\NotificationHelper;
 use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\License;
 use App\Models\ModuleAction;
 use App\Models\Service;
 use App\Services\Invoice\CancelOpenInvoices;
@@ -68,6 +69,13 @@ class DeleteService
             if ($unseen->isNotEmpty()) {
                 throw new DisplayException(__('services.addons.delete_addons_changed', ['addons' => implode(', ', self::labels($unseen))]));
             }
+        }
+        // A license that joined a bulk one: its key still answers as the bulk license, from its row (review of #850).
+        // A bulk license that took standalone ones in, or is taking them: their keys answer as it (review of #850).
+        if (License::query()->where('service_id', $service->id)->whereNotNull('merged_at')->exists()
+            || License::query()->where('service_id', $service->id)->whereHas('joining', fn ($joining) => $joining->whereNotNull('merged_at')
+                ->orWhereHas('service', fn ($moving) => $moving->whereIn('status', [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED])))->exists()) {
+            throw new DisplayException(__('Its license joined a bulk license and its key still answers as that one: keep this service.'));
         }
         // Before anything outside the database (the server, the gateway): nothing is touched when one refuses.
         if (!$this->check($service, $addons)) {

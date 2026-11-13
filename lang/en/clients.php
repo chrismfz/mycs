@@ -7,6 +7,7 @@ return [
         'subscription' => 'It is paid by a subscription of its client (card or PayPal): cancel the subscription first.',
         'changed' => 'It was moved meanwhile: reload the page.',
         'cancellation' => 'Its client asked to cancel it: withdraw the cancellation first.',
+        'bulk_joining' => 'Its client\'s standalone licenses join or joined this bulk license: it stays with them.',
         'draft_split' => 'Draft invoice :invoices bills other items too: finish or split it first.',
         'nothing' => 'Invoice :invoices would be left billing less than nothing, or move nothing: keep a discount with the lines it discounts.',
         'paid_in_part' => 'Its invoices :invoices have a payment: settle them first (the money is its client\'s).',
