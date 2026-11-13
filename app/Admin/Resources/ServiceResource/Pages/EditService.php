@@ -27,6 +27,7 @@ use App\Models\Service;
 use App\Models\SslOrder;
 use App\Models\Staff;
 use App\Services\Clients\MoveToClient;
+use App\Services\Licensing\BulkConvert;
 use App\Services\Licensing\BulkLicenseIps;
 use App\Services\Licensing\BulkUsage;
 use App\Services\Licensing\Licenses;
@@ -44,6 +45,7 @@ use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Radio;
@@ -82,6 +84,19 @@ class EditService extends EditRecord
     }
 
     /** The change of cycle before it is made: what the customer pays from then, and now what is credited and billed. */
+    /** «28 licenses, 27 IPs new to the list (1 never bound), joining 20/11/2026 – 13/12/2026; then 48.60 a month.» */
+    private static function movePreview(Service $bulk, array $ids): string
+    {
+        if ($ids === []) {
+            return 'Pick the licenses to move.';
+        }
+        $p = BulkConvert::preview($bulk, $ids);
+
+        return $p['licenses'] . ' licenses, ' . $p['ips'] . ' IPs new to the list' . ($p['without'] ? ' (' . $p['without'] . ' never bound)' : '')
+            . ', joining ' . ($p['from'] === $p['to'] ? 'on ' . $p['from'] : $p['from'] . ' – ' . $p['to'])
+            . ($p['monthly'] !== null ? '; then ' . $p['monthly'] . ' a month at its prices (net), once all are in.' : '.');
+    }
+
     private static function cyclePreview(Service $service, mixed $planId, string $mode): string
     {
         $plan = ChangeCycle::plans($service)->firstWhere('id', (int) $planId);
@@ -689,6 +704,47 @@ class EditService extends EditRecord
                             return;
                         }
                         Notification::make()->success()->title($removed . ' removed')->send();
+                        $this->refreshFormData(['license']);
+                    }),
+                // Standalone licenses moved into this bulk one (docs/zonecloud-bulk-license.md §8.1): each joins at its own expiry.
+                Action::make('moveLicensesIn')->label('Move standalone licenses in')->icon('ri-inbox-archive-line')->color('gray')
+                    ->visible(fn (Service $record) => $record->license !== null && Licenses::isBulk($record)
+                        && in_array($record->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true))
+                    ->authorize('update')
+                    ->modalDescription('Each keeps working as it is until its own expiry, then joins this list with its IP, and its key answers as this license. Its renewal stops (a cancellation at the end of its period); no mail to the client: tell them once.')
+                    ->modalSubmitActionLabel('Move')
+                    ->schema([
+                        CheckboxList::make('ids')->label('Standalone licenses of this client')->required()->live()->bulkToggleable()->searchable()
+                            ->options(fn (Service $record) => BulkConvert::candidates($record)->mapWithKeys(fn (Service $service) => [$service->id => '#' . $service->id
+                                . ' · ' . (implode(', ', BulkConvert::ipsOf($service->license)) ?: 'never bound')
+                                . ' · until ' . $service->expires_at->format('d/m/Y') . ' · ' . $service->formatted_price . ' ' . ($service->plan->name ?? '')])->all())
+                            ->noSearchResultsMessage('None')
+                            ->helperText('Running, renewing licenses of this client checked with the same secret. One cancelling, or with a list, is not offered.'),
+                        Placeholder::make('preview')->label('What it does')
+                            ->content(fn (Get $get, Service $record) => self::movePreview($record, array_map('intval', (array) $get('ids')))),
+                    ])
+                    ->action(function (Service $record, array $data, Action $action) {
+                        try {
+                            $moved = BulkConvert::convert($record, array_map('intval', (array) $data['ids']));
+                        } catch (DisplayException $e) {
+                            Notification::make()->danger()->title('Nothing moved')->body(e($e->getMessage()))->send();
+                            $action->halt();
+
+                            return;
+                        }
+                        Notification::make()->success()->title($moved . ' moving in')->body('Each joins at its own expiry.')->send();
+                        $this->refreshFormData(['license']);
+                    }),
+                // Withdrawn before it joined: it renews again as a standalone license.
+                Action::make('undoMoveToBulk')->label('Undo move to bulk')->icon('ri-arrow-go-back-line')->color('gray')
+                    ->visible(fn (Service $record) => $record->license?->bulk_license_id !== null && $record->license->merged_at === null
+                        && in_array($record->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true))
+                    ->authorize('update')
+                    ->requiresConfirmation()
+                    ->modalDescription('Its cancellation is withdrawn: it keeps its key and IP and renews again as a standalone license.')
+                    ->action(function (Service $record) {
+                        $record->cancellation()->get()->each->delete();
+                        Notification::make()->success()->title('Move withdrawn')->send();
                         $this->refreshFormData(['license']);
                     }),
                 Action::make('editLicense')->label('Edit license')->icon('ri-key-2-line')->color('gray')

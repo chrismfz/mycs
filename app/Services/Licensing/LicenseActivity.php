@@ -19,7 +19,8 @@ class LicenseActivity
 
     public static function record(string $key, ZlicResponse $response, string $ip, string $client): void
     {
-        $license = License::query()->where('license_key', $key)->first(['id']);
+        // A key that joined a bulk license counts on the bulk one (its IP's last good check, §8).
+        $license = MycsLicenseRepository::answering($key);
         if ($license === null) {
             return;
         }

@@ -1867,5 +1867,7 @@
     "Headers": "Headers",
     "Delete this message?": "Διαγραφή αυτού του μηνύματος;",
     "Not checked": "Δεν ελέγχθηκε",
-    "The whole mail": "Όλο το mail"
+    "The whole mail": "Όλο το mail",
+    "Moved into bulk license (service #:id)": "Μεταφέρθηκε σε bulk άδεια (υπηρεσία #:id)",
+    "service #:id": "υπηρεσία #:id"
 }

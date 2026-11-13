@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Events\ServiceCancellation as ServiceCancellationEvent;
 use App\Models\ServiceCancellation;
+use App\Services\Licensing\BulkConvert;
 use App\Services\Service\AddonCascade;
 
 class ServiceCancellationObserver
@@ -31,6 +32,7 @@ class ServiceCancellationObserver
     public function deleted(ServiceCancellation $serviceCancellation): void
     {
         AddonCascade::withdrawWithParent($serviceCancellation);
+        BulkConvert::withdraw($serviceCancellation->service_id); // a move into a bulk license, withdrawn before it joined
         event(new ServiceCancellationEvent\Deleted($serviceCancellation));
     }
 }

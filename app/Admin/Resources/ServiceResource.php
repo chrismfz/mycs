@@ -452,6 +452,10 @@ class ServiceResource extends Resource
                         TextEntry::make('license_ips')->label('IP addresses')->columnSpanFull()->listWithLineBreaks()->placeholder('None yet')
                             ->visible(fn (Service $record) => Licenses::isBulk($record))
                             ->state(fn (Service $record) => self::bulkIps($record)),
+                        // Moving into a bulk license, or standalone ones moving into this one (docs/zonecloud-bulk-license.md §8.1).
+                        TextEntry::make('license_bulk_move')->label('Bulk move')->columnSpanFull()
+                            ->state(fn (Service $record) => self::bulkMove($record))
+                            ->visible(fn (Service $record) => self::bulkMove($record) !== null),
                         TextEntry::make('license.last_ok_at')->label('Last good check')->since()->dateTimeTooltip()->placeholder('Never'),
                         TextEntry::make('license.last_seen_ip')->label('Last seen from')
                             ->state(fn (Service $record) => trim(($record->license->last_seen_ip ?? '') . ' ' . ($record->license->last_seen_client ?? '')) ?: null)->placeholder('—'),
@@ -607,6 +611,30 @@ class ServiceResource extends Resource
                     self::deleteBulkAction(),
                 ]),
             ]);
+    }
+
+    /** «Joins the bulk license of service #4120 at its expiry, 20/11/2026», or a bulk one's «3 joining (next 20/11/2026), 25 joined». */
+    private static function bulkMove(Service $record): ?string
+    {
+        $license = $record->license;
+        if ($license === null) {
+            return null;
+        }
+        if ($license->bulk_license_id !== null) {
+            $bulk = $license->bulkLicense?->service_id;
+
+            return $license->merged_at !== null
+                ? 'Joined the bulk license of service #' . $bulk . ' on ' . $license->merged_at->format('d/m/Y') . ': its key answers as that license.'
+                : 'Joins the bulk license of service #' . $bulk . ' at its expiry' . ($record->expires_at ? ', ' . $record->expires_at->format('d/m/Y') : '') . '.';
+        }
+        $joining = $license->joining()->whereNull('merged_at')->with('service')->get();
+        $joined = $license->joining()->whereNotNull('merged_at')->count();
+        if ($joining->isEmpty() && $joined === 0) {
+            return null;
+        }
+        $next = $joining->map(fn (License $one) => $one->service?->expires_at)->filter()->min();
+
+        return $joining->count() . ' joining' . ($next ? ' (next ' . $next->format('d/m/Y') . ')' : '') . ', ' . $joined . ' joined';
     }
 
     /**
