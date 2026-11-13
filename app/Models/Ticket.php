@@ -21,6 +21,8 @@ use OwenIt\Auditing\Contracts\Auditable;
  *
  * @property int|null $client_id
  * @property string|null $last_reply_at read with the list (withMax of its public messages)
+ * @property int|bool|null $last_reply_by_staff read with a client's tickets: whether its last public message is staff's
+ * @property int|null $messages_count read with a client's tickets: its public messages
  * @property Carbon|null $pinned_at pinned to the top of staff's list (§6μ)
  */
 #[ObservedBy([TicketObserver::class])]

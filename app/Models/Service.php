@@ -45,6 +45,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read mixed $label
  * @property-read mixed $base_label
  * @property-read mixed $baseLabel
+ * @property-read string $mail_name
  * @property-read mixed $description
  * @property-read mixed $cancellable
  * @property-read mixed $upgradable
