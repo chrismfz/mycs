@@ -79,7 +79,8 @@ class RevenueTool extends McpTool
         // The running month is not whole: the same days a year earlier as well, so «this month against last year» is fair.
         if ($year === (int) $now->format('Y')) {
             $from = $now->startOfMonth()->subYearNoOverflow();
-            $until = $now->addDay()->startOfDay()->subYearNoOverflow();
+            // A year back first, then to the next day (as ProductIncome): on 28 Feb of a leap year, 28 Feb is kept (ADV-857-4).
+            $until = $now->subYearNoOverflow()->addDay()->startOfDay();
             $cents = 0;
             foreach ($last['invoices'] as $row) {
                 if ($row['paid_at'] >= $from && $row['paid_at'] < $until) {

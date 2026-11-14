@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use App\Services\Ops\Scrub;
+use App\Support\LicenseKeyMask;
 use App\Support\ServiceIdentifier;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Database\Eloquent\Builder;
@@ -33,6 +34,9 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 class SearchTool extends McpTool
 {
     public const KINDS = ['clients', 'services', 'domains', 'tickets'];
+
+    /** Characters of a ticket message shown around the match. */
+    public const MATCHED = 300;
 
     public function schema(JsonSchema $schema): array
     {
@@ -88,7 +92,7 @@ class SearchTool extends McpTool
             ->limit($limit * 5)->pluck('client_id')
             ->merge(self::anyContains(User::query(), ['email'], $text)->limit($limit)->get()->flatMap(fn (User $user) => $user->clients()->pluck('clients.id')))
             ->merge(self::anyContains(Domain::query(), ['fqdn'], $text)->limit($limit)->pluck('client_id'))
-            ->merge(self::anyContains(Service::query(), ['domain', 'username', 'dedicated_ip'], $text)->limit($limit)->pluck('client_id'))
+            ->merge(self::matchingServices($text)->limit($limit)->pluck('client_id'))
             ->filter()->map(fn ($id) => (int) $id)->unique()->take($limit)->values()->all();
 
         return Client::query()->whereIn('id', $ids)->with(['primaryContact', 'group'])->withCount(['services', 'domains'])->orderByDesc('id')->get()
@@ -102,14 +106,27 @@ class SearchTool extends McpTool
     /** @return list<array<string, mixed>> */
     private static function services(string $text, int $limit): array
     {
-        return Service::query()->with(['product', 'license', 'client.primaryContact'])
-            ->where(fn (Builder $q) => self::anyContains($q, ['domain', 'username', 'dedicated_ip', 'label'], $text))
+        return self::matchingServices($text, ['label'])->with([...ServiceIdentifier::RELATIONS, 'client.primaryContact'])
             ->orderByDesc('id')->limit($limit)->get()
             ->map(fn (Service $service) => [
                 'id' => $service->id, 'status' => $service->status,
                 'service' => ServiceIdentifier::named($service, trim((string) ($service->product->name ?? ''))),
                 'account' => '#' . $service->client_id . ' ' . $service->client?->name, 'expires' => $service->expires_at?->toDateString(),
             ])->all();
+    }
+
+    /**
+     * Services whose domain, username, IPs (dedicated and assigned, as the admin's search) or $more hold $text. A domain
+     * that is its license's key is matched whole only, to staff who see keys masked (LicenseKeyMask, SA-11): a part of
+     * it would answer «the key holds X» one character at a time (review of #857, ADV-857-1).
+     *
+     * @param  list<string>  $more
+     * @return Builder<Service>
+     */
+    private static function matchingServices(string $text, array $more = []): Builder
+    {
+        return Service::query()->where(fn (Builder $q) => LicenseKeyMask::whereDomainLike(
+            self::anyContains($q, ['username', 'dedicated_ip', 'assigned_ips', ...$more], $text), trim($text), 'or'));
     }
 
     /** @return list<array<string, mixed>> */
@@ -122,7 +139,7 @@ class SearchTool extends McpTool
             ])->all();
     }
 
-    /** By subject, then by a message's text (newest first); the matching message's opening, so staff see why. @return list<array<string, mixed>> */
+    /** By subject, then by a message's text (newest first); the text around the match, so staff see why. @return list<array<string, mixed>> */
     private static function tickets(string $text, int $limit): array
     {
         $bySubject = self::anyContains(Ticket::query(), ['subject'], $text)->orderByDesc('id')->limit($limit)->pluck('id');
@@ -135,13 +152,27 @@ class SearchTool extends McpTool
                 'id' => $ticket->id, 'reference' => $ticket->reference, 'subject' => Scrub::text($ticket->subject), 'status' => $ticket->status,
                 'department' => $ticket->department?->name, 'account' => $ticket->client_id ? '#' . $ticket->client_id . ' ' . $ticket->client?->name : null,
                 'updated_at' => $ticket->updated_at?->toDateTimeString(),
-                'matched_text' => ($hit = $hits->get($ticket->id)?->first()) ? Scrub::text(mb_substr((string) $hit->message, 0, 300)) : null,
+                'matched_text' => ($hit = $hits->get($ticket->id)?->first()) ? self::around((string) $hit->message, $text) : null,
             ])->all();
     }
 
     /**
-     * Any of $columns holds $text, case aside, its % and _ taken literally on MariaDB and SQLite alike (as
-     * TicketResource::whereContains). The columns are ours, never the caller's.
+     * Up to MATCHED characters of $message around $text, scrubbed whole first (a secret cut in two would no longer be
+     * known to Scrub: review of #857, ADV-857-2).
+     */
+    private static function around(string $message, string $text): string
+    {
+        $clean = (string) Scrub::text($message);
+        $at = mb_stripos($clean, trim($text));
+        $start = $at === false ? 0 : max(0, $at - intdiv(self::MATCHED, 3));
+
+        return ($start > 0 ? '…' : '') . mb_substr($clean, $start, self::MATCHED) . (mb_strlen($clean) > $start + self::MATCHED ? '…' : '');
+    }
+
+    /**
+     * Any of $columns holds $text, its % and _ taken literally on MariaDB and SQLite alike (an explicit ESCAPE). Case
+     * aside as the database compares: MariaDB's collation folds Greek too, SQLite's LIKE ASCII only (tests). The
+     * columns are ours, never the caller's.
      *
      * @template TBuilder of Builder
      *
@@ -151,15 +182,11 @@ class SearchTool extends McpTool
      */
     private static function anyContains(Builder $query, array $columns, string $text): Builder
     {
-        $escape = fn (string $value) => '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $value) . '%';
-        // Also as typed: SQLite's LOWER folds ASCII only, so a Greek «Θεσσαλονίκη» would not find itself lowered.
-        $likes = array_values(array_unique([$escape(mb_strtolower(trim($text))), $escape(trim($text))]));
+        $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], trim($text)) . '%';
 
-        return $query->where(function (Builder $q) use ($columns, $likes) {
+        return $query->where(function (Builder $q) use ($columns, $like) {
             foreach ($columns as $column) {
-                foreach ($likes as $like) {
-                    $q->orWhereRaw('LOWER(' . $column . ") LIKE ? ESCAPE '!'", [$like])->orWhereRaw($column . " LIKE ? ESCAPE '!'", [$like]);
-                }
+                $q->orWhereRaw($column . " LIKE ? ESCAPE '!'", [$like]);
             }
         });
     }
