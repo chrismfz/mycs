@@ -42,6 +42,9 @@ final class Health
     /** The checks without which the instance does not work (GET /health's 503, review H1 of #259); the rest need staff. */
     public const CRITICAL = ['database', 'scheduler'];
 
+    /** What zlic logs for a zonecloud client running with BYPASS_LIC: an unknown key (Zlic::handle). */
+    public const BYPASS_LOGGED = 'Invalid Key - BYPASS_LIC';
+
     /**
      * For a menu badge on every admin page: the report of the last minute, never read by two at once (one reads it
      * again, the others keep the last one meanwhile; review R2 of #258).
@@ -301,8 +304,15 @@ final class Health
         $silent = License::query()->where('status', License::STATUS_ACTIVE)
             ->where(fn ($query) => $query->whereNull('last_ok_at')->orWhere('last_ok_at', '<', now()->subDays(7)))->count();
 
-        return ['status' => self::OK, 'detail' => "{$ok} good / {$failed} failed checks today, {$silent} active licenses silent 7 days",
-            'data' => ['ok_today' => $ok, 'failed_today' => $failed, 'silent' => $silent, 'active' => License::query()->where('status', License::STATUS_ACTIVE)->count()]];
+        // zonecloud agents and nodes with BYPASS_LIC say so (zonecloud docs/roadmap-licensing.md): zlic logs the key it does
+        // not know, with the caller's address. Who runs with the bypass, in the last 7 days.
+        $bypass = DB::table('license_access_logs')->whereNull('license_id')->where('message', self::BYPASS_LOGGED)
+            ->where('created_at', '>=', now()->subDays(7))->distinct()->orderBy('ip')->limit(50)->pluck('ip')->all();
+
+        return ['status' => self::OK, 'detail' => "{$ok} good / {$failed} failed checks today, {$silent} active licenses silent 7 days"
+            . ($bypass === [] ? '' : ', BYPASS_LIC from ' . (count($bypass) >= 50 ? '50+' : count($bypass)) . (count($bypass) === 1 ? ' address' : ' addresses')),
+            'data' => ['ok_today' => $ok, 'failed_today' => $failed, 'silent' => $silent, 'active' => License::query()->where('status', License::STATUS_ACTIVE)->count(),
+                'bypass_ips' => $bypass]];
     }
 
     /** Domains (docs/domains.md D-9): sync errors, pending transfers stuck for 14 days, the oldest sync. */

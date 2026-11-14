@@ -65,6 +65,24 @@ class OpsCommandsTest extends TestCase
         $this->artisan('mycs:health --json')->expectsOutputToContain('"module_actions"')->assertExitCode(2);
     }
 
+    /** A zonecloud client with BYPASS_LIC says so (it asks zlic with that key): health lists its address, a week long. */
+    public function test_health_lists_the_addresses_running_with_bypass_lic(): void
+    {
+        $answer = $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.20'])
+            ->post('/zlic.php', ['license' => 'BYPASS_LIC', 'license_PSK' => 'ZoneCloudNode'])->json();
+        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.20'])->post('/zlic.php', ['license' => 'BYPASS_LIC', 'license_PSK' => 'ZoneCloudAgent']);
+        // Another unknown key is not the bypass; a bypass older than a week is not listed.
+        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.21'])->post('/zlic.php', ['license' => 'ZCAgent-nothere', 'license_PSK' => 'ZoneCloudAgent']);
+        LicenseAccessLog::query()->create(['license_id' => null, 'domain' => '', 'ip' => '198.51.100.22', 'directory' => '',
+            'message' => Health::BYPASS_LOGGED, 'created_at' => now()->subDays(8)]);
+
+        $this->assertSame(['status' => 'Invalid', 'remotecheck' => true], $answer, 'answered as any unknown key');
+        $check = Health::report()['checks']['licenses'];
+        $this->assertSame(['198.51.100.20'], $check['data']['bypass_ips']);
+        $this->assertStringContainsString('BYPASS_LIC from 1 address', $check['detail']);
+        $this->assertSame(Health::OK, $check['status']);
+    }
+
     public function test_the_service_dossier_has_its_story_and_no_secret(): void
     {
         (new ModuleAction)->forceFill(['service_id' => $this->service->id, 'action' => 'suspend', 'status' => ModuleAction::STATUS_OPEN, 'attempts' => 2, 'last_error' => 'Timeout'])->save();

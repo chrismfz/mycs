@@ -181,4 +181,43 @@ class LicensingScreensTest extends TestCase
 
         $this->actingAs($this->staff(['admin.tickets.viewAny']), 'staff')->get(LicenseResource::getUrl())->assertForbidden();
     }
+
+    public function test_the_console_lists_the_licenses_that_ran_past_their_end_and_went_quiet(): void
+    {
+        $staff = $this->staff();
+        $make = function (string $key, string $status, array $seen) {
+            $service = Service::factory()->create(['client_id' => $this->service->client_id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id,
+                'status' => 'cancelled', 'currency_code' => 'USD', 'price' => 0, 'quantity' => 1]);
+
+            return License::query()->create(['service_id' => $service->id, 'license_key' => $key, 'status' => $status, 'reissues' => 0] + $seen);
+        };
+        // Answered «Expired» for a while, silent for 20 days: uninstalled, or kept running some other way.
+        $quiet = $make('ZCAgent-0000000000000a01', License::STATUS_EXPIRED,
+            ['last_access' => now()->subDays(20), 'last_failure_at' => now()->subDays(20), 'last_failure' => 'Expired (192.0.2.10)']);
+        $suspended = $make('ZCAgent-0000000000000a02', License::STATUS_SUSPENDED,
+            ['last_access' => now()->subDays(10), 'last_failure_at' => now()->subDays(10), 'last_failure' => 'Suspended (192.0.2.11)']);
+        // Still calling: the other tab's.
+        $calling = $make('ZCAgent-0000000000000a03', License::STATUS_EXPIRED,
+            ['last_access' => now()->subDay(), 'last_failure_at' => now()->subDay(), 'last_failure' => 'Expired (192.0.2.12)']);
+        // Never asked after its end (its last failure was something else): no sign it ran past it.
+        $never = $make('ZCAgent-0000000000000a04', License::STATUS_EXPIRED,
+            ['last_access' => now()->subDays(20), 'last_failure_at' => now()->subDays(20), 'last_failure' => 'IP Address Invalid (192.0.2.13)']);
+        // Quiet for longer than the worklist looks back.
+        $old = $make('ZCAgent-0000000000000a05', License::STATUS_EXPIRED,
+            ['last_access' => now()->subDays(LicenseResource::QUIET_DAYS + 1), 'last_failure_at' => now()->subDays(LicenseResource::QUIET_DAYS + 1), 'last_failure' => 'Expired (192.0.2.14)']);
+        // Suspended once (non-payment), then good checks while Active, then ended and went quiet: it never ran past its end.
+        $paidLater = $make('ZCAgent-0000000000000a06', License::STATUS_EXPIRED, ['last_access' => now()->subDays(20), 'last_ok_at' => now()->subDays(20),
+            'last_failure_at' => now()->subMonths(2), 'last_failure' => 'Suspended (192.0.2.16)']);
+        // Joined a bulk license: the bulk one answers for it now, its own row is frozen.
+        $merged = $make('ZCAgent-0000000000000a07', License::STATUS_EXPIRED, ['last_access' => now()->subDays(20), 'last_failure_at' => now()->subDays(20),
+            'last_failure' => 'Expired (192.0.2.17)', 'merged_at' => now()->subDays(19)]);
+        // Good checks earlier, then its end answered «Expired» and it went quiet: listed.
+        $ranPast = $make('ZCAgent-0000000000000a08', License::STATUS_EXPIRED, ['last_access' => now()->subDays(15), 'last_ok_at' => now()->subDays(30),
+            'last_failure_at' => now()->subDays(15), 'last_failure' => 'Expired (192.0.2.18)']);
+        // Renewed: active again, not here.
+        $this->license->update(['last_access' => now()->subDays(20), 'last_failure_at' => now()->subDays(20), 'last_failure' => 'Expired (192.0.2.15)']);
+
+        $this->livewireAs($staff)->withQueryParams(['tab' => 'quiet'])->test(ListLicenses::class)
+            ->assertCanSeeTableRecords([$quiet, $suspended, $ranPast])->assertCanNotSeeTableRecords([$calling, $never, $old, $paidLater, $merged, $this->license]);
+    }
 }
