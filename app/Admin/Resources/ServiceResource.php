@@ -25,12 +25,14 @@ use App\Models\Contact;
 use App\Models\CpanelAccount;
 use App\Models\Currency;
 use App\Models\License;
+use App\Models\LicenseInstall;
 use App\Models\MailcowDomain;
 use App\Models\Plan;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\ServiceUsage;
 use App\Services\Licensing\Licenses;
+use App\Services\Licensing\LicenseTelemetry;
 use App\Services\Ops\Scrub;
 use App\Services\Payment\ItemPaymentMethod;
 use App\Services\Service\DeleteService;
@@ -463,6 +465,10 @@ class ServiceResource extends Resource
                                 ? $record->license->last_failure_at->diffForHumans() . ': ' . $record->license->last_failure : null)->placeholder('None'),
                         TextEntry::make('license_checks')->label('Checks, last 30 days')->columnSpanFull()
                             ->state(fn (Service $record) => self::licenseChecks($record)),
+                        // What the software says of itself on /api/v1/licensing/check: newest first, at most 10.
+                        TextEntry::make('license_installs')->label('Installs')->columnSpanFull()->listWithLineBreaks()->placeholder('None reported')
+                            ->state(fn (Service $record) => $record->license?->installs()->orderByDesc('last_seen_at')->limit(10)->get()
+                                ->map(fn (LicenseInstall $install) => LicenseTelemetry::describe($install))->all() ?: null),
                     ]),
                 Textarea::make('notes')->label('Admin Notes')->hintIcon(...$hint('Staff only.'))->rows(2)->columnSpanFull(),
             ]);

@@ -96,6 +96,8 @@ final class Retention
                 'label' => 'Cron statistics', 'description' => 'How much each daily cron step did (Automation status).'],
             'license_check_days' => ['table' => 'license_check_days', 'column' => 'day', 'setting' => 'retention_license_checks_days', 'default' => 400,
                 'label' => 'License checks per day', 'description' => 'How many checks each license made a day (a service\'s licensing graph).'],
+            'license_installs' => ['table' => 'license_installs', 'column' => 'last_seen_at', 'setting' => 'retention_license_installs_days', 'default' => 400,
+                'label' => 'License installs', 'description' => 'What each install of the licensed software said of itself (version, build, clock), by when it was last seen.'],
             'staff_messages' => ['table' => 'staff_messages', 'column' => 'created_at', 'setting' => 'retention_staff_messages_days', 'default' => 0,
                 'label' => 'Staff chat', 'description' => 'The staff room and direct messages.'],
         ];

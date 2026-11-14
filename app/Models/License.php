@@ -89,6 +89,12 @@ class License extends Model implements Auditable
         return $this->hasMany(LicenseIp::class);
     }
 
+    /** @return HasMany<LicenseInstall, $this> the installs that described themselves on /api/v1/licensing/check */
+    public function installs(): HasMany
+    {
+        return $this->hasMany(LicenseInstall::class);
+    }
+
     /** @return BelongsTo<License, $this> the bulk license this one joins at its expiry, or joined (§8) */
     public function bulkLicense(): BelongsTo
     {

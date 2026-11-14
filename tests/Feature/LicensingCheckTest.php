@@ -1,0 +1,195 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Admin\Resources\LicenseResource\Pages\ListLicenses;
+use App\Admin\Resources\ServiceResource\Pages\EditService;
+use App\Helpers\ExtensionHelper;
+use App\Models\License;
+use App\Models\LicenseInstall;
+use App\Models\Role;
+use App\Models\Server;
+use App\Models\Service;
+use App\Models\Setting;
+use App\Models\Staff;
+use App\Models\User;
+use App\Services\Licensing\LicenseTelemetry;
+use Filament\Facades\Filament;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\TestResponse;
+use Tests\TestCase;
+
+/**
+ * POST /api/v1/licensing/check (docs/licensing.md, «Τηλεμετρία»): zlic.php's answer, from the same code, and what the
+ * software says of itself, kept after the answer and never changing it.
+ */
+class LicensingCheckTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private const IP = '198.51.100.7';
+
+    private Service $service;
+
+    private License $license;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['settings.default_currency' => 'USD']);
+        $server = Server::query()->create(['name' => 'Licensing', 'extension' => 'NixpalLicensing', 'type' => 'server', 'enabled' => true]);
+        $product = $this->createProduct();
+        $product->product->update(['server_id' => $server->id]);
+        foreach (['key_prefix' => ['ZCAgent-', false], 'key_length' => ['16', false], 'secret_key' => ['TestSecret', true]] as $key => [$value, $encrypted]) {
+            (new Setting)->forceFill(['key' => $key, 'value' => $value, 'encrypted' => $encrypted, 'type' => 'string',
+                'settingable_id' => $product->product->id, 'settingable_type' => $product->product->getMorphClass()])->save();
+        }
+        $this->service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'plan_id' => $product->plan->id,
+            'product_id' => $product->product->id, 'status' => 'active', 'currency_code' => 'USD', 'price' => 0, 'quantity' => 1,
+            'expires_at' => now()->addMonth(), 'server_id' => $server->id]);
+        ExtensionHelper::createServer($this->service);
+        $this->license = License::query()->sole();
+    }
+
+    /** @param  array<string, mixed>  $telemetry */
+    private function check(array $telemetry = [], ?string $key = null, string $ip = self::IP, string $psk = 'TestSecret'): TestResponse
+    {
+        return $this->withServerVariables(['REMOTE_ADDR' => $ip])
+            ->postJson('/api/v1/licensing/check', ['license' => $key ?? $this->license->license_key, 'license_PSK' => $psk] + ($telemetry === [] ? [] : ['telemetry' => $telemetry]));
+    }
+
+    /** @return array<string, mixed> zlic's answer without what changes on every call (the check token's hash, the local key over it) */
+    private static function steady(TestResponse $response): array
+    {
+        return array_diff_key((array) json_decode((string) $response->getContent(), true), ['md5hash' => 1, 'localkey' => 1]);
+    }
+
+    private function telemetry(array $overrides = []): array
+    {
+        return $overrides + ['product' => 'agent', 'version' => '2026.11.14.2129', 'build_time' => '2026-11-14T21:29:26', 'commit' => 'abc1234',
+            'sha256' => str_repeat('ab', 32), 'install_id' => '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b', 'client_time' => now()->getTimestamp(),
+            'os' => 'linux', 'arch' => 'amd64', 'licensed' => true, 'failures' => 0];
+    }
+
+    public function test_it_answers_as_zlic_php_for_json_and_forms_and_any_key(): void
+    {
+        $this->freezeTime();
+        $v1 = $this->check($this->telemetry());
+        $v1->assertOk()->assertHeader('Content-Type', 'application/json');
+        $this->assertSame('Active', $v1->json('status'));
+        $this->assertNotEmpty($v1->json('localkey'));
+        $zlic = $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/zlic.php', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
+        $this->assertSame(self::steady($zlic), self::steady($v1));
+
+        $form = $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/api/v1/licensing/check', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
+        $this->assertSame(self::steady($zlic), self::steady($form));
+
+        foreach ([['ZCAgent-nothere', 'TestSecret', self::IP], [$this->license->license_key, 'wrong', self::IP], [$this->license->license_key, 'TestSecret', '203.0.113.9']] as [$key, $psk, $ip]) {
+            $this->assertSame(self::steady($this->withServerVariables(['REMOTE_ADDR' => $ip])->post('/zlic.php', ['license' => $key, 'license_PSK' => $psk])),
+                self::steady($this->check($this->telemetry(), $key, $ip, $psk)), "{$key} / {$psk} / {$ip}");
+        }
+        $missing = $this->postJson('/api/v1/licensing/check', ['license' => $this->license->license_key]);
+        $missing->assertStatus(400);
+        $this->assertSame($this->post('/zlic.php', ['license' => $this->license->license_key])->getContent(), $missing->getContent());
+        $this->get('/api/v1/licensing/check')->assertStatus(405);
+    }
+
+    public function test_it_keeps_what_the_install_says_and_sees_an_upgrade_and_a_downgrade(): void
+    {
+        $this->freezeTime();
+        $this->check($this->telemetry(['client_time' => now()->getTimestamp() + 3 * 86400]))->assertOk();
+
+        $install = LicenseInstall::query()->sole();
+        $this->assertSame([$this->license->id, self::IP, 'agent', '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b', '2026.11.14.2129', 'abc1234', str_repeat('ab', 32),
+            'linux', 'amd64', 3 * 86400, true, 0, 'Active', 1, null, null],
+            [$install->license_id, $install->ip, $install->product, $install->install_id, $install->version, $install->commit, $install->binary_sha256,
+                $install->os, $install->arch, $install->clock_skew, $install->licensed, $install->failures, $install->last_status, $install->checks,
+                $install->previous_version, $install->downgraded_at]);
+        $this->assertSame('2026-11-14 21:29:26', $install->build_time->format('Y-m-d H:i:s'));
+
+        $this->check($this->telemetry(['version' => '2026.12.01.0900', 'build_time' => '2026-12-01T09:00:00']));
+        $install->refresh();
+        $this->assertSame(['2026.12.01.0900', '2026.11.14.2129', 2, null, 0], [$install->version, $install->previous_version, $install->checks, $install->downgraded_at, $install->clock_skew]);
+
+        // Back to the older build: a downgrade.
+        $this->check($this->telemetry());
+        $install->refresh();
+        $this->assertSame(['2026.11.14.2129', '2026.12.01.0900', 3], [$install->version, $install->previous_version, $install->checks]);
+        $this->assertTrue($install->downgraded_at->equalTo(now()));
+
+        // Another install of the same key, and a node on the same address: rows of their own.
+        $this->check($this->telemetry(['install_id' => 'ffffffff-0000-4000-8000-000000000001']));
+        $this->check($this->telemetry(['product' => 'node']));
+        $this->assertSame(3, LicenseInstall::query()->count());
+    }
+
+    public function test_what_a_client_sends_wrong_is_left_out_and_never_changes_the_answer(): void
+    {
+        $this->freezeTime();
+        foreach ([
+            ['product' => ['agent'], 'version' => str_repeat('9', 41), 'build_time' => '2099-01-01T00:00:00', 'commit' => 'not-hex', 'sha256' => 'abc',
+                'install_id' => 'short', 'client_time' => 'yesterday', 'os' => '<script>', 'arch' => str_repeat('x', 17), 'licensed' => 'yes', 'failures' => -1],
+            ['product' => 'toaster', 'build_time' => '1999-01-01', 'client_time' => 99, 'failures' => 2_000_000],
+        ] as $junk) {
+            $answer = $this->check($junk);
+            $answer->assertOk();
+            $this->assertSame('Active', $answer->json('status'));
+        }
+        $this->check()->assertOk(); // no telemetry at all
+        $this->withServerVariables(['REMOTE_ADDR' => self::IP])
+            ->postJson('/api/v1/licensing/check', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret', 'telemetry' => 'a string'])->assertOk();
+
+        $install = LicenseInstall::query()->sole();
+        $this->assertSame(['', '', null, null, null, null, null, null, null, null, null, null, 4],
+            [$install->product, $install->install_id, $install->version, $install->build_time, $install->commit, $install->binary_sha256,
+                $install->os, $install->arch, $install->clock_skew, $install->licensed, $install->failures, $install->downgraded_at, $install->checks]);
+    }
+
+    public function test_an_unknown_key_leaves_nothing_and_a_failed_write_never_changes_the_answer(): void
+    {
+        $this->check($this->telemetry(), 'ZCAgent-nothere')->assertOk();
+        $this->assertSame(0, LicenseInstall::query()->count());
+
+        Schema::drop('license_installs');
+        $answer = $this->check($this->telemetry());
+        $answer->assertOk();
+        $this->assertSame('Active', $answer->json('status'));
+    }
+
+    public function test_staff_see_the_installs_and_their_signals(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Role ' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->freezeTime();
+        $other = Service::factory()->create(['client_id' => $this->service->client_id, 'plan_id' => $this->service->plan_id, 'product_id' => $this->service->product_id,
+            'status' => 'active', 'currency_code' => 'USD', 'price' => 0, 'quantity' => 1]);
+        $quiet = License::query()->create(['service_id' => $other->id, 'license_key' => 'ZCAgent-00000000000000aa', 'status' => License::STATUS_ACTIVE, 'reissues' => 0]);
+        $row = fn (License $license, array $values) => LicenseInstall::query()->create($values + ['license_id' => $license->id, 'ip' => self::IP,
+            'product' => 'agent', 'install_id' => uniqid(), 'version' => '2026.11.14.2129', 'checks' => 1, 'first_seen_at' => now()->subMonth(), 'last_seen_at' => now()]);
+        $row($quiet, ['clock_skew' => 60]); // one install, its clock a minute off: nothing to see
+
+        $this->livewireAs($staff)->withQueryParams(['tab' => 'signals'])->test(ListLicenses::class)->assertCanNotSeeTableRecords([$this->license, $quiet]);
+
+        $row($this->license, ['clock_skew' => -2 * 86400, 'downgraded_at' => now()->subDay(), 'previous_version' => '2026.12.01.0900']);
+        $this->livewireAs($staff)->withQueryParams(['tab' => 'signals'])->test(ListLicenses::class)
+            ->assertCanSeeTableRecords([$this->license])->assertCanNotSeeTableRecords([$quiet]);
+
+        // A second install of a standalone license in the last days is a sign too.
+        $row($quiet, ['ip' => '203.0.113.9']);
+        $this->livewireAs($staff)->withQueryParams(['tab' => 'signals'])->test(ListLicenses::class)->assertCanSeeTableRecords([$quiet]);
+
+        $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
+            ->assertSee('agent 2026.11.14.2129')->assertSee('⚠ downgrade')->assertSee('(was 2026.12.01.0900)')->assertSee('⚠ clock -2d');
+    }
+
+    public function test_describe_says_the_install_in_one_line(): void
+    {
+        Carbon::setTestNow('2026-11-15 12:00:00');
+        $install = new LicenseInstall(['product' => 'node', 'version' => '2026.11.14.2129', 'ip' => self::IP, 'last_seen_at' => now()->subHours(2),
+            'os' => 'linux', 'arch' => 'amd64', 'licensed' => false, 'failures' => 3, 'clock_skew' => 90000]);
+
+        $this->assertSame('node 2026.11.14.2129 · 198.51.100.7 · 2 hours ago · linux/amd64 · degraded (3 failures) · ⚠ clock +1d', LicenseTelemetry::describe($install));
+    }
+}

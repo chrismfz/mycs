@@ -5,6 +5,7 @@ namespace App\Admin\Resources;
 use App\Admin\Clusters\Services;
 use App\Admin\Resources\LicenseResource\Pages\ListLicenses;
 use App\Models\License;
+use App\Models\LicenseInstall;
 use App\Services\Ops\Scrub;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
@@ -34,13 +35,20 @@ class LicenseResource extends Resource
     /** How far back «went quiet after expiry» looks: a worklist, not every license that was ever uninstalled. */
     public const QUIET_DAYS = 90;
 
+    /** The window of the installs' signs: more than one install, a downgrade, a clock far off (the «Signals» tab). */
+    public const INSTALLS_DAYS = 7;
+
     public static function table(Table $table): Table
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query) => $query->with(['service.product', 'service.client.primaryContact', 'service.client.ownerGrant.user', 'bulkLicense']) // what Client::name reads (review R2)
                 // A bulk license's IPs, and the silent ones (docs/zonecloud-bulk-license.md §7.2).
                 ->withCount(['ips as listed_ips' => fn (Builder $ips) => $ips->whereNull('removed_at'),
-                    'ips as silent_ips' => fn (Builder $ips) => $ips->whereNull('removed_at')->whereNotNull('last_ok_at')->where('last_ok_at', '<', now()->subDays(self::SILENT_DAYS))]))
+                    'ips as silent_ips' => fn (Builder $ips) => $ips->whereNull('removed_at')->whereNotNull('last_ok_at')->where('last_ok_at', '<', now()->subDays(self::SILENT_DAYS)),
+                    'installs as recent_installs' => fn (Builder $installs) => $installs->where('last_seen_at', '>=', now()->subDays(self::INSTALLS_DAYS))])
+                // What the newest install says it runs (/api/v1/licensing/check).
+                ->addSelect(['newest_version' => LicenseInstall::query()->select('version')->whereColumn('license_installs.license_id', 'licenses.id')
+                    ->whereNotNull('version')->orderByDesc('last_seen_at')->limit(1)]))
             ->defaultSort('last_access', 'desc')
             ->columns([
                 // The whole key opens the customer's software (a bearer value): only to staff who can change services, the
@@ -72,6 +80,9 @@ class LicenseResource extends Resource
                 TextColumn::make('last_seen_ip')->label('From')->toggleable(),
                 TextColumn::make('last_failure')->label('Last failure')->limit(40)->tooltip(fn (License $record) => $record->last_failure)->toggleable(),
                 TextColumn::make('reissues')->sortable()->toggleable(),
+                TextColumn::make('newest_version')->label('Version')->placeholder('—')->toggleable(),
+                TextColumn::make('recent_installs')->label('Installs')->tooltip('Seen in the last ' . self::INSTALLS_DAYS . ' days')->toggleable()
+                    ->color(fn (License $record) => $record->recent_installs > 1 && $record->listed_ips === 0 ? 'warning' : null),
             ])
             ->filters([
                 SelectFilter::make('status')->options(array_combine($s = [License::STATUS_ACTIVE, License::STATUS_REISSUED, License::STATUS_SUSPENDED, License::STATUS_EXPIRED], $s)),
