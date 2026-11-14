@@ -255,7 +255,7 @@ class LicensingCheckTest extends TestCase
             ->assertSee('agent 2026.11.14.2129')->assertSee('⚠ downgrade')->assertSee('(was 2026.12.01.0900)')->assertSee('⚠ clock -2d');
     }
 
-    /** «Signed token»: with Active, for the caller's key and address, until the due date and at most 30 days. */
+    /** «Signed token»: with Active, for the caller's key and address, 30 days from the check. */
     public function test_an_active_answer_carries_a_token_the_clients_can_verify(): void
     {
         $pair = Token::keypair();
@@ -275,9 +275,13 @@ class LicensingCheckTest extends TestCase
         $this->assertNull($zlic->json('token'), 'zlic.php never has one');
         $this->assertSame(self::steady($zlic), array_diff_key(self::steady($answer), ['token' => 1]));
 
-        // Due in 5 days: until its end.
-        $this->service->update(['expires_at' => now()->addDays(5)]);
-        $this->assertSame(gmmktime(23, 59, 59, 11, 20, 2026), Token::verify($this->check()->json('token'), $keys, $now)['exp']);
+        // Due in 5 days, or overdue and still Active (not suspended yet): 30 days all the same, the status decides
+        // (owner 2026-11-15, option A; review: an expired token for an Active answer).
+        foreach ([now()->addDays(5), now()->subDays(3)] as $due) {
+            $this->service->update(['expires_at' => $due]);
+            $claims = Token::verify($this->check()->json('token'), $keys, $now);
+            $this->assertSame([$due->format('Y-m-d'), $now + 30 * 86400], [$claims['due'], $claims['exp']]);
+        }
 
         // Not for an answer that is not Active, nor from another address.
         $this->assertNull($this->check(ip: '203.0.113.9')->json('token'));

@@ -1,5 +1,5 @@
 {
-    "comment": "A test key (seed 32 x 0x07): never a real one. The clients verify this token with this public key, at a time between iat and exp. exp is Token::expiry(iat, due, 30): the due date is more than 30 days after iat, so iat + 30 days.",
+    "comment": "A test key (seed 32 x 0x07): never a real one. The clients verify this token with this public key, at a time between iat and exp. exp is iat + 30 days, whatever the due date (owner 2026-11-15, option A); due is for information.",
     "kid": "test-1",
     "secret": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwfqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
     "public": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",

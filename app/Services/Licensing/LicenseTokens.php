@@ -10,9 +10,10 @@ use Throwable;
 
 /**
  * The signed token of /licensing/v1/check (docs/licensing.md, «Signed token»): only with «Active», only when the key is
- * set (services.license_token). For the caller's key and address, until the service's due date and at most max_days:
- * a new one at every check, so a yearly license never sees the limit; it is how long a client may run without reaching
- * us, once the token decides (in shadow until then: the clients only say whether it verified).
+ * set (services.license_token). For the caller's key and address, max_days from the check, whatever the due date: the
+ * status decides (an overdue service zlic still answers Active gets one; a suspended one gets none). A new one at every
+ * check, so no license sees the limit while it reaches us; it is how long a client may run without reaching us, once the
+ * token decides (owner 2026-11-15, option A; in shadow until then: the clients only say whether it verified).
  */
 final class LicenseTokens
 {
@@ -42,7 +43,7 @@ final class LicenseTokens
             $due = $due !== null && $due !== '0000-00-00' ? $due : null;
 
             return Token::issue(['key' => $key, 'ip' => $ip, 'status' => 'Active', 'due' => $due, 'iat' => $now,
-                'exp' => Token::expiry($now, $due, (int) config('services.license_token.max_days', 30))],
+                'exp' => $now + max(1, (int) config('services.license_token.max_days', 30)) * 86400],
                 $secret, $kid);
         } catch (Throwable $e) {
             report($e);

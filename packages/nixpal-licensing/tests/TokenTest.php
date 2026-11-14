@@ -22,7 +22,7 @@ final class TokenTest extends TestCase
         $this->assertSame($f['token'], Token::issue($claims, $f['secret'], $f['kid']));
         $this->assertSame($f['public'], Token::publicKey($f['secret']));
         $this->assertSame($f['claims'], Token::verify($f['token'], [$f['kid'] => $f['public']], $f['claims']['iat']));
-        $this->assertSame($f['claims']['exp'], Token::expiry($f['claims']['iat'], $f['claims']['due'], 30), 'the fixture keeps the expiry rule');
+        $this->assertSame($f['claims']['iat'] + 30 * 86400, $f['claims']['exp'], 'the fixture keeps the rule: 30 days from the check');
     }
 
     public function test_a_changed_wrongly_signed_expired_or_unknown_token_is_refused(): void
@@ -64,17 +64,5 @@ final class TokenTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         Token::issue([], Token::keypair()['secret'], 'k.1');
-    }
-
-    public function test_the_expiry_is_the_due_date_or_the_maximum_whichever_first(): void
-    {
-        $now = gmmktime(12, 0, 0, 11, 15, 2026);
-
-        $this->assertSame($now + 30 * 86400, Token::expiry($now, '2027-11-15', 30), 'a yearly license: 30 days, renewed at each check');
-        $this->assertSame(gmmktime(23, 59, 59, 11, 20, 2026), Token::expiry($now, '2026-11-20', 30), 'due in 5 days: its end');
-        $this->assertSame(gmmktime(23, 59, 59, 11, 10, 2026), Token::expiry($now, '2026-11-10', 30), 'overdue: already past');
-        foreach ([null, '0000-00-00', '2026-02-30', 'tomorrow'] as $none) {
-            $this->assertSame($now + 30 * 86400, Token::expiry($now, $none, 30), var_export($none, true));
-        }
     }
 }

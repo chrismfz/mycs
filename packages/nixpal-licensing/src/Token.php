@@ -9,7 +9,8 @@ namespace Nixpal\Licensing;
  *
  * Format: `<kid>.<payload>.<signature>`, payload and signature in base64url without padding. The signature covers the
  * bytes `<kid>.<payload>` exactly as sent, so no client has to rebuild a JSON byte for byte. The payload is a JSON object:
- * v (1), kid, key (the license key), ip (the caller), status, due (Y-m-d or null), iat and exp (unix seconds).
+ * v (1), kid, key (the license key), ip (the caller), status, due (Y-m-d or null, for information), iat and exp (unix
+ * seconds).
  */
 final class Token
 {
@@ -106,27 +107,6 @@ final class Token
         }
 
         return $claims;
-    }
-
-    /**
-     * When a token issued at $now expires: the end of the due date (23:59:59 UTC; the due date is the instance's local
-     * date, so a few hours later there) or $now + $maxDays, whichever comes first. No due date (or WHMCS's 0000-00-00):
-     * $maxDays.
-     *
-     * @param  int  $now
-     * @param  string|null  $due  Y-m-d
-     * @param  int  $maxDays
-     * @return int
-     */
-    public static function expiry($now, $due, $maxDays)
-    {
-        $max = $now + $maxDays * 86400;
-        if (!is_string($due) || !preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $due, $m) || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
-            return $max;
-        }
-        $endOfDue = gmmktime(23, 59, 59, (int) $m[2], (int) $m[3], (int) $m[1]);
-
-        return min($max, $endOfDue);
     }
 
     private static function encode($bytes)
