@@ -252,6 +252,9 @@ class CpanelInventoryTest extends TestCase
 
         AccountSync::sync($this->server);
         $this->assertSame($sub->id, CpanelAccount::query()->where('user', 'sub1')->value('service_id'), 'owned by the server\'s login: ours');
+        // 2026-11-14: WHM refuses listresellers to a reseller's login (nixpal's), an error every sync: not asked, left unknown.
+        Http::assertNotSent(fn (Request $request) => str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/listresellers'));
+        $this->assertNull(CpanelAccount::query()->where('user', 'resel1')->value('reseller'));
 
         $this->assertContains($other->id, AccountSync::servicesWithoutAccount()->pluck('id')->all());
         CpanelAccount::query()->where('user', 'alpha')->update(['service_id' => $other->id]);
