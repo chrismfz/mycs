@@ -98,7 +98,7 @@ class LicensingCheckTest extends TestCase
 
     public function test_it_keeps_what_the_install_says_and_sees_an_upgrade_and_a_downgrade(): void
     {
-        $this->freezeTime();
+        Carbon::setTestNow('2026-12-10 12:00:00'); // after both builds: a build time in the future is left out
         $this->check($this->telemetry(['client_time' => now()->getTimestamp() + 3 * 86400]))->assertOk();
 
         $install = LicenseInstall::query()->sole();
