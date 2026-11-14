@@ -36,6 +36,9 @@ class ServiceModuleTool extends McpTool
     /** A reseller's accounts listed. */
     public const RESOLD = 100;
 
+    /** A mail domain's mailboxes listed (ADV-858-7). */
+    public const MAILBOXES = 200;
+
     public function schema(JsonSchema $schema): array
     {
         return ['service' => $schema->string()->description('Service id, license key, or domain.')->required()];
@@ -62,7 +65,7 @@ class ServiceModuleTool extends McpTool
             'usage' => $usage === null ? null : [
                 'read_at' => $usage->read_at->toDateTimeString(), 'disk_used_mb' => $usage->disk_used_mb, 'disk_limit_mb' => $usage->disk_limit_mb,
                 'bandwidth_used_mb' => $usage->bandwidth_used_mb, 'bandwidth_limit_mb' => $usage->bandwidth_limit_mb,
-                'accounts' => $usage->accounts, 'accounts_limit' => $usage->accounts_limit, 'server_ip' => $usage->server_ip,
+                'accounts' => $usage->accounts, 'accounts_limit' => $usage->accounts_limit, 'accounts_kind' => $usage->accounts_kind, 'server_ip' => $usage->server_ip,
             ],
             'hosted_domains' => $service->hostedDomains->isEmpty() ? null : [
                 'read_at' => (string) $service->hostedDomains->max('read_at'),
@@ -84,8 +87,6 @@ class ServiceModuleTool extends McpTool
         if (!$account instanceof CpanelAccount) {
             return null;
         }
-        $resold = CpanelAccount::query()->where('server_id', $account->server_id)->where('owner', $account->user)->where('user', '!=', $account->user)
-            ->whereNull('gone_at')->orderBy('user')->limit(self::RESOLD)->get();
 
         return [
             'read_at' => $account->last_seen_at?->toDateTimeString(), 'user' => $account->user, 'domain' => $account->domain,
@@ -100,9 +101,10 @@ class ServiceModuleTool extends McpTool
             'backup' => $account->backup, 'created_on_server' => $account->created_on_server_at?->toDateString(),
             'lve' => ['read_at' => $account->lve_read_at?->toDateTimeString(), 'peak_24h_now_limit' => $account->lve(), 'near' => $account->lveNear()],
             'differs' => ($differs = $account->differs()) === null ? null : CpanelAccount::DIFFERS[$differs],
-            'note' => $account->note,
-            'resold_accounts' => $account->reseller ? $resold->map(fn (CpanelAccount $a) => ['user' => $a->user, 'domain' => $a->domain, 'plan' => $a->plan,
-                'disk_used_mb' => $a->disk_used_mb, 'suspended' => $a->suspended, 'service_id' => $a->service_id])->all() : null,
+            'note' => $account->note === null ? null : Scrub::text($account->note),
+            'resold_accounts' => $account->reseller ? CpanelAccount::query()->where('server_id', $account->server_id)->where('owner', $account->user)
+                ->where('user', '!=', $account->user)->whereNull('gone_at')->orderBy('user')->limit(self::RESOLD)->get()->map(fn (CpanelAccount $a) => ['user' => $a->user, 'domain' => $a->domain, 'plan' => $a->plan,
+                    'disk_used_mb' => $a->disk_used_mb, 'suspended' => $a->suspended, 'service_id' => $a->service_id])->all() : null,
         ];
     }
 
@@ -117,21 +119,26 @@ class ServiceModuleTool extends McpTool
             'memory_mb' => intdiv((int) $guest->max_memory, 1048576),
             'disk_gb' => round((int) $guest->max_disk / 1073741824, 1),
             'uptime_hours' => round((int) $guest->uptime / 3600, 1),
-            'ips' => $guest->ips, 'tags' => $guest->tags, 'note' => $guest->note,
+            'ips' => $guest->ips, 'tags' => $guest->tags, 'note' => $guest->note === null ? null : Scrub::text($guest->note),
         ];
     }
 
     /** @return list<array<string, mixed>>|null */
     private static function mailcow(Service $service): ?array
     {
-        $domains = MailcowDomain::query()->where('service_id', $service->id)->whereNull('gone_at')->with('mailboxList')->orderBy('domain')->get();
+        $domains = MailcowDomain::query()->where('service_id', $service->id)->whereNull('gone_at')->orderBy('domain')->get();
+        // None mapped yet: its own domain on its server, as the service page finds it for staff (ADV-858-6).
+        if ($domains->isEmpty() && ($own = MailcowDomain::forService($service, staff: true)) !== null) {
+            $domains = collect([$own]);
+        }
 
         return $domains->isEmpty() ? null : $domains->map(fn (MailcowDomain $d) => [
             'read_at' => $d->last_seen_at?->toDateTimeString(), 'domain' => $d->domain, 'active' => $d->active,
             'mailboxes' => $d->mailboxes, 'mailbox_limit' => $d->mailbox_limit, 'aliases' => $d->aliases, 'alias_limit' => $d->alias_limit,
             'quota_mb' => self::mb($d->quota_bytes), 'used_mb' => self::mb($d->used_bytes), 'messages' => $d->messages,
             'dns_status' => $d->dns_status, 'dns_issues' => $d->dns_issues, 'dns_checked_at' => $d->dns_checked_at?->toDateTimeString(),
-            'mailbox_list' => $d->mailboxList->map(fn (MailcowMailbox $m) => ['address' => $m->address, 'active' => $m->active,
+            'mailbox_list_total' => $d->mailboxList()->count(),
+            'mailbox_list' => $d->mailboxList()->orderBy('address')->limit(self::MAILBOXES)->get()->map(fn (MailcowMailbox $m) => ['address' => $m->address, 'active' => $m->active,
                 'quota_mb' => self::mb($m->quota_bytes), 'used_mb' => self::mb($m->used_bytes), 'messages' => $m->messages,
                 'last_login' => $m->last_login_at?->toDateTimeString()])->all(),
         ])->all();

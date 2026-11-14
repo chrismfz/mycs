@@ -29,6 +29,15 @@ class ServerAccountsTool extends McpTool
 {
     public const SHOW = ['all', 'differs', 'not_mapped', 'near_limits', 'suspended', 'mail_held', 'gone'];
 
+    /** The `show` filters each module has (cPanel: all of them). */
+    public const APPLIES = [
+        'Proxmox' => ['all', 'not_mapped', 'suspended', 'gone'],
+        'Mailcow' => ['all', 'not_mapped', 'near_limits', 'suspended', 'gone'],
+    ];
+
+    /** The key each module's rows come under. */
+    public const ROWS = ['CPanel' => 'accounts', 'Proxmox' => 'guests', 'Mailcow' => 'domains'];
+
     /** Orders of cPanel's accounts: a column, or an LVE peak (withLvePeaks). */
     public const SORT = ['disk' => 'disk_used_mb', 'inodes' => 'inodes_used', 'bandwidth' => 'bandwidth_used_mb'];
 
@@ -66,6 +75,12 @@ class ServerAccountsTool extends McpTool
         $limit = self::limit($request, 50, 200);
         $query = trim((string) $request->get('query'));
         $head = ['server' => ['id' => $server->id, 'name' => $server->name, 'module' => $server->extension], 'show' => $show];
+        // A filter its module has not matches nothing, and says so (review of #858, ADV-858-2): never every row under it.
+        $applies = self::APPLIES[$server->extension] ?? null;
+        if ($applies !== null && !in_array($show, $applies, true)) {
+            return $head + ['total' => 0, self::ROWS[$server->extension] => [],
+                'note' => "show={$show} does not apply to {$server->extension}; it has: " . implode(', ', $applies) . '.'];
+        }
 
         return $head + match ($server->extension) {
             'CPanel' => self::cpanel($server, $show, (string) $request->get('sort'), $query, $limit),
@@ -100,6 +115,10 @@ class ServerAccountsTool extends McpTool
             $accounts->orderBy('user');
         } else {
             // Highest first; an unknown (null) sorts last on MariaDB and SQLite alike.
+            // A suspended account's LVE readings are from before (lve() shows none): it goes last on an LVE order (ADV-858-4).
+            if (!isset(self::SORT[$sort])) {
+                $accounts->orderBy('cpanel_accounts.suspended');
+            }
             $accounts->orderByDesc(self::SORT[$sort] ?? "lve_{$sort}_peak")->orderBy('user');
         }
         $total = (clone $accounts)->count();
@@ -185,7 +204,8 @@ class ServerAccountsTool extends McpTool
     {
         $show === 'gone' ? $query->whereNotNull("{$table}.gone_at") : $query->whereNull("{$table}.gone_at");
         if ($show === 'not_mapped') {
-            $query->whereNull("{$table}.service_id")->where("{$table}.internal", false);
+            // As the admin's «Not mapped»: a Proxmox template is nobody's (ProxmoxGuest::whereUnmapped, ADV-858-3).
+            $table === 'proxmox_guests' ? ProxmoxGuest::whereUnmapped($query) : $query->whereNull("{$table}.service_id")->where("{$table}.internal", false);
         }
         if ($show === 'suspended' && $table === 'cpanel_accounts') {
             $query->where('cpanel_accounts.suspended', true);
