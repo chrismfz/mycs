@@ -15,7 +15,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 /**
  * The licenses console (L2, beyond WHMCS): every nixpal license with its signs of life, the active ones that went
- * silent and the expired or suspended ones still calling. A row opens its service (where staff reissue or edit it).
+ * silent, the expired or suspended ones still calling, and the ones that ran past their end and then stopped asking.
+ * A row opens its service (where staff reissue or edit it).
  */
 class LicenseResource extends Resource
 {
@@ -29,6 +30,9 @@ class LicenseResource extends Resource
 
     /** An active license that has not checked in for this long is «silent». */
     public const SILENT_DAYS = 7;
+
+    /** How far back «went quiet after expiry» looks: a worklist, not every license that was ever uninstalled. */
+    public const QUIET_DAYS = 90;
 
     public static function table(Table $table): Table
     {
