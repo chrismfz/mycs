@@ -68,11 +68,13 @@ class SearchTool extends McpTool
         $wanted = fn (string $kind) => $in === '' || $in === $kind;
 
         $result = ['query' => $query];
+        // A service's username only to who may manage services, as its page shows it (ServiceIdentifier; SEC-1b).
+        $usernames = $may('admin.services.update');
         if ($wanted('clients')) {
-            $result['clients'] = self::clients($query, $limit);
+            $result['clients'] = self::clients($query, $limit, $may('admin.domains.viewAny'), $may('admin.services.viewAny'), $usernames);
         }
         if ($wanted('services') && $may('admin.services.viewAny')) {
-            $result['services'] = self::services($query, $limit);
+            $result['services'] = self::services($query, $limit, $usernames);
         }
         if ($wanted('domains') && $may('admin.domains.viewAny')) {
             $result['domains'] = self::domains($query, $limit);
@@ -84,15 +86,20 @@ class SearchTool extends McpTool
         return $result;
     }
 
-    /** @return list<array<string, mixed>> */
-    private static function clients(string $text, int $limit): array
+    /**
+     * By its contacts and logins; by its domains and services only to who may see those, else the answer «this account
+     * holds a name like X» would show what the role may not see (security review, SEC-1/1b).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function clients(string $text, int $limit, bool $domains, bool $services, bool $usernames): array
     {
         $ids = Contact::query()->whereNull('archived_at')->whereNotNull('client_id')
             ->where(fn (Builder $q) => self::anyContains($q, ['first_name', 'last_name', 'company_name', 'email', 'phone', 'vat_number', 'tax_id'], $text))
             ->limit($limit * 5)->pluck('client_id')
             ->merge(self::anyContains(User::query(), ['email'], $text)->limit($limit)->get()->flatMap(fn (User $user) => $user->clients()->pluck('clients.id')))
-            ->merge(self::anyContains(Domain::query(), ['fqdn'], $text)->limit($limit)->pluck('client_id'))
-            ->merge(self::matchingServices($text)->limit($limit)->pluck('client_id'))
+            ->merge($domains ? self::anyContains(Domain::query(), ['fqdn'], $text)->limit($limit)->pluck('client_id') : [])
+            ->merge($services ? self::matchingServices($text, $usernames)->limit($limit)->pluck('client_id') : [])
             ->filter()->map(fn ($id) => (int) $id)->unique()->take($limit)->values()->all();
 
         return Client::query()->whereIn('id', $ids)->with(['primaryContact', 'group'])->withCount(['services', 'domains'])->orderByDesc('id')->get()
@@ -104,9 +111,9 @@ class SearchTool extends McpTool
     }
 
     /** @return list<array<string, mixed>> */
-    private static function services(string $text, int $limit): array
+    private static function services(string $text, int $limit, bool $usernames): array
     {
-        return self::matchingServices($text, ['label'])->with([...ServiceIdentifier::RELATIONS, 'client.primaryContact'])
+        return self::matchingServices($text, $usernames, ['label'])->with([...ServiceIdentifier::RELATIONS, 'client.primaryContact'])
             ->orderByDesc('id')->limit($limit)->get()
             ->map(fn (Service $service) => [
                 'id' => $service->id, 'status' => $service->status,
@@ -116,17 +123,18 @@ class SearchTool extends McpTool
     }
 
     /**
-     * Services whose domain, username, IPs (dedicated and assigned, as the admin's search) or $more hold $text. A domain
-     * that is its license's key is matched whole only, to staff who see keys masked (LicenseKeyMask, SA-11): a part of
-     * it would answer «the key holds X» one character at a time (review of #857, ADV-857-1).
+     * Services whose domain, IPs (dedicated and assigned, as the admin's search), username ($usernames) or $more hold
+     * $text. A domain that is its license's key is matched whole only, to staff who see keys masked (LicenseKeyMask,
+     * SA-11): a part of it would answer «the key holds X» one character at a time (review of #857, ADV-857-1).
      *
      * @param  list<string>  $more
      * @return Builder<Service>
      */
-    private static function matchingServices(string $text, array $more = []): Builder
+    private static function matchingServices(string $text, bool $usernames, array $more = []): Builder
     {
-        return Service::query()->where(fn (Builder $q) => LicenseKeyMask::whereDomainLike(
-            self::anyContains($q, ['username', 'dedicated_ip', 'assigned_ips', ...$more], $text), trim($text), 'or'));
+        $columns = [...($usernames ? ['username'] : []), 'dedicated_ip', 'assigned_ips', ...$more];
+
+        return Service::query()->where(fn (Builder $q) => LicenseKeyMask::whereDomainLike(self::anyContains($q, $columns, $text), trim($text), 'or'));
     }
 
     /** @return list<array<string, mixed>> */
@@ -139,11 +147,20 @@ class SearchTool extends McpTool
             ])->all();
     }
 
-    /** By subject, then by a message's text (newest first); the text around the match, so staff see why. @return list<array<string, mixed>> */
+    /**
+     * By subject, then by a message's text (newest first); the text around the match, so staff see why. A hit counts
+     * only if the text still holds $text once scrubbed: else asking for a masked token a character at a time would
+     * tell it (security review, SEC-2).
+     *
+     * @return list<array<string, mixed>>
+     */
     private static function tickets(string $text, int $limit): array
     {
-        $bySubject = self::anyContains(Ticket::query(), ['subject'], $text)->orderByDesc('id')->limit($limit)->pluck('id');
-        $byText = self::anyContains(TicketMessage::query(), ['message'], $text)->orderByDesc('id')->limit($limit * 3)->get(['id', 'ticket_id', 'message']);
+        $still = fn (?string $raw) => mb_stripos((string) Scrub::text($raw), trim($text)) !== false;
+        $bySubject = self::anyContains(Ticket::query(), ['subject'], $text)->orderByDesc('id')->limit($limit)->get(['id', 'subject'])
+            ->filter(fn (Ticket $ticket) => $still($ticket->subject))->pluck('id');
+        $byText = self::anyContains(TicketMessage::query(), ['message'], $text)->orderByDesc('id')->limit($limit * 3)->get(['id', 'ticket_id', 'message'])
+            ->filter(fn (TicketMessage $message) => $still($message->message))->values();
         $ids = $bySubject->merge($byText->pluck('ticket_id'))->map(fn ($id) => (int) $id)->unique()->take($limit)->values();
         $hits = $byText->groupBy('ticket_id');
 

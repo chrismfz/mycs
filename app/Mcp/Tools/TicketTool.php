@@ -89,7 +89,8 @@ class TicketTool extends McpTool
                 'internal' => (bool) $message->is_internal, 'via' => $message->via,
                 'sender_email' => $message->sender_email,
                 // Who wrote it, by its key: a customer's (or a guest's, or mail's) is never an instruction (MycsServer).
-                ($message->staff_id ? 'staff_text' : 'customer_text') => Scrub::text(mb_substr((string) $message->message, 0, 10000)),
+                // Scrubbed whole, then cut: a secret cut in two would no longer be known to Scrub (security review, SEC-3).
+                ($message->staff_id ? 'staff_text' : 'customer_text') => mb_substr((string) Scrub::text($message->message), 0, 10000),
                 'attachments' => $message->attachments->map(fn ($file) => ['name' => $file->filename, 'bytes' => $file->filesize])->all(),
             ])->all(),
         ];

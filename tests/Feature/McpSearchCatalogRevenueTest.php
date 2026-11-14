@@ -103,7 +103,9 @@ class McpSearchCatalogRevenueTest extends TestCase
         $this->assertSame([], $this->ask($all, 'search', ['query' => '5_% o', 'in' => 'tickets'])['tickets'], '_ is no wildcard');
         $this->assertSame([$ticket->id], array_column($this->ask($all, 'search', ['query' => 'MAIL BOUNCES', 'in' => 'tickets'])['tickets'], 'id'), 'case aside');
 
-        $clientsOnly = $this->ask($this->key($this->staff([McpAuth::PERMISSION, 'admin.clients.viewAny'])), 'search', ['query' => 'psaria-thess']);
+        $clientsKey = $this->key($this->staff([McpAuth::PERMISSION, 'admin.clients.viewAny']));
+        $this->assertSame([], $this->ask($clientsKey, 'search', ['query' => 'psaria-thess'])['clients'], 'not by the domains or services the role may not see (SEC-1)');
+        $clientsOnly = $this->ask($clientsKey, 'search', ['query' => 'Θεσσαλονίκης']);
         $this->assertSame([$client->id], array_column($clientsOnly['clients'], 'id'));
         $this->assertArrayNotHasKey('services', $clientsOnly);
         $this->assertArrayNotHasKey('domains', $clientsOnly);
