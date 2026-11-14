@@ -57,9 +57,9 @@ final class LicenseTelemetry
             'build_time' => self::time($in['build_time'] ?? null, $now, past: true),
             'clock_skew' => ($client = self::time($in['client_time'] ?? null, $now)) === null
                 ? null : (int) max(-2_000_000_000, min(2_000_000_000, $client->getTimestamp() - $now->getTimestamp())),
-            // JSON's true/false, or a form's "1"/"0"/"true"/"false" (review R5).
             // The client's check of the token it got before: ok, bad, or none (docs/licensing.md, «Signed token»).
             'token_check' => in_array($in['token'] ?? null, self::TOKEN_CHECKS, true) ? $in['token'] : null,
+            // JSON's true/false, or a form's "1"/"0"/"true"/"false" (review R5).
             'licensed' => is_bool($in['licensed'] ?? null) ? $in['licensed']
                 : (is_string($in['licensed'] ?? null) ? ['1' => true, 'true' => true, '0' => false, 'false' => false][strtolower($in['licensed'])] ?? null : null),
             'failures' => ($failures = is_int($in['failures'] ?? null) ? $in['failures']

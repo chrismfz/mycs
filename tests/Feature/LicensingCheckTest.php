@@ -268,7 +268,7 @@ class LicensingCheckTest extends TestCase
         $this->service->update(['expires_at' => now()->addYear()]);
         $answer = $this->check($this->telemetry());
         $claims = Token::verify($answer->json('token'), $keys, $now);
-        $this->assertSame(['v' => 1, 'kid' => 'k20261115', 'key' => $this->license->license_key, 'ip' => self::IP, 'status' => 'Active',
+        $this->assertSame(['v' => 1, 'kid' => 'k20261115', 'key' => $this->license->license_key, 'install' => '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b', 'ip' => self::IP, 'status' => 'Active',
             'due' => '2027-11-15', 'iat' => $now, 'exp' => $now + 30 * 86400], $claims);
         // Everything else is zlic.php's.
         $zlic = $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/zlic.php', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
@@ -284,7 +284,10 @@ class LicensingCheckTest extends TestCase
         }
 
         // Not for an answer that is not Active, nor from another address.
-        $this->assertNull($this->check(ip: '203.0.113.9')->json('token'));
+        $foreign = $this->check(ip: '203.0.113.9');
+        $this->assertSame(['Invalid', 'IP Address Invalid', null], [$foreign->json('status'), $foreign->json('message'), $foreign->json('token')]);
+        // No telemetry, no install: the claim is there, empty (the client checks it against its own).
+        $this->assertSame('', Token::verify($this->check()->json('token'), $keys, $now)['install']);
         $this->license->update(['status' => License::STATUS_SUSPENDED]);
         $suspended = $this->check();
         $this->assertSame('Suspended', $suspended->json('status'));
@@ -310,6 +313,12 @@ class LicensingCheckTest extends TestCase
         $this->assertNull($this->check()->json('token'));
         $this->assertNull($this->check()->json('token'));
         Log::shouldHaveReceived('error')->once();
+
+        // The test vector's key: its secret is in the repository, so never one (review of #864).
+        $vector = json_decode((string) file_get_contents(base_path('packages/nixpal-licensing/tests/fixtures/token/v1.json')), true);
+        config(['services.license_token.secret' => $vector['secret'], 'services.license_token.kid' => 'k1']);
+        $this->assertSame([Token::TEST_PUBLIC_KEY, null], [$vector['public'], $this->check()->json('token')]);
+        $this->artisan('mycs:license-token-key --show')->assertExitCode(1);
     }
 
     /** In shadow: the clients say whether their last token verified; a bad one is a signal. */

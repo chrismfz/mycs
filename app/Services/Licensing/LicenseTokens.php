@@ -18,7 +18,7 @@ use Throwable;
 final class LicenseTokens
 {
     /** The token for this answer, or null: not Active, no key set, or anything failing (the answer goes without it). */
-    public static function forAnswer(string $key, string $ip, ZlicResponse $response): ?string
+    public static function forAnswer(string $key, string $install, string $ip, ZlicResponse $response): ?string
     {
         if (($response->body['status'] ?? null) !== 'Active') {
             return null;
@@ -31,7 +31,9 @@ final class LicenseTokens
             $kid = (string) (config('services.license_token.kid') ?: 'k1');
             // A key or kid that is not one fails every Active check alike: said once a day, without the key (review of the
             // token PR: a report() per check, with the secret in its trace, flooded the log).
-            if (Token::publicKey($secret) === null || preg_match(Token::KID, $kid) !== 1) {
+            // The test vector's key (its secret is in the repository) is never one either.
+            $public = Token::publicKey($secret);
+            if ($public === null || $public === Token::TEST_PUBLIC_KEY || preg_match(Token::KID, $kid) !== 1) {
                 if (Cache::add('license_token:bad_config:' . now()->format('Ymd'), 1, now()->addDay())) {
                     Log::error('License tokens: MYCS_LICENSE_TOKEN_KEY is not an ed25519 secret key, or MYCS_LICENSE_TOKEN_KID not a key id; no tokens are issued (php artisan mycs:license-token-key --show).');
                 }
@@ -42,7 +44,9 @@ final class LicenseTokens
             $due = is_string($response->body['nextduedate'] ?? null) ? $response->body['nextduedate'] : null;
             $due = $due !== null && $due !== '0000-00-00' ? $due : null;
 
-            return Token::issue(['key' => $key, 'ip' => $ip, 'status' => 'Active', 'due' => $due, 'iat' => $now,
+            // `install`: the install id the client sent with its telemetry, so a token one install gets is not good for
+            // copies of it (review of #864: the key alone left one bound install serving tokens to many).
+            return Token::issue(['key' => $key, 'install' => $install, 'ip' => $ip, 'status' => 'Active', 'due' => $due, 'iat' => $now,
                 'exp' => $now + max(1, (int) config('services.license_token.max_days', 30)) * 86400],
                 $secret, $kid);
         } catch (Throwable $e) {

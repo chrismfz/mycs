@@ -9,12 +9,15 @@ namespace Nixpal\Licensing;
  *
  * Format: `<kid>.<payload>.<signature>`, payload and signature in base64url without padding. The signature covers the
  * bytes `<kid>.<payload>` exactly as sent, so no client has to rebuild a JSON byte for byte. The payload is a JSON object:
- * v (1), kid, key (the license key), ip (the caller), status, due (Y-m-d or null, for information), iat and exp (unix
- * seconds).
+ * v (1), kid, key (the license key), install (the install id the client sent, or ''), ip (the caller), status, due
+ * (Y-m-d or null, for information), iat and exp (unix seconds).
  */
 final class Token
 {
     const VERSION = 1;
+
+    /** The public key of the test vector (tests/fixtures/token/v1.json): its secret is public, so never a real one. */
+    const TEST_PUBLIC_KEY = '6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=';
 
     /** A kid is a short name of the key: letters, digits, «-» and «_». */
     const KID = '/^[A-Za-z0-9_-]{1,32}$/';

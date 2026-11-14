@@ -20,6 +20,11 @@ class LicenseTokenKey extends Command
     {
         if ($this->option('show')) {
             $public = Token::publicKey((string) config('services.license_token.secret'));
+            if ($public === Token::TEST_PUBLIC_KEY) {
+                $this->error('MYCS_LICENSE_TOKEN_KEY is the test key of the repository (its secret is public): no tokens are issued. Make a new pair.');
+
+                return self::FAILURE;
+            }
             if ($public === null) {
                 $this->error('MYCS_LICENSE_TOKEN_KEY is not set (or is not an ed25519 secret key): no tokens are issued.');
 

@@ -32,7 +32,7 @@ class LicensingCheckController extends Controller
 
         // zlic.php's answer plus `token`, the one field it does not have (LicenseTokens: Active only, when a key is set).
         // Its other fields, md5hash and localkey among them, stay as they were: the token is outside what they sign.
-        $token = LicenseTokens::forAnswer($params['license'], CallerIp::of($request), $response);
+        $token = LicenseTokens::forAnswer($params['license'], LicenseTelemetry::parse($request->input('telemetry'))['install_id'], CallerIp::of($request), $response);
         if ($token === null) {
             return $answer;
         }
