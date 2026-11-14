@@ -1036,7 +1036,7 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
 
     /**
      * Every account on the server as WHM lists it (owner 2026-10-28: Utilities → Hosting Accounts), in one listaccts, one
-     * showbw and one listresellers: its owner and package, disk and inodes against their limits, this month's bandwidth,
+     * showbw and, with a root login, one listresellers: its owner and package, disk and inodes against their limits, this month's bandwidth,
      * suspension, outgoing mail held or suspended, backups. Reads only; a listaccts without its accounts throws (never
      * taken for an empty server); bandwidth or resellers that cannot be read are left unknown.
      *
@@ -1061,11 +1061,14 @@ class CPanel extends Server implements ReadsHostedDomains, ReadsServiceUsage
             report($e);
             $bandwidth = null;
         }
-        try {
-            $resellers = array_map('strtolower', $this->resellers());
-        } catch (Throwable $e) {
-            report($e);
-            $resellers = null;
+        // A reseller's login (nixpal's) may not list WHM's resellers: not asked, left unknown, no error every sync (2026-11-14).
+        $resellers = null;
+        if (strtolower(trim((string) $this->config('username'))) === 'root') {
+            try {
+                $resellers = array_map('strtolower', $this->resellers());
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
 
         $accounts = [];
