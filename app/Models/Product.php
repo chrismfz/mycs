@@ -96,6 +96,8 @@ class Product extends Model implements Auditable
 
     /**
      * Get the category of the product.
+     *
+     * @return BelongsTo<Category, $this>
      */
     public function category(): BelongsTo
     {

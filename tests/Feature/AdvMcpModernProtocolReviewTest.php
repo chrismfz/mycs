@@ -97,7 +97,7 @@ class AdvMcpModernProtocolReviewTest extends TestCase
             $after = ['MCP-Protocol-Version' => $version];
             $this->send($token, ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'], $after)->assertStatus(202);
             $tools = $this->send($token, ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list', 'params' => (object) []], $after)->assertOk();
-            $this->assertCount(23, (array) $tools->json('result.tools'), 'every tool in one page');
+            $this->assertCount(26, (array) $tools->json('result.tools'), 'every tool in one page');
             $this->assertNull($tools->json('result.nextCursor'));
 
             $call = $this->send($token, ['jsonrpc' => '2.0', 'id' => 3, 'method' => 'tools/call', 'params' => ['name' => 'health', 'arguments' => (object) []]], $after)->assertOk();
