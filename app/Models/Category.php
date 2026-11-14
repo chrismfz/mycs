@@ -86,6 +86,8 @@ class Category extends Model implements Auditable
 
     /**
      * Get the parent category of the category.
+     *
+     * @return BelongsTo<Category, $this>
      */
     public function parent(): BelongsTo
     {
