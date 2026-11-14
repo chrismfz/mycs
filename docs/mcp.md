@@ -161,6 +161,12 @@ reject it in **Other → MCP Proposals** within a day; the menu shows how many a
   stored settings, at most once a minute per server; otherwise it returns the last result, so a looping agent never
   gets MyCS locked out.
 
+- **Internal notes, written at once** (`add_ticket_note`, needs Update Tickets and the ticket's own policy; owner
+  2026-11-14): the one write that needs no approval. A note is for staff only, as the ticket page's «Internal note»: never
+  mailed, never shown to the customer, no status change. It is written as the key's member of staff, marked as the
+  MCP's (`via` = `mcp` and a first line «MCP note»), with secrets masked (Scrub) and format characters dropped; at most
+  5,000 characters, at most 10 MCP notes per ticket in 24 hours; never on a merged ticket. Everything else the MCP may
+  change (prices, products, client details, credits) goes through a proposal.
 - **Ticket reply drafts** (`propose_ticket_reply`, needs Update Tickets): the agent drafts a reply; staff see it on the
   ticket's page above the reply box, its text as written (links as plain text), and «Use the draft» (into the reply box,
   after what they already wrote: they change it and send it themselves) or «Discard». Approving it in MCP Proposals
