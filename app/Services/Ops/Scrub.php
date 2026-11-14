@@ -11,12 +11,16 @@ use App\Support\Redact;
  */
 final class Scrub
 {
-    public static function text(?string $text): ?string
+    /**
+     * $headers false: a Bearer token still masked, but not «Basic …», for text that is kept (an MCP note), where «Basic
+     * troubleshooting» is English, not a header (review of #860, ADV-860-2 and its re-review).
+     */
+    public static function text(?string $text, bool $headers = true): ?string
     {
         if ($text === null || $text === '') {
             return $text;
         }
-        $text = (string) preg_replace('/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=\-]{8,}/i', '$1 ' . Redact::MASK, $text);
+        $text = (string) preg_replace('/\b(' . ($headers ? 'Bearer|Basic' : 'Bearer') . ')\s+[A-Za-z0-9._~+\/=\-]{8,}/i', '$1 ' . Redact::MASK, $text);
         $text = (string) preg_replace_callback('#https?://[^\s"\'<>]+#', fn (array $match) => Redact::url($match[0]), $text);
         $text = Redact::text($text);
         $values = self::configSecrets();

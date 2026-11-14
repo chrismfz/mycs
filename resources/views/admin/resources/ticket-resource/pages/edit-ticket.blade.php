@@ -102,6 +102,7 @@
                                             $message->via === 'link' => [__('Guest page'), 'heroicon-m-link'],
                                             $message->via === 'whmcs' => ['WHMCS', 'heroicon-m-archive-box'],
                                             $message->via === 'api' => ['API', 'heroicon-m-code-bracket'],
+                                            $message->via === \App\Mcp\Tools\TicketNoteTool::VIA => ['MCP', 'heroicon-m-cpu-chip'],
                                             !$message->isFromStaff() && !$message->is_internal => [__('Client area'), 'heroicon-m-user-circle'],
                                             default => [null, null],
                                         };
@@ -160,7 +161,12 @@
                             </dl>
                         @endif
                         <div class="prose max-w-full overflow-x-auto break-words px-4 py-3 dark:prose-invert">
-                            {!! \App\Support\TicketText::html((string) $message->message) !!}
+                            @if ($message->via === \App\Mcp\Tools\TicketNoteTool::VIA)
+                                {{-- An agent's note: as written, links not clickable, as a drafted reply (review of #860, ADV-860-4). --}}
+                                <pre class="whitespace-pre-wrap break-words text-sm font-sans">{{ $message->message }}</pre>
+                            @else
+                                {!! \App\Support\TicketText::html((string) $message->message) !!}
+                            @endif
                         </div>
                         @if ($message->attachments->isNotEmpty())
                             <div class="flex flex-wrap gap-2 px-4 pb-3">

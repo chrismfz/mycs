@@ -94,7 +94,8 @@ abstract class McpTool extends Tool
     }
 
     /**
-     * The tool's own arguments only, each bounded, secrets masked, license keys as prefix…last4 (reviews MCP-R2, R3).
+     * The tool's own arguments only, each bounded, secrets masked (Redact, then Scrub: the config's too, ADV-860-3),
+     * license keys as prefix…last4 (reviews MCP-R2, R3).
      *
      * @return array<string, mixed>
      */
@@ -103,7 +104,7 @@ abstract class McpTool extends Tool
         $names = array_keys($this->schema(new JsonSchemaTypeFactory));
         $arguments = Redact::array(array_intersect_key($request->all(), array_flip($names)));
 
-        return array_map(fn ($value) => is_string($value) ? mb_substr($this->maskKeys($value), 0, 255) : (is_scalar($value) || $value === null ? $value : '[…]'), $arguments);
+        return array_map(fn ($value) => is_string($value) ? mb_substr($this->maskKeys((string) Scrub::text($value)), 0, 255) : (is_scalar($value) || $value === null ? $value : '[…]'), $arguments);
     }
 
     /** @var list<string> license keys among this call's arguments */
