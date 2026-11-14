@@ -222,7 +222,7 @@ class ServiceFieldsAdversarialTest extends TestCase
     {
         $support = $this->staff(['admin.services.viewAny']);
 
-        $this->actingAs($support, 'staff')->get(ServiceResource::getUrl('edit', ['record' => $this->service]))->assertForbidden();
+        $this->actingAs($support, 'staff')->get(ServiceResource::getUrl('edit', ['record' => $this->service]))->assertNotFound();
     }
 
     public function test_holds_the_password_is_not_in_the_admin_list_or_global_search(): void

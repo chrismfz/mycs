@@ -128,7 +128,7 @@ class ClientSummaryAdversarialTest extends TestCase
     {
         $url = ClientResource::getUrl('view', ['record' => $this->user->client()]);
         $this->actingAs($this->staff(['*'], active: false))->get($url)->assertForbidden();
-        $this->actingAs($this->staff(['admin.invoices.viewAny', 'admin.credits.viewAny']))->get($url)->assertForbidden();
+        $this->actingAs($this->staff(['admin.invoices.viewAny', 'admin.credits.viewAny']))->get($url)->assertNotFound();
     }
 
     public function test_client_controlled_fields_are_escaped(): void

@@ -357,7 +357,7 @@ class RedfishMachinesPageTest extends TestCase
 
         $this->staff(['admin.clients.viewAny']);
         Livewire::test(ListRedfishMachines::class)->assertForbidden();
-        Livewire::test(ViewRedfishMachine::class, ['record' => $row->id])->assertForbidden();
+        Livewire::test(ViewRedfishMachine::class, ['record' => $row->id])->assertNotFound();
 
         $this->staff(['admin.servers.viewAny']);
         Livewire::test(ListRedfishMachines::class)->assertOk()->assertTableActionHidden('read', $row)->assertActionHidden('refresh');

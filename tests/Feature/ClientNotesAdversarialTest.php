@@ -57,7 +57,7 @@ class ClientNotesAdversarialTest extends TestCase
         $this->note($client);
         $outsider = $this->staff(['admin.invoices.viewAny']);
 
-        $this->actingAs($outsider, 'staff')->get(ClientResource::getUrl('view', ['record' => $client]))->assertForbidden();
+        $this->actingAs($outsider, 'staff')->get(ClientResource::getUrl('view', ['record' => $client]))->assertNotFound();
         $response = $this->actingAs($outsider, 'staff')->get(ClientResource::getUrl('notes', ['record' => $client]));
 
         $this->assertContains($response->getStatusCode(), [403, 404], 'the Notes page is refused like the Summary');

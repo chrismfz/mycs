@@ -443,6 +443,6 @@ class DomainsD4cAdversarialTest extends TestCase
         $admin = Role::query()->find(1) ?? Role::create(['id' => 1, 'name' => 'admin', 'permissions' => ['*']]);
         $staff = Staff::factory()->create(['role_id' => $admin->id]);
 
-        $this->actingAs($staff)->get(RoleResource::getUrl('edit', ['record' => $admin]))->assertForbidden();
+        $this->actingAs($staff)->get(RoleResource::getUrl('edit', ['record' => $admin]))->assertNotFound();
     }
 }

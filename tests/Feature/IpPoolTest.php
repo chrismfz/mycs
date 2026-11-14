@@ -296,7 +296,7 @@ class IpPoolTest extends TestCase
         $this->get(IpPoolResource::getUrl('view', ['record' => $pool]))->assertOk();
         $this->livewireAs($reader)->test(AddressesRelationManager::class, ['ownerRecord' => $pool, 'pageClass' => ViewIpPool::class])
             ->assertCanSeeTableRecords($pool->addresses()->get())->assertSee('192.0.2.2');
-        $this->get(IpPoolResource::getUrl('edit', ['record' => $pool]))->assertForbidden();
+        $this->get(IpPoolResource::getUrl('edit', ['record' => $pool]))->assertNotFound();
     }
 
     /** Review of #505, 12: an address given while its delete was open is not deleted. */

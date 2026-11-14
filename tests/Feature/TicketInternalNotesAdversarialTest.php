@@ -104,6 +104,6 @@ class TicketInternalNotesAdversarialTest extends TestCase
         $ticket = Ticket::query()->create(['client_id' => $user->client()->id, 'subject' => 'S', 'status' => Ticket::STATUS_OPEN, 'priority' => 'low']);
         $ro = Staff::factory()->create(['role_id' => Role::create(['name' => 'RO', 'permissions' => ['admin.tickets.viewAny']])->id]);
         $this->actingAs($ro, 'staff');
-        Livewire::test(EditTicket::class, ['record' => $ticket->getRouteKey()])->assertForbidden();
+        Livewire::test(EditTicket::class, ['record' => $ticket->getRouteKey()])->assertNotFound();
     }
 }

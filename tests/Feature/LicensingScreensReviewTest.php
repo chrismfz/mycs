@@ -172,7 +172,7 @@ class LicensingScreensReviewTest extends TestCase
     public function test_probe_staff_without_update_cannot_reissue_or_edit_and_console_needs_view_any(): void
     {
         $viewer = $this->staff(['admin.services.viewAny']);
-        $this->actingAs($viewer, 'staff')->get(EditService::getUrl(['record' => $this->service]))->assertForbidden();
+        $this->actingAs($viewer, 'staff')->get(EditService::getUrl(['record' => $this->service]))->assertNotFound();
         $this->actingAs($viewer, 'staff')->get(ListLicenses::getUrl())->assertOk();
     }
 

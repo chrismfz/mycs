@@ -104,7 +104,7 @@ class ClientSummaryTest extends TestCase
         $this->livewireAs($this->staff(['*']))->test(ClientSummaryPage::class, ['record' => $client->getRouteKey()])
             ->assertActionVisible('newInvoice')->assertActionVisible('newTicket')->assertActionVisible('edit');
 
-        $this->actingAs($this->staff(['admin.services.viewAny']))->get(ClientResource::getUrl('view', ['record' => $client]))->assertForbidden();
+        $this->actingAs($this->staff(['admin.services.viewAny']))->get(ClientResource::getUrl('view', ['record' => $client]))->assertNotFound();
     }
 
     public function test_staff_who_may_only_see_clients_see_no_money_services_mails_or_logins(): void
