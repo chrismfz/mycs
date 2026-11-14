@@ -82,7 +82,7 @@ class SecMcpTicketNoteTest extends TestCase
         $ticket = $this->ticket();
         $b64 = base64_encode('whmuser:S3cretPassw0rd!');
 
-        [$error, $text] = $this->note($this->writer(), $ticket, "The panel answers 401 to:\nAuthorization: Basic {$b64}\nBasic troubleshooting done.");
+        [$error, $text] = $this->note($this->writer(), $ticket, "The panel answers 401 to:\nAuthorization: Basic {$b64}\nIn its config: \"Authorization\": \"Basic {$b64}\" and 'authorization' => 'Basic {$b64}'\nBasic troubleshooting done.");
         $this->assertFalse($error, $text);
 
         $stored = (string) TicketMessage::query()->where('ticket_id', $ticket->id)->value('message');

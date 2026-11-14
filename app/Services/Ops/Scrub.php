@@ -22,7 +22,7 @@ final class Scrub
             return $text;
         }
         $text = (string) preg_replace('/\b(' . ($headers ? 'Bearer|Basic' : 'Bearer') . ')\s+[A-Za-z0-9._~+\/=\-]{8,}/i', '$1 ' . Redact::MASK, $text);
-        $text = $headers ? $text : (string) preg_replace('/\b(Authorization\s*:\s*Basic)\s+[A-Za-z0-9._~+\/=\-]{8,}/i', '$1 ' . Redact::MASK, $text);
+        $text = $headers ? $text : (string) preg_replace('/\b(Authorization["\']?\s*(?::|=>?)\s*["\']?Basic)\s+[A-Za-z0-9._~+\/=\-]{8,}/i', '$1 ' . Redact::MASK, $text);
         $text = (string) preg_replace_callback('#https?://[^\s"\'<>]+#', fn (array $match) => Redact::url($match[0]), $text);
         $text = Redact::text($text);
         $values = self::configSecrets();
