@@ -310,7 +310,7 @@ final class Health
             ->where('created_at', '>=', now()->subDays(7))->distinct()->orderBy('ip')->limit(50)->pluck('ip')->all();
 
         return ['status' => self::OK, 'detail' => "{$ok} good / {$failed} failed checks today, {$silent} active licenses silent 7 days"
-            . ($bypass === [] ? '' : ', BYPASS_LIC from ' . count($bypass) . (count($bypass) === 1 ? ' address' : ' addresses')),
+            . ($bypass === [] ? '' : ', BYPASS_LIC from ' . (count($bypass) >= 50 ? '50+' : count($bypass)) . (count($bypass) === 1 ? ' address' : ' addresses')),
             'data' => ['ok_today' => $ok, 'failed_today' => $failed, 'silent' => $silent, 'active' => License::query()->where('status', License::STATUS_ACTIVE)->count(),
                 'bypass_ips' => $bypass]];
     }

@@ -25,8 +25,12 @@ class ListLicenses extends ListRecords
         $calling = fn (Builder $query) => $query->whereIn('status', [License::STATUS_EXPIRED, License::STATUS_SUSPENDED])->where('last_access', '>=', $since);
         $quiet = fn (Builder $query) => $query->whereIn('status', [License::STATUS_EXPIRED, License::STATUS_SUSPENDED])
             ->where('last_access', '<', $since)->where('last_access', '>=', now()->subDays(LicenseResource::QUIET_DAYS))
-            // LicenseActivity writes «Expired (ip)» / «Suspended (ip)» when the answer was its end.
-            ->where(fn (Builder $q) => $q->where('last_failure', 'like', License::STATUS_EXPIRED . ' (%')->orWhere('last_failure', 'like', License::STATUS_SUSPENDED . ' (%'));
+            // LicenseActivity writes «Expired (ip)» / «Suspended (ip)» when the answer was its end, and never clears it: an
+            // older suspension followed by good checks is not «ran past its end» (review of #862, R1).
+            ->where(fn (Builder $q) => $q->where('last_failure', 'like', License::STATUS_EXPIRED . ' (%')->orWhere('last_failure', 'like', License::STATUS_SUSPENDED . ' (%'))
+            ->where(fn (Builder $q) => $q->whereNull('last_ok_at')->orWhereColumn('last_failure_at', '>', 'last_ok_at'))
+            // A key that joined a bulk license answers as the bulk one from then on: its own row stays frozen (R2).
+            ->whereNull('merged_at');
 
         return [
             'all' => Tab::make('All'),

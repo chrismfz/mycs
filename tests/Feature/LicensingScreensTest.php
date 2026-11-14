@@ -205,10 +205,19 @@ class LicensingScreensTest extends TestCase
         // Quiet for longer than the worklist looks back.
         $old = $make('ZCAgent-0000000000000a05', License::STATUS_EXPIRED,
             ['last_access' => now()->subDays(LicenseResource::QUIET_DAYS + 1), 'last_failure_at' => now()->subDays(LicenseResource::QUIET_DAYS + 1), 'last_failure' => 'Expired (192.0.2.14)']);
+        // Suspended once (non-payment), then good checks while Active, then ended and went quiet: it never ran past its end.
+        $paidLater = $make('ZCAgent-0000000000000a06', License::STATUS_EXPIRED, ['last_access' => now()->subDays(20), 'last_ok_at' => now()->subDays(20),
+            'last_failure_at' => now()->subMonths(2), 'last_failure' => 'Suspended (192.0.2.16)']);
+        // Joined a bulk license: the bulk one answers for it now, its own row is frozen.
+        $merged = $make('ZCAgent-0000000000000a07', License::STATUS_EXPIRED, ['last_access' => now()->subDays(20), 'last_failure_at' => now()->subDays(20),
+            'last_failure' => 'Expired (192.0.2.17)', 'merged_at' => now()->subDays(19)]);
+        // Good checks earlier, then its end answered «Expired» and it went quiet: listed.
+        $ranPast = $make('ZCAgent-0000000000000a08', License::STATUS_EXPIRED, ['last_access' => now()->subDays(15), 'last_ok_at' => now()->subDays(30),
+            'last_failure_at' => now()->subDays(15), 'last_failure' => 'Expired (192.0.2.18)']);
         // Renewed: active again, not here.
         $this->license->update(['last_access' => now()->subDays(20), 'last_failure_at' => now()->subDays(20), 'last_failure' => 'Expired (192.0.2.15)']);
 
         $this->livewireAs($staff)->withQueryParams(['tab' => 'quiet'])->test(ListLicenses::class)
-            ->assertCanSeeTableRecords([$quiet, $suspended])->assertCanNotSeeTableRecords([$calling, $never, $old, $this->license]);
+            ->assertCanSeeTableRecords([$quiet, $suspended, $ranPast])->assertCanNotSeeTableRecords([$calling, $never, $old, $paidLater, $merged, $this->license]);
     }
 }
