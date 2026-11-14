@@ -4,7 +4,9 @@ namespace App\Services\Licensing;
 
 use App\Models\LicenseInstall;
 use App\Models\LicenseIp;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Nixpal\Licensing\ZlicResponse;
 use Throwable;
 
@@ -17,6 +19,9 @@ use Throwable;
 final class LicenseTelemetry
 {
     public const PRODUCTS = ['agent', 'node', 'controller'];
+
+    /** The answers after which what the client says is kept: signed ones, to a caller with the key, the PSK and the address. */
+    public const RECORDED = ['Active', 'Suspended', 'Expired'];
 
     /** Installs kept per license: a key in many hands, or one making up install ids, stops growing the table here. */
     public const MAX_INSTALLS = 1000;
@@ -48,8 +53,12 @@ final class LicenseTelemetry
             'build_time' => self::time($in['build_time'] ?? null, $now, past: true),
             'clock_skew' => ($client = self::time($in['client_time'] ?? null, $now)) === null
                 ? null : (int) max(-2_000_000_000, min(2_000_000_000, $client->getTimestamp() - $now->getTimestamp())),
-            'licensed' => is_bool($in['licensed'] ?? null) ? $in['licensed'] : null,
-            'failures' => is_int($in['failures'] ?? null) && $in['failures'] >= 0 && $in['failures'] <= 1_000_000 ? $in['failures'] : null,
+            // JSON's true/false, or a form's "1"/"0"/"true"/"false" (review R5).
+            'licensed' => is_bool($in['licensed'] ?? null) ? $in['licensed']
+                : (is_string($in['licensed'] ?? null) ? ['1' => true, 'true' => true, '0' => false, 'false' => false][strtolower($in['licensed'])] ?? null : null),
+            'failures' => ($failures = is_int($in['failures'] ?? null) ? $in['failures']
+                : (is_string($in['failures'] ?? null) && preg_match('/^\d{1,7}$/', $in['failures']) === 1 ? (int) $in['failures'] : null)) !== null
+                && $failures <= 1_000_000 ? $failures : null,
         ];
 
         return array_filter($fields, fn ($value) => $value !== null);
@@ -99,6 +108,24 @@ final class LicenseTelemetry
         }
     }
 
+    /**
+     * For a licenses query: the license runs as more than one install of a product since $since. Installs by their own
+     * id, not by row: the address of one install may change, and agent and node on one key are two products (review R3).
+     */
+    public static function moreThanOneInstall(Carbon $since): \Closure
+    {
+        return fn (QueryBuilder $query) => $query->selectRaw('1')->from('license_installs')
+            ->whereColumn('license_installs.license_id', 'licenses.id')->where('install_id', '!=', '')->where('last_seen_at', '>=', $since)
+            ->groupBy('product')->havingRaw('COUNT(DISTINCT install_id) > 1');
+    }
+
+    /** For a licenses query: how many install ids it ran as since $since. */
+    public static function installsSince(Carbon $since): QueryBuilder
+    {
+        return DB::table('license_installs')->selectRaw('COUNT(DISTINCT install_id)')
+            ->whereColumn('license_installs.license_id', 'licenses.id')->where('install_id', '!=', '')->where('last_seen_at', '>=', $since);
+    }
+
     /** One install for staff: «node 2026.11.14.2129 · 192.0.2.10 · 2 hours ago · ⚠ downgrade (was …)». */
     public static function describe(LicenseInstall $install): string
     {
@@ -125,6 +152,7 @@ final class LicenseTelemetry
         try {
             $time = match (true) {
                 is_int($value) => Carbon::createFromTimestamp($value),
+                is_float($value) && is_finite($value) && abs($value) < 1e11 => Carbon::createFromTimestamp((int) $value),
                 is_string($value) && preg_match('/^\d{9,11}$/', $value) === 1 => Carbon::createFromTimestamp((int) $value),
                 is_string($value) && strlen($value) <= 40 && preg_match('/^\d{4}-\d{2}-\d{2}/', $value) === 1 => Carbon::parse($value, 'UTC'),
                 default => null,
@@ -135,6 +163,8 @@ final class LicenseTelemetry
         if ($time === null || $time->year < 2015 || $time->year > 2100) {
             return null;
         }
+        // Stored as UTC: a date sent with its offset (+02:00, a DST change) would be kept as its wall time (review R2).
+        $time = $time->utc();
 
         return $past && $time->gt($now->copy()->addDay()) ? null : $time;
     }

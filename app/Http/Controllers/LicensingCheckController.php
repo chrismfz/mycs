@@ -22,8 +22,10 @@ class LicensingCheckController extends Controller
         $params = array_filter(['license' => $request->input('license'), 'license_PSK' => $request->input('license_PSK')], 'is_string');
         [$answer, $response] = $zlic->answer($request, $limiter, $params);
 
-        // Not when a limit or an error answered: what the client said was not checked against anything.
-        if ($response !== null && ($params['license'] ?? '') !== '') {
+        // Only from a caller that proved it holds the license (key, PSK and address: a signed answer). Not when a limit or an
+        // error answered, nor for «Invalid»: anyone who knows a key could fill its installs (review R1).
+        if ($response !== null && ($params['license'] ?? '') !== ''
+            && in_array($response->body['status'] ?? null, LicenseTelemetry::RECORDED, true)) {
             LicenseTelemetry::record($params['license'], $response, CallerIp::of($request), $request->input('telemetry'));
         }
 

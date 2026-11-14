@@ -86,10 +86,16 @@ class LicensingCheckTest extends TestCase
         $form = $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/api/v1/licensing/check', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
         $this->assertSame(self::steady($zlic), self::steady($form));
 
-        foreach ([['ZCAgent-nothere', 'TestSecret', self::IP], [$this->license->license_key, 'wrong', self::IP], [$this->license->license_key, 'TestSecret', '203.0.113.9']] as [$key, $psk, $ip]) {
+        // Unknown, a wrong PSK, another address, a key with a blank (never trimmed, as zlic.php): the same answer, and
+        // nothing kept from a caller that did not prove it holds the license (review R1).
+        foreach ([['ZCAgent-nothere', 'TestSecret', self::IP], [$this->license->license_key, 'wrong', self::IP], [$this->license->license_key, 'TestSecret', '203.0.113.9'],
+            [$this->license->license_key . ' ', 'TestSecret', self::IP]] as [$key, $psk, $ip]) {
             $this->assertSame(self::steady($this->withServerVariables(['REMOTE_ADDR' => $ip])->post('/zlic.php', ['license' => $key, 'license_PSK' => $psk])),
-                self::steady($this->check($this->telemetry(), $key, $ip, $psk)), "{$key} / {$psk} / {$ip}");
+                self::steady($this->check($this->telemetry(['install_id' => 'eeeeeeee-0000-4000-8000-00000000000' . strlen($psk)]), $key, $ip, $psk)), "{$key} / {$psk} / {$ip}");
         }
+        // The two good checks above: with its telemetry, and the form's without.
+        $this->assertSame([['Active', '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b'], ['Active', '']],
+            LicenseInstall::query()->orderBy('id')->get()->map(fn (LicenseInstall $i) => [$i->last_status, $i->install_id])->all());
         $missing = $this->postJson('/api/v1/licensing/check', ['license' => $this->license->license_key]);
         $missing->assertStatus(400);
         $this->assertSame($this->post('/zlic.php', ['license' => $this->license->license_key])->getContent(), $missing->getContent());
@@ -119,6 +125,10 @@ class LicensingCheckTest extends TestCase
         $this->assertSame(['2026.11.14.2129', '2026.12.01.0900', 3], [$install->version, $install->previous_version, $install->checks]);
         $this->assertTrue($install->downgraded_at->equalTo(now()));
 
+        // A date with its offset is kept in UTC (review R2): 21:29+02:00 is 19:29Z, older than the build it runs.
+        $this->check($this->telemetry(['build_time' => '2026-11-14T21:29:26+02:00']));
+        $this->assertSame('2026-11-14 19:29:26', $install->fresh()->build_time->format('Y-m-d H:i:s'));
+
         // Another install of the same key, and a node on the same address: rows of their own.
         $this->check($this->telemetry(['install_id' => 'ffffffff-0000-4000-8000-000000000001']));
         $this->check($this->telemetry(['product' => 'node']));
@@ -138,6 +148,11 @@ class LicensingCheckTest extends TestCase
             $this->assertSame('Active', $answer->json('status'));
         }
         $this->check()->assertOk(); // no telemetry at all
+        // A form's strings, a float clock (review R5).
+        $this->check(['install_id' => 'aaaaaaaa-0000-4000-8000-000000000001', 'licensed' => 'false', 'failures' => '12', 'client_time' => now()->getTimestamp() + 7200.5]);
+        $form = LicenseInstall::query()->where('install_id', 'aaaaaaaa-0000-4000-8000-000000000001')->sole();
+        $this->assertSame([false, 12, 7200], [$form->licensed, $form->failures, $form->clock_skew]);
+        $form->delete();
         $this->withServerVariables(['REMOTE_ADDR' => self::IP])
             ->postJson('/api/v1/licensing/check', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret', 'telemetry' => 'a string'])->assertOk();
 
@@ -168,7 +183,11 @@ class LicensingCheckTest extends TestCase
         $quiet = License::query()->create(['service_id' => $other->id, 'license_key' => 'ZCAgent-00000000000000aa', 'status' => License::STATUS_ACTIVE, 'reissues' => 0]);
         $row = fn (License $license, array $values) => LicenseInstall::query()->create($values + ['license_id' => $license->id, 'ip' => self::IP,
             'product' => 'agent', 'install_id' => uniqid(), 'version' => '2026.11.14.2129', 'checks' => 1, 'first_seen_at' => now()->subMonth(), 'last_seen_at' => now()]);
-        $row($quiet, ['clock_skew' => 60]); // one install, its clock a minute off: nothing to see
+        // One install: its clock a minute off, its address changed, and a node on the same key: nothing to see (review R3).
+        $row($quiet, ['clock_skew' => 60, 'install_id' => 'install-a']);
+        $row($quiet, ['ip' => '192.0.2.50', 'install_id' => 'install-a']);
+        $row($quiet, ['product' => 'node', 'install_id' => 'install-n']);
+        $row($quiet, ['install_id' => '']); // a check without telemetry
 
         $this->livewireAs($staff)->withQueryParams(['tab' => 'signals'])->test(ListLicenses::class)->assertCanNotSeeTableRecords([$this->license, $quiet]);
 
@@ -176,8 +195,8 @@ class LicensingCheckTest extends TestCase
         $this->livewireAs($staff)->withQueryParams(['tab' => 'signals'])->test(ListLicenses::class)
             ->assertCanSeeTableRecords([$this->license])->assertCanNotSeeTableRecords([$quiet]);
 
-        // A second install of a standalone license in the last days is a sign too.
-        $row($quiet, ['ip' => '203.0.113.9']);
+        // A second install of a product of a standalone license in the last days is a sign too.
+        $row($quiet, ['ip' => '203.0.113.9', 'install_id' => 'install-b']);
         $this->livewireAs($staff)->withQueryParams(['tab' => 'signals'])->test(ListLicenses::class)->assertCanSeeTableRecords([$quiet]);
 
         $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])

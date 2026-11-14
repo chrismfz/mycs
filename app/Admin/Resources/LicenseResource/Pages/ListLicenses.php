@@ -35,14 +35,14 @@ class ListLicenses extends ListRecords
 
         // What the software said of itself in the last days (/api/v1/licensing/check): it went back to an older build, its
         // clock is far from ours (a clock turned back keeps a local key valid), or a standalone license runs in more than
-        // one place. Staff look: a reissue to a new server shows as two for a few days.
+        // one place (two install ids of one product). Staff look: a reinstall shows as two for a few days.
         $recent = now()->subDays(LicenseResource::INSTALLS_DAYS);
         $signals = fn (Builder $query) => $query->where(fn (Builder $q) => $q
             ->whereHas('installs', fn (Builder $i) => $i->where('last_seen_at', '>=', $recent)->where(fn (Builder $flag) => $flag
                 ->where('downgraded_at', '>=', $recent)
                 ->orWhere('clock_skew', '>', LicenseTelemetry::SKEW_FLAG)->orWhere('clock_skew', '<', -LicenseTelemetry::SKEW_FLAG)))
-            ->orWhere(fn (Builder $single) => $single->whereDoesntHave('ips')
-                ->has('installs', '>', 1, 'and', fn (Builder $i) => $i->where('last_seen_at', '>=', $recent))));
+            ->orWhere(fn (Builder $single) => $single->whereDoesntHave('ips', fn (Builder $ips) => $ips->whereNull('removed_at'))
+                ->whereExists(LicenseTelemetry::moreThanOneInstall($recent))));
 
         return [
             'all' => Tab::make('All'),
