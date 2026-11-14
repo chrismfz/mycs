@@ -30,15 +30,19 @@ final class LicenseKeyMask
         return is_string($key) && strtolower($key) === strtolower($domain) ? Scrub::licenseKey($domain) : $domain;
     }
 
-    /** `domain LIKE %search%`, except that a domain which is its license's key is only matched whole when masked. */
+    /**
+     * `domain LIKE %search%`, its % and _ taken literally (an explicit ESCAPE, as on MariaDB and SQLite alike: review of
+     * #857, ADV-857-6), except that a domain which is its license's key is only matched whole when masked.
+     */
     public static function whereDomainLike(Builder $query, string $search, string $boolean = 'and'): Builder
     {
+        $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%';
         if (self::shown()) {
-            return $query->where('services.domain', 'like', "%{$search}%", $boolean);
+            return $query->whereRaw("services.domain LIKE ? ESCAPE '!'", [$like], $boolean);
         }
 
         return $query->where(fn (Builder $match) => $match->whereRaw('lower(services.domain) = ?', [mb_strtolower(trim($search))])
-            ->orWhere(fn (Builder $part) => $part->where('services.domain', 'like', "%{$search}%")->whereDoesntHave('license', self::keyIsDomain(...))), boolean: $boolean);
+            ->orWhere(fn (Builder $part) => $part->whereRaw("services.domain LIKE ? ESCAPE '!'", [$like])->whereDoesntHave('license', self::keyIsDomain(...))), boolean: $boolean);
     }
 
     private static function keyIsDomain(Builder $license): void
