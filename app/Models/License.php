@@ -91,7 +91,7 @@ class License extends Model implements Auditable
         return $this->hasMany(LicenseIp::class);
     }
 
-    /** @return HasMany<LicenseInstall, $this> the installs that described themselves on /api/v1/licensing/check */
+    /** @return HasMany<LicenseInstall, $this> the installs that described themselves on /licensing/v1/check */
     public function installs(): HasMany
     {
         return $this->hasMany(LicenseInstall::class);

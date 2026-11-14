@@ -22,7 +22,7 @@ use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
- * POST /api/v1/licensing/check (docs/licensing.md, «Τηλεμετρία»): zlic.php's answer, from the same code, and what the
+ * POST /licensing/v1/check (docs/licensing.md, «Τηλεμετρία»): zlic.php's answer, from the same code, and what the
  * software says of itself, kept after the answer and never changing it.
  */
 class LicensingCheckTest extends TestCase
@@ -57,7 +57,7 @@ class LicensingCheckTest extends TestCase
     private function check(array $telemetry = [], ?string $key = null, string $ip = self::IP, string $psk = 'TestSecret'): TestResponse
     {
         return $this->withServerVariables(['REMOTE_ADDR' => $ip])
-            ->postJson('/api/v1/licensing/check', ['license' => $key ?? $this->license->license_key, 'license_PSK' => $psk] + ($telemetry === [] ? [] : ['telemetry' => $telemetry]));
+            ->postJson('/licensing/v1/check', ['license' => $key ?? $this->license->license_key, 'license_PSK' => $psk] + ($telemetry === [] ? [] : ['telemetry' => $telemetry]));
     }
 
     /** @return array<string, mixed> zlic's answer without what changes on every call (the check token's hash, the local key over it) */
@@ -83,7 +83,7 @@ class LicensingCheckTest extends TestCase
         $zlic = $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/zlic.php', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
         $this->assertSame(self::steady($zlic), self::steady($v1));
 
-        $form = $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/api/v1/licensing/check', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
+        $form = $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/licensing/v1/check', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
         $this->assertSame(self::steady($zlic), self::steady($form));
 
         // Unknown, a wrong PSK, another address, a key with a blank (never trimmed, as zlic.php): the same answer, and
@@ -96,10 +96,10 @@ class LicensingCheckTest extends TestCase
         // The two good checks above: with its telemetry, and the form's without.
         $this->assertSame([['Active', '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b'], ['Active', '']],
             LicenseInstall::query()->orderBy('id')->get()->map(fn (LicenseInstall $i) => [$i->last_status, $i->install_id])->all());
-        $missing = $this->postJson('/api/v1/licensing/check', ['license' => $this->license->license_key]);
+        $missing = $this->postJson('/licensing/v1/check', ['license' => $this->license->license_key]);
         $missing->assertStatus(400);
         $this->assertSame($this->post('/zlic.php', ['license' => $this->license->license_key])->getContent(), $missing->getContent());
-        $this->get('/api/v1/licensing/check')->assertStatus(405);
+        $this->get('/licensing/v1/check')->assertStatus(405);
     }
 
     public function test_it_keeps_what_the_install_says_and_sees_an_upgrade_and_a_downgrade(): void
@@ -154,7 +154,7 @@ class LicensingCheckTest extends TestCase
         $this->assertSame([false, 12, 7200], [$form->licensed, $form->failures, $form->clock_skew]);
         $form->delete();
         $this->withServerVariables(['REMOTE_ADDR' => self::IP])
-            ->postJson('/api/v1/licensing/check', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret', 'telemetry' => 'a string'])->assertOk();
+            ->postJson('/licensing/v1/check', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret', 'telemetry' => 'a string'])->assertOk();
 
         $install = LicenseInstall::query()->sole();
         $this->assertSame(['', '', null, null, null, null, null, null, null, null, null, null, 4],
@@ -171,6 +171,56 @@ class LicensingCheckTest extends TestCase
         $answer = $this->check($this->telemetry());
         $answer->assertOk();
         $this->assertSame('Active', $answer->json('status'));
+    }
+
+    /** Review 2-1 of #863: «Expired» is signed to any address; only the license's own place may write what it runs. */
+    public function test_an_ended_license_is_kept_only_from_where_it_runs(): void
+    {
+        $this->check($this->telemetry())->assertOk(); // binds it to IP
+        $this->license->update(['status' => License::STATUS_EXPIRED]);
+
+        $foreign = $this->check($this->telemetry(['install_id' => 'bbbbbbbb-0000-4000-8000-000000000001']), ip: '203.0.113.9');
+        $this->assertSame('Expired', $foreign->json('status'), 'answered as zlic.php would');
+        $this->check($this->telemetry(['install_id' => 'bbbbbbbb-0000-4000-8000-000000000002']));
+
+        $this->assertSame([['0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b', 'Active'], ['bbbbbbbb-0000-4000-8000-000000000002', 'Expired']],
+            LicenseInstall::query()->orderBy('id')->get()->map(fn (LicenseInstall $i) => [$i->install_id, $i->last_status])->all());
+    }
+
+    /** Review 2-2: dates in the app's timezone, as Eloquent keeps them; a downgrade of less than the offset is still one. */
+    public function test_dates_follow_the_app_timezone(): void
+    {
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Athens');
+        try {
+            Carbon::setTestNow(Carbon::parse('2026-12-10 12:00:00', 'Europe/Athens'));
+            $this->check($this->telemetry(['build_time' => '2026-11-14T21:29:26Z']))->assertOk();
+            $install = LicenseInstall::query()->sole();
+            $this->assertTrue($install->build_time->equalTo(Carbon::parse('2026-11-14T21:29:26Z')));
+
+            $this->check($this->telemetry(['build_time' => '2026-11-14T20:29:26Z'])); // an hour older
+            $this->assertNotNull($install->fresh()->downgraded_at);
+        } finally {
+            date_default_timezone_set($zone);
+        }
+    }
+
+    /** Review 2-3: the cap counts the installs of the last days; old ones wait for the retention and block nothing. */
+    public function test_the_cap_counts_recent_installs_only(): void
+    {
+        $this->freezeTime();
+        $this->check()->assertOk(); // binds it
+        $rows = fn (int $daysAgo, string $prefix) => array_map(fn ($n) => ['license_id' => $this->license->id, 'ip' => self::IP, 'product' => 'agent',
+            'install_id' => $prefix . $n, 'checks' => 1, 'first_seen_at' => now()->subDays($daysAgo), 'last_seen_at' => now()->subDays($daysAgo)],
+            range(1, LicenseTelemetry::MAX_INSTALLS));
+        LicenseInstall::query()->insert($rows(LicenseTelemetry::MAX_INSTALLS_DAYS + 1, 'old-install-'));
+
+        $this->check($this->telemetry(['install_id' => 'cccccccc-0000-4000-8000-000000000001']));
+        $this->assertTrue(LicenseInstall::query()->where('install_id', 'cccccccc-0000-4000-8000-000000000001')->exists());
+
+        LicenseInstall::query()->insert($rows(1, 'new-install-'));
+        $this->check($this->telemetry(['install_id' => 'cccccccc-0000-4000-8000-000000000002']));
+        $this->assertFalse(LicenseInstall::query()->where('install_id', 'cccccccc-0000-4000-8000-000000000002')->exists(), 'past the cap');
     }
 
     public function test_staff_see_the_installs_and_their_signals(): void

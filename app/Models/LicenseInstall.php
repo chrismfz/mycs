@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * One install of the licensed software as it describes itself on /api/v1/licensing/check (App\Services\Licensing\
+ * One install of the licensed software as it describes itself on /licensing/v1/check (App\Services\Licensing\
  * LicenseTelemetry). Written by the checks only, never by staff: not audited.
  *
  * @property int $id

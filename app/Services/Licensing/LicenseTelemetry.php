@@ -2,6 +2,7 @@
 
 namespace App\Services\Licensing;
 
+use App\Models\License;
 use App\Models\LicenseInstall;
 use App\Models\LicenseIp;
 use Illuminate\Database\Query\Builder as QueryBuilder;
@@ -11,7 +12,7 @@ use Nixpal\Licensing\ZlicResponse;
 use Throwable;
 
 /**
- * What the licensed software says about itself on /api/v1/licensing/check (docs/licensing.md, «Τηλεμετρία»), kept per
+ * What the licensed software says about itself on /licensing/v1/check (docs/licensing.md, «Τηλεμετρία»), kept per
  * license, address, product and install. Written after the answer and never changing it: every field is optional, one
  * that is missing or malformed is left out, never refused. Only for a key we know (as LicenseActivity, a key that joined
  * a bulk license counts on the bulk one); an unknown key leaves nothing here.
@@ -20,8 +21,8 @@ final class LicenseTelemetry
 {
     public const PRODUCTS = ['agent', 'node', 'controller'];
 
-    /** The answers after which what the client says is kept: signed ones, to a caller with the key, the PSK and the address. */
-    public const RECORDED = ['Active', 'Suspended', 'Expired'];
+    /** Installs seen in this many days count towards MAX_INSTALLS: the older ones wait for the retention (review 2-3). */
+    public const MAX_INSTALLS_DAYS = 30;
 
     /** Installs kept per license: a key in many hands, or one making up install ids, stops growing the table here. */
     public const MAX_INSTALLS = 1000;
@@ -73,7 +74,7 @@ final class LicenseTelemetry
     {
         try {
             $license = MycsLicenseRepository::answering($key);
-            if ($license === null) {
+            if ($license === null || !self::fromItsPlace($license, $response, $ip)) {
                 return;
             }
             $now = now();
@@ -85,7 +86,8 @@ final class LicenseTelemetry
 
             $row = LicenseInstall::query()->where($where)->first();
             if ($row === null) {
-                if (LicenseInstall::query()->where('license_id', $license->id)->count() >= self::MAX_INSTALLS) {
+                if (LicenseInstall::query()->where('license_id', $license->id)->where('last_seen_at', '>=', $now->copy()->subDays(self::MAX_INSTALLS_DAYS))
+                    ->count() >= self::MAX_INSTALLS) {
                     return;
                 }
                 LicenseInstall::query()->insertOrIgnore($where + $fields + ['last_status' => $status, 'checks' => 1,
@@ -106,6 +108,31 @@ final class LicenseTelemetry
         } catch (Throwable $e) {
             report($e); // never changes the answer
         }
+    }
+
+    /**
+     * Whether the caller is where the license runs, so what it says is kept. The PSK is the product's, in every client: it
+     * proves nothing. «Active» is answered only to a bound address (or a listed one, a bulk license's). «Suspended» and
+     * «Expired» are signed to any address: kept only from a bound or listed one, else anyone holding an ended key could
+     * fill its installs and its signals (review 2-1 of #863). «Invalid», limits and errors: never.
+     */
+    public static function fromItsPlace(License $license, ZlicResponse $response, string $ip): bool
+    {
+        $status = $response->body['status'] ?? null;
+        if ($status === 'Active') {
+            return true;
+        }
+        if ($status !== 'Suspended' && $status !== 'Expired') {
+            return false;
+        }
+        $address = LicenseIp::normalize($ip);
+        if ($address === null) {
+            return false;
+        }
+        $bound = array_map(fn ($entry) => LicenseIp::normalize(trim($entry)), explode(',', (string) $license->valid_ip));
+
+        return in_array($address, $bound, true)
+            || LicenseIp::query()->where('license_id', $license->id)->where('ip', $address)->whereNull('removed_at')->exists();
     }
 
     /**
@@ -163,8 +190,9 @@ final class LicenseTelemetry
         if ($time === null || $time->year < 2015 || $time->year > 2100) {
             return null;
         }
-        // Stored as UTC: a date sent with its offset (+02:00, a DST change) would be kept as its wall time (review R2).
-        $time = $time->utc();
+        // In the app's timezone, as Eloquent stores and reads every date: a date sent with its offset (+02:00, a DST
+        // change) would be kept as its wall time (review R2), one in UTC read back hours off (review 2-2).
+        $time = $time->setTimezone($now->getTimezone());
 
         return $past && $time->gt($now->copy()->addDay()) ? null : $time;
     }

@@ -46,7 +46,7 @@ class LicenseResource extends Resource
                 // A bulk license's IPs, and the silent ones (docs/zonecloud-bulk-license.md §7.2).
                 ->withCount(['ips as listed_ips' => fn (Builder $ips) => $ips->whereNull('removed_at'),
                     'ips as silent_ips' => fn (Builder $ips) => $ips->whereNull('removed_at')->whereNotNull('last_ok_at')->where('last_ok_at', '<', now()->subDays(self::SILENT_DAYS))])
-                // What the newest install says it runs, and how many installs (by their id) it ran as (/api/v1/licensing/check).
+                // What the newest install says it runs, and how many installs (by their id) it ran as (/licensing/v1/check).
                 ->addSelect(['newest_version' => LicenseInstall::query()->select('version')->whereColumn('license_installs.license_id', 'licenses.id')
                     ->whereNotNull('version')->orderByDesc('last_seen_at')->limit(1),
                     'recent_installs' => LicenseTelemetry::installsSince(now()->subDays(self::INSTALLS_DAYS))]))

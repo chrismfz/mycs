@@ -33,7 +33,7 @@ class ListLicenses extends ListRecords
             // A key that joined a bulk license answers as the bulk one from then on: its own row stays frozen (R2).
             ->whereNull('merged_at');
 
-        // What the software said of itself in the last days (/api/v1/licensing/check): it went back to an older build, its
+        // What the software said of itself in the last days (/licensing/v1/check): it went back to an older build, its
         // clock is far from ours (a clock turned back keeps a local key valid), or a standalone license runs in more than
         // one place (two install ids of one product). Staff look: a reinstall shows as two for a few days.
         $recent = now()->subDays(LicenseResource::INSTALLS_DAYS);

@@ -47,7 +47,7 @@ class ZlicController extends Controller
     }
 
     /**
-     * zlic.php's answer to these parameters (also /api/v1/licensing/check's, LicensingCheckController), with zlic's own
+     * zlic.php's answer to these parameters (also /licensing/v1/check's, LicensingCheckController), with zlic's own
      * when it was asked: null when a limit or an error answered «Remote Check Failed».
      *
      * @param  array<string, string>  $params

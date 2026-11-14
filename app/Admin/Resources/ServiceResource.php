@@ -465,7 +465,7 @@ class ServiceResource extends Resource
                                 ? $record->license->last_failure_at->diffForHumans() . ': ' . $record->license->last_failure : null)->placeholder('None'),
                         TextEntry::make('license_checks')->label('Checks, last 30 days')->columnSpanFull()
                             ->state(fn (Service $record) => self::licenseChecks($record)),
-                        // What the software says of itself on /api/v1/licensing/check: newest first, at most 10.
+                        // What the software says of itself on /licensing/v1/check: newest first, at most 10.
                         TextEntry::make('license_installs')->label('Installs')->columnSpanFull()->listWithLineBreaks()->placeholder('None reported')
                             ->state(fn (Service $record) => $record->license?->installs()->orderByDesc('last_seen_at')->limit(10)->get()
                                 ->map(fn (LicenseInstall $install) => LicenseTelemetry::describe($install))->all() ?: null),

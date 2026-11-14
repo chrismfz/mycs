@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * What the licensed software says about itself on /api/v1/licensing/check (docs/licensing.md, «Τηλεμετρία»): one row
+ * What the licensed software says about itself on /licensing/v1/check (docs/licensing.md, «Τηλεμετρία»): one row
  * per license, address, product and install, written after the answer. Who upgraded, who stays behind, who went back
  * (a downgrade), more installs than the license should have, a clock far from ours.
  */
