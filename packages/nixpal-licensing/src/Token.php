@@ -40,8 +40,7 @@ final class Token
     public static function publicKey(
         #[\SensitiveParameter]
         $secret
-    )
-    {
+    ) {
         $raw = base64_decode((string) $secret, true);
         if ($raw === false || strlen($raw) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
             return null;
