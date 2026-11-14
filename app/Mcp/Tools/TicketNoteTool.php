@@ -51,10 +51,14 @@ class TicketNoteTool extends McpTool
 
     protected function run(Request $request): array
     {
-        $ticket = TicketTool::find((string) $request->get('ticket'));
         $staff = $request->user();
+        // View Tickets before the lookup: «no such ticket» tells nothing to a role that may not see them (re-review).
+        if (!$staff instanceof Staff || !$staff->hasPermission('admin.tickets.viewAny')) {
+            throw new \InvalidArgumentException('Your role may not write on tickets.');
+        }
+        $ticket = TicketTool::find((string) $request->get('ticket'));
         // As the ticket page asks of who adds a note there (TicketPolicy::update).
-        if (!$staff instanceof Staff || !$staff->hasPermission('admin.tickets.viewAny') || !Gate::forUser($staff)->allows('update', $ticket)) {
+        if (!Gate::forUser($staff)->allows('update', $ticket)) {
             throw new \InvalidArgumentException('Your role may not write on this ticket.');
         }
         if ($ticket->isMerged()) {
@@ -75,7 +79,7 @@ class TicketNoteTool extends McpTool
 
         $message = $ticket->messages()->create([
             'staff_id' => $staff->id,
-            'message' => "**MCP note**\n\n" . Scrub::text($note, headers: false),
+            'message' => "MCP note\n\n" . Scrub::text($note, headers: false),
             'is_internal' => true,
             'via' => self::VIA,
         ]);

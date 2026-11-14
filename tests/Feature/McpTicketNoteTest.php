@@ -72,15 +72,16 @@ class McpTicketNoteTest extends TestCase
         Notification::fake();
 
         [$error, $text] = $this->mcp($key, 'add_ticket_note', ['ticket' => '#' . $ticket->id,
-            'note' => "Account #12: the domain is in redemption.\u{202E} The mail password is MailPassw0rdXYZ123."]);
+            'note' => "Account #12: the domain is in redemption.\u{202E} The mail password is MailPassw0rdXYZ123. Header: Bearer abcDEF123456789xyz"]);
 
         $this->assertFalse($error, $text);
         $note = TicketMessage::query()->where('ticket_id', $ticket->id)->sole();
         $this->assertTrue($note->is_internal);
         $this->assertSame([$staff->id, TicketNoteTool::VIA], [$note->staff_id, $note->via]);
-        $this->assertStringStartsWith("**MCP note**\n\n", $note->message);
+        $this->assertStringStartsWith("MCP note\n\n", $note->message);
         $this->assertStringContainsString('in redemption.', $note->message);
         $this->assertStringNotContainsString('MailPassw0rd', $note->message, 'secrets masked');
+        $this->assertStringNotContainsString('abcDEF123456789xyz', $note->message, 'a Bearer token still masked');
         $this->assertStringNotContainsString("\u{202E}", $note->message, 'no bidi override');
         $this->assertSame(Ticket::STATUS_OPEN, $ticket->fresh()->status, 'a note moves no status');
         Mail::assertNothingOutgoing();

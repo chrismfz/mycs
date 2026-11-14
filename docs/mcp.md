@@ -167,7 +167,7 @@ reject it in **Other → MCP Proposals** within a day; the menu shows how many a
   mailed, never shown to the customer, no status change. It is written as the key's member of staff, marked as the
   MCP's (`via` = `mcp`, a first line «MCP note», an «MCP» badge, shown as plain text with links not clickable), read back
   by `ticket` as `mcp_note_text` (never `staff_text`: it may carry what a customer wrote), with secrets masked (Scrub,
-  without its header rule, so «Basic troubleshooting» stays) and format characters dropped. It needs View Tickets too, as
+  a Bearer token still masked but not «Basic …», so «Basic troubleshooting» stays) and format characters dropped. It needs View Tickets too, as
   the admin's ticket page does. At most
   5,000 characters, at most 10 MCP notes per ticket in 24 hours; never on a merged ticket. Everything else the MCP may
   change (prices, products, client details, credits) goes through a proposal.
