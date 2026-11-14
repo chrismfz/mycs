@@ -170,4 +170,23 @@ class AdvMcpSearchCatalogRevenueTest extends TestCase
 
         $this->assertLessThanOrEqual($one + 3, $eleven, "{$one} queries for one row, {$eleven} for eleven");
     }
+
+    /**
+     * ADV-857-6 (from the fix 66c0a8bf). The domain is now matched by LicenseKeyMask::whereDomainLike, whose LIKE does
+     * not escape: `_` and `%` are wildcards again on services.domain (in `services` and in `clients`), where docs/mcp.md
+     * and anyContains take them literally. «shop_example» finds shop1example.gr; «%%%» lists every service.
+     */
+    public function test_search_takes_underscore_and_percent_literally_on_a_service_domain_too(): void
+    {
+        Service::factory()->create(['client_id' => User::factory()->create()->client()->id,
+            'product_id' => Product::factory()->create()->id, 'status' => Service::STATUS_ACTIVE, 'domain' => 'shop1example.gr']);
+        $all = $this->key($this->staff(['*']));
+        $masked = $this->key($this->staff([McpAuth::PERMISSION, 'admin.clients.viewAny', 'admin.services.viewAny']));
+
+        foreach ([$all, $masked] as $key) {
+            $this->assertSame([], $this->ask($key, 'search', ['query' => 'shop_example', 'in' => 'services'])['services'], '_ is no wildcard');
+            $this->assertSame([], $this->ask($key, 'search', ['query' => '%%%', 'in' => 'services'])['services'], '% is no wildcard');
+            $this->assertSame([], $this->ask($key, 'search', ['query' => 'shop_example', 'in' => 'clients'])['clients'], '_ is no wildcard (clients)');
+        }
+    }
 }
