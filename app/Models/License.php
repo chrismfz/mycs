@@ -26,6 +26,8 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property Carbon|null $merged_at when it joined: its key answers as the bulk license since
  * @property-read int|null $listed_ips the licenses console's count of its active IPs (withCount)
  * @property-read int|null $silent_ips the licenses console's count of its silent IPs (withCount)
+ * @property-read int|null $recent_installs the licenses console's count of its install ids of the last days
+ * @property-read string|null $newest_version the licenses console's version of its newest install
  * @property Carbon|null $last_access
  */
 class License extends Model implements Auditable
@@ -87,6 +89,12 @@ class License extends Model implements Auditable
     public function ips(): HasMany
     {
         return $this->hasMany(LicenseIp::class);
+    }
+
+    /** @return HasMany<LicenseInstall, $this> the installs that described themselves on /licensing/v1/check */
+    public function installs(): HasMany
+    {
+        return $this->hasMany(LicenseInstall::class);
     }
 
     /** @return BelongsTo<License, $this> the bulk license this one joins at its expiry, or joined (§8) */

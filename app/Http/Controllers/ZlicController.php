@@ -43,7 +43,18 @@ class ZlicController extends Controller
     public function __invoke(Request $request, ZlicLimiter $limiter): Response
     {
         // Strings only (review ADV-L5): «license[]=…» is a missing parameter, as for zlic.php, not an exception.
-        $params = array_filter($request->post() + $request->query(), 'is_string');
+        return $this->answer($request, $limiter, array_filter($request->post() + $request->query(), 'is_string'))[0];
+    }
+
+    /**
+     * zlic.php's answer to these parameters (also /licensing/v1/check's, LicensingCheckController), with zlic's own
+     * when it was asked: null when a limit or an error answered «Remote Check Failed».
+     *
+     * @param  array<string, string>  $params
+     * @return array{0: Response, 1: ZlicResponse|null}
+     */
+    public function answer(Request $request, ZlicLimiter $limiter, array $params): array
+    {
         $ip = CallerIp::of($request);
         $caller = CallerIp::bucket($ip);
         $key = $params['license'] ?? '';
@@ -54,14 +65,14 @@ class ZlicController extends Controller
             if ($key === '' || !$limiter->marked("ok:{$caller}:{$keyId}")) {
                 $counted['s'] = "s:{$caller}";
                 if ($limiter->hit($counted['s'], 3600) > self::FAILURES_PER_HOUR) {
-                    return self::remoteCheckFailed();
+                    return [self::remoteCheckFailed(), null];
                 }
                 if ($key !== '') {
                     $counted['k'] = "k:{$caller}:{$keyId}";
                     if ($limiter->hit($counted['k'], 3600) > self::KEY_FAILURES_PER_HOUR) {
                         $this->noteLimited($limiter, $caller, $keyId, $key, $ip, $request);
 
-                        return self::remoteCheckFailed();
+                        return [self::remoteCheckFailed(), null];
                     }
                 }
             }
@@ -75,7 +86,7 @@ class ZlicController extends Controller
         } catch (Throwable $e) {
             report($e);
 
-            return self::remoteCheckFailed();
+            return [self::remoteCheckFailed(), null];
         }
 
         try {
@@ -92,7 +103,7 @@ class ZlicController extends Controller
             }
         }
 
-        return response($response->json(), $response->httpStatus, ['Content-Type' => 'application/json']);
+        return [response($response->json(), $response->httpStatus, ['Content-Type' => 'application/json']), $response];
     }
 
     /**
