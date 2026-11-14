@@ -82,8 +82,8 @@ abstract class McpTool extends Tool
 
     /**
      * A search hit on $raw still counts once it is shown masked as $shown: else asking for a masked secret a character
-     * at a time would tell it (security review of #857/#858, SEC-2). Nothing masked: the database's match stands (its
-     * collation folds case and accents, Greek too). Something masked: $text must be in what is shown, case and accents
+     * at a time would tell it (security review of #857/#858, SEC-2). Nothing masked: the database's match stands. For a
+     * column whose collation folds case and accents (Greek too, uca1400_ai_ci); a binary column compares its own way. Something masked: $text must be in what is shown, case and accents
      * aside as MariaDB compares.
      */
     protected static function stillShows(?string $raw, ?string $shown, string $text): bool

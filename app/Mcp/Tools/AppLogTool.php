@@ -39,20 +39,22 @@ class AppLogTool extends McpTool
 
         $column = $type === 'http' ? 'context->url' : 'context->message';
         $shown = fn (array $context) => $type === 'http'
-            ? (isset($context['url']) ? Redact::url((string) $context['url']) : null)
+            ? (isset($context['url']) ? Scrub::text((string) $context['url']) : null) // Scrub masks URLs as Redact::url and the config secrets too
             : Scrub::text((string) ($context['message'] ?? ''));
         // Scrubbed whole, then cut: a secret cut in two would no longer be known to Scrub (security review, SEC-3).
-        $cut = fn (mixed $value) => mb_substr((string) Scrub::text(is_string($value) ? $value : (string) json_encode($value)), 0, 1500);
+        $cut = fn (mixed $value) => mb_substr((string) Scrub::text(is_string($value) ? $value : (string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)), 0, 1500);
 
         // Application errors are written as «exception» (bootstrap/app.php, the admin's Error Logs: review of #419).
         $query = DebugLog::query()->where('type', $type === 'http' ? 'http' : 'exception');
         if ($search !== '') {
-            // % and _ taken literally; a hit counts only if what is shown still holds it (stillShows, SEC-2).
+            // % and _ taken literally; a hit counts only if what is shown still holds it (SEC-2).
             $query->whereRaw($query->getQuery()->getGrammar()->wrap($column) . " LIKE ? ESCAPE '!'", ['%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%']);
         }
 
         return ['type' => $type, 'entries' => $query->latest('id')->limit(self::limit($request, 20, 100))->get()
-            ->filter(fn (DebugLog $log) => $search === '' || self::stillShows((string) (((array) $log->context)[$type === 'http' ? 'url' : 'message'] ?? ''), $shown((array) $log->context), $search))
+            // context is utf8mb4_bin: the database compares bytes, so what is shown must hold the very bytes (not folded as stillShows).
+            ->filter(fn (DebugLog $log) => $search === '' || (string) (((array) $log->context)[$type === 'http' ? 'url' : 'message'] ?? '') === (string) $shown((array) $log->context)
+                || str_contains((string) $shown((array) $log->context), $search))
             ->values()->map(function (DebugLog $log) use ($type, $shown, $cut) {
                 $context = (array) $log->context;
 
