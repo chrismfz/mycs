@@ -54,6 +54,34 @@ WHMCS) δεν πρέπει να ζωντανέψει με μια καθυστε�
 Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσοι GET/C++ clients ζουν ακόμα), `last_failure_at`
 και `last_failure`· και `license_check_days` (ok / failed ανά ημέρα). Οι οθόνες έρχονται στο L2.
 
+## Τηλεμετρία: `/api/v1/licensing/check` (2026-11-15)
+Ο έλεγχος των νέων releases του zonecloud. Ο controller (zcloudweb) μένει στο zlic.php προς το παρόν (απόφαση
+ιδιοκτήτη 2026-11-15).
+- **Η απάντηση είναι του zlic.php, byte-for-byte.** Ίδιος κώδικας (`ZlicController::answer`), ίδια όρια, ίδιο JSON
+  (`md5hash`, `localkey`). Ένας client που γυρίζει στο zlic.php όταν αυτό δεν απαντά διαβάζει το ίδιο και από τα δύο.
+  Απαντά και σε deploy και δεν «καθαρίζει» το input, όπως το zlic.php. Μόνο POST, JSON ή form, με `license` και
+  `license_PSK` όπως στο zlic.php.
+- **`telemetry`, προαιρετικό:** `product` (agent/node/controller), `version`, `build_time`, `commit`, `sha256` (του
+  binary), `install_id` (UUID που φτιάχνεται μία φορά στην εγκατάσταση), `client_time` (unix ή ημερομηνία), `os`,
+  `arch`, `licensed` (bool), `failures` (int). Κάθε πεδίο ελέγχεται μόνο του: ό,τι λείπει ή είναι λάθος μένει έξω,
+  **ποτέ δεν απορρίπτεται το request**. Ένα `build_time` στο μέλλον μένει έξω.
+- **Πού γράφεται:** `license_installs`, μία γραμμή ανά άδεια, IP, product και `install_id`, **μετά** την απάντηση.
+  Κρατά την τελευταία έκδοση και την προηγούμενη, πόσα checks έγιναν, πότε φάνηκε πρώτη και τελευταία φορά, και το
+  `downgraded_at` όταν ένα build παλιότερο από αυτό που έτρεχε πριν ξαναφανεί. Ένα άγνωστο κλειδί δεν γράφει τίποτα.
+  Το ίδιο και μια απάντηση από όριο ή σφάλμα («Remote Check Failed»). Ένα κλειδί που μπήκε σε bulk γράφεται στην bulk.
+  Το πολύ 1.000 εγκαταστάσεις ανά άδεια. Ένα σφάλμα εδώ δεν αλλάζει ποτέ την απάντηση. Retention: 400 μέρες από το
+  τελευταίο check (Data Retention).
+- **Staff:**
+  - Κονσόλα Licenses: στήλες «Version» (της πιο πρόσφατης εγκατάστασης) και «Installs» (των τελευταίων 7 ημερών).
+  - Tab **Signals**, με ό,τι φάνηκε τις τελευταίες 7 μέρες:
+    - downgrade σε παλιότερο build·
+    - ρολόι πάνω από μία μέρα μακριά από το δικό μας (ένα ρολόι γυρισμένο πίσω κρατά ένα localkey έγκυρο)·
+    - μια άδεια που δεν είναι bulk και τρέχει σε πάνω από μία εγκατάσταση. Μετά από reissue σε νέο server
+      φαίνονται δύο για λίγες μέρες· το staff κρίνει.
+  - Σελίδα υπηρεσίας: «Installs», οι 10 πιο πρόσφατες σε μία γραμμή η καθεμία.
+- **Επόμενο:** signed token (ed25519) σε λειτουργία σκιάς: εκδίδεται και ελέγχεται, αλλά δεν αποφασίζει τίποτα
+  (zonecloud `docs/roadmap-licensing.md`, Phase A).
+
 ## Επόμενα
 - **L2 (έγινε):**
   - Πελάτης, σελίδα υπηρεσίας: «License» με κλειδί (αντιγραφή), Valid IPs, status, τα πεδία που αναφέρει (Custom Fields
