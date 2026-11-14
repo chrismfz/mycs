@@ -294,13 +294,14 @@ class LicensingCheckTest extends TestCase
         $this->assertSame('Active', $plain->json('status'));
         $this->assertNull($plain->json('token'));
 
+        // A key that is not one, then a good key with a kid that is not one: no token, said once a day in all (not a
+        // report per check, with the key in its trace).
+        Log::spy();
         config(['services.license_token.secret' => base64_encode('not a key')]);
         $broken = $this->check();
         $this->assertSame('Active', $broken->json('status'));
         $this->assertNull($broken->json('token'));
 
-        // A good key with a kid that is not one: no token either, said once (not a report per check, with the key in it).
-        Log::spy();
         config(['services.license_token.secret' => Token::keypair()['secret'], 'services.license_token.kid' => 'k.1']);
         $this->assertNull($this->check()->json('token'));
         $this->assertNull($this->check()->json('token'));
