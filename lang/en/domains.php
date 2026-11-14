@@ -474,6 +474,12 @@ return [
         'hosts_none' => 'None read yet: «Child nameservers» on a domain\'s page reads them.',
         'grweb_help' => 'What EPP does not do: the domain\'s details as a PDF to its holder, the registrar\'s IP, its users and statistics.',
         'grweb_open' => 'Open grweb',
+        'auth_code' => 'Auth code reset mail',
+        'auth_code_help' => 'For one .gr name, ours or at another registrar (a customer moving it to us): the registry emails its registrant a link to set a new auth code. Free; one mail per name per 10 minutes.',
+        'auth_code_one' => 'Type one .gr name.',
+        'auth_code_send' => 'Send the mail',
+        'auth_code_confirm' => 'The registry will email the name\'s registrant (the address it holds) a link to reset its auth code. Send it?',
+        'auth_code_again' => 'A mail for «:domain» was asked for in the last 10 minutes: wait before asking again.',
     ],
     // Staff's corrections of a domain's record (DomainRecordCorrections)
     'correct' => [

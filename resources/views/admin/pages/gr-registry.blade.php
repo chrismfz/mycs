@@ -103,6 +103,26 @@
         @endif
     </x-filament::section>
 
+    {{-- 4. The auth code reset mail (DACoR) for one name, ours or another registrar's --}}
+    @if ($canManage)
+    <x-filament::section>
+        <x-slot name="heading">{{ __('domains.gr_registry.auth_code') }}</x-slot>
+        <x-slot name="description">{{ __('domains.gr_registry.auth_code_help') }}</x-slot>
+        <form wire:submit="emailAuthCode" class="flex flex-col sm:flex-row gap-2 max-w-3xl">
+            <input type="text" wire:model="authName" maxlength="300" placeholder="mybusiness.gr"
+                class="flex-grow rounded-lg border-gray-300 dark:bg-gray-800 dark:border-gray-700 px-3 py-2 text-sm">
+            <x-filament::button type="submit" color="warning" wire:loading.attr="disabled" wire:target="emailAuthCode"
+                wire:confirm="{{ __('domains.gr_registry.auth_code_confirm') }}">{{ __('domains.gr_registry.auth_code_send') }}</x-filament::button>
+        </form>
+        @if ($authError)
+        <p class="mt-2 text-sm text-danger-600">{{ $authError }}</p>
+        @endif
+        @if ($authResult)
+        <p class="mt-2 text-sm text-success-600">{{ $authResult }}</p>
+        @endif
+    </x-filament::section>
+    @endif
+
     {{-- 5. Our glue hosts --}}
     <x-filament::section>
         <x-slot name="heading">{{ __('domains.gr_registry.hosts') }}</x-slot>

@@ -3,13 +3,17 @@
 namespace App\Admin\Pages;
 
 use App\Admin\Resources\DomainResource;
+use App\Contracts\EmailsAuthCode;
 use App\Models\Domain;
 use App\Models\DomainOwnerChange;
 use App\Models\DomainRegistrarConnection;
+use App\Models\DomainRegistrarLog;
 use App\Services\Domains\DomainRegistrarFactory;
 use App\Services\Domains\RegistrarBalances;
+use App\Services\Domains\RegistrarRefused;
 use App\Services\Domains\Registrars\GrEppRegistrar;
 use App\Support\Domains\AvailabilityResult;
+use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -22,7 +26,8 @@ use Throwable;
 /**
  * Our account at the .gr registry (G8, owner 2026-10-23), one page: its balance and whether it may be charged; the domains
  * that need a look (an EETT status, a change of holder waiting or with no answer); a check of names with the registry's
- * «under restrictions»; our glue hosts as last read; and a link to grweb for what EPP does not do. Nothing here writes.
+ * «under restrictions»; the auth code reset mail (DACoR) for any .gr name, ours or another registrar's (a transfer to us:
+ * owner 2026-11-14); our glue hosts as last read; and a link to grweb for what EPP does not do. Only the DACoR mail writes.
  */
 class GrRegistry extends Page
 {
@@ -31,6 +36,9 @@ class GrRegistry extends Page
 
     /** Checks per staff member per 10 minutes. */
     public const CHECK_LIMIT = 30;
+
+    /** Auth code reset mails per staff member per 10 minutes; and one per name per 10 minutes (each goes to its registrant). */
+    public const AUTH_CODE_LIMIT = 10;
 
     /** grweb, the registry's web panel: what EPP does not do (the holder's PDF, the registrar's IP, users, statistics). */
     public const GRWEB = 'https://grweb.ics.forth.gr/';
@@ -56,6 +64,15 @@ class GrRegistry extends Page
 
     #[Locked]
     public ?string $checkError = null;
+
+    /** The one name whose registrant gets the auth code reset mail. */
+    public string $authName = '';
+
+    #[Locked]
+    public ?string $authResult = null;
+
+    #[Locked]
+    public ?string $authError = null;
 
     public static function canAccess(): bool
     {
@@ -89,14 +106,7 @@ class GrRegistry extends Page
         $this->checked = [];
         $this->checkError = null;
         $names = collect(preg_split('/[\s,;]+/', mb_strtolower(mb_substr($this->names, 0, 2000))) ?: [])
-            ->map(fn ($name) => trim((string) preg_replace('#^[a-z][a-z0-9+.-]*://(www\.)?#', '', (string) $name), ' ./'))
-            // A .ελ typed in punycode (from an address bar) is one too (ADV-2 of #394): sent as typed, the registrar's
-            // Rules::name turns it to Unicode.
-            ->filter(function ($name) {
-                $plain = str_contains($name, 'xn--') ? (string) (idn_to_utf8($name, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: $name) : $name;
-
-                return $name !== '' && (str_ends_with($plain, '.gr') || str_ends_with($plain, '.ελ'));
-            })->unique()->values();
+            ->map(fn ($name) => self::name((string) $name))->filter(fn ($name) => self::isGr($name))->unique()->values();
         if ($names->isEmpty()) {
             $this->checkError = __('domains.gr_registry.check_none');
 
@@ -140,6 +150,86 @@ class GrRegistry extends Page
             'restricted' => str_starts_with((string) $result->reason, 'restricted: '),
             'reason' => $result->reason === null ? null : (string) preg_replace('/^restricted: /', '', $result->reason),
         ])->values()->all();
+    }
+
+    /**
+     * The registry emails the registrant of one .gr name a link to reset its auth code (DACoR, grepp.md §5.12): for a
+     * customer moving a name to us from another registrar, which is not in our database yet. Free; staff with «manage
+     * domains»; logged in the registrar log (no domain row). The registry's answer shown, the address masked.
+     */
+    public function emailAuthCode(): void
+    {
+        abort_unless(self::canManage(), 403);
+        $this->authResult = null;
+        $this->authError = null;
+        $name = self::name(mb_strtolower(mb_substr($this->authName, 0, 300)));
+        if (!self::isGr($name) || preg_match('/[\s,;]/', $name)) {
+            $this->authError = __('domains.gr_registry.auth_code_one');
+
+            return;
+        }
+        $connection = self::connections()->first(fn (DomainRegistrarConnection $c) => $c->is_active && $c->isUsable());
+        if ($connection === null) {
+            $this->authError = __('domains.gr_registry.no_connection');
+
+            return;
+        }
+        $staffKey = 'gr-registry-dacor:' . Auth::guard('staff')->id();
+        $nameKey = 'gr-registry-dacor-name:' . sha1($name);
+        if (RateLimiter::tooManyAttempts($staffKey, self::AUTH_CODE_LIMIT)) {
+            $this->authError = __('domains.shop.too_many');
+
+            return;
+        }
+        if (RateLimiter::tooManyAttempts($nameKey, 1)) {
+            $this->authError = __('domains.gr_registry.auth_code_again', ['domain' => $name]);
+
+            return;
+        }
+        RateLimiter::hit($staffKey, 600);
+        RateLimiter::hit($nameKey, 600);
+
+        $log = ['domain_id' => null, 'registrar_connection_id' => $connection->id, 'staff_id' => Auth::guard('staff')->id(),
+            'action' => 'auth_code_email', 'request' => ['fqdn' => $name]];
+        $transactions = app(RegistrarTransactions::class);
+        $mark = $transactions->mark();
+        try {
+            $factory = app(DomainRegistrarFactory::class);
+            $registrar = $factory->for($connection);
+            if (!$registrar instanceof EmailsAuthCode) {
+                throw new \RuntimeException(__('domains.gr_registry.no_connection'));
+            }
+            $said = $registrar->emailAuthCode((new Domain)->forceFill(['fqdn' => $name]), $factory->credentialsFor($connection));
+            DomainRegistrarLog::query()->create($log + ['status' => DomainRegistrarLog::STATUS_OK, 'response' => ['emailed' => $said],
+                'transactions' => $transactions->since($mark)]);
+            $this->authResult = $name . ': ' . $said;
+            $this->authName = '';
+        } catch (Throwable $e) {
+            $error = Redact::values(Redact::text($e->getMessage()), array_filter($connection->credentials(), 'is_string'));
+            DomainRegistrarLog::query()->create($log + ['status' => DomainRegistrarLog::STATUS_FAILED, 'transactions' => $transactions->since($mark),
+                'error' => mb_substr($error, 0, 2000)]);
+            if (!$e instanceof RegistrarRefused) {
+                report($e);
+            }
+            $this->authError = mb_substr($error, 0, 300);
+        }
+    }
+
+    /** A name as typed or pasted: lower case, without a scheme, «www.» or dots and slashes at its ends. */
+    private static function name(string $name): string
+    {
+        return trim((string) preg_replace('#^[a-z][a-z0-9+.-]*://(www\.)?#', '', trim($name)), ' ./');
+    }
+
+    /**
+     * A .gr or .ελ name. One typed in punycode (from an address bar) is one too (ADV-2 of #394): sent as typed, the
+     * registrar's Rules::name turns it to Unicode.
+     */
+    private static function isGr(string $name): bool
+    {
+        $plain = str_contains($name, 'xn--') ? (string) (idn_to_utf8($name, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: $name) : $name;
+
+        return $name !== '' && (str_ends_with($plain, '.gr') || str_ends_with($plain, '.ελ'));
     }
 
     protected function getViewData(): array
