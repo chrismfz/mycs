@@ -1,5 +1,5 @@
 {
-    "comment": "A test key (seed 32 x 0x07): never a real one. The clients verify this token with this public key, at a time between iat and exp.",
+    "comment": "A test key (seed 32 x 0x07): never a real one. The clients verify this token with this public key, at a time between iat and exp. exp is Token::expiry(iat, due, 30): the due date is more than 30 days after iat, so iat + 30 days.",
     "kid": "test-1",
     "secret": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwfqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
     "public": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
@@ -9,9 +9,9 @@
         "key": "ZCAgent-0000000000000001",
         "ip": "192.0.2.10",
         "status": "Active",
-        "due": "2027-01-31",
+        "due": "2027-03-31",
         "iat": 1800000000,
         "exp": 1802592000
     },
-    "token": "test-1.eyJ2IjoxLCJraWQiOiJ0ZXN0LTEiLCJrZXkiOiJaQ0FnZW50LTAwMDAwMDAwMDAwMDAwMDEiLCJpcCI6IjE5Mi4wLjIuMTAiLCJzdGF0dXMiOiJBY3RpdmUiLCJkdWUiOiIyMDI3LTAxLTMxIiwiaWF0IjoxODAwMDAwMDAwLCJleHAiOjE4MDI1OTIwMDB9.DYA_cIq1eoeIogOliShorqJs3PxcMIKe9246ADAFkIs4eiIOiJAlJBBQCSpo7dAj_KnbKpiSt0gyzoRdejnuDg"
+    "token": "test-1.eyJ2IjoxLCJraWQiOiJ0ZXN0LTEiLCJrZXkiOiJaQ0FnZW50LTAwMDAwMDAwMDAwMDAwMDEiLCJpcCI6IjE5Mi4wLjIuMTAiLCJzdGF0dXMiOiJBY3RpdmUiLCJkdWUiOiIyMDI3LTAzLTMxIiwiaWF0IjoxODAwMDAwMDAwLCJleHAiOjE4MDI1OTIwMDB9.GdKkiKwHfT1vBma26zhFeBXQclJ7fR9IW7zva4u13DrKrRW4GTkHs5CXo2yHBfNAV-CsdJ5XdyKLmzA0ko0EAA"
 }

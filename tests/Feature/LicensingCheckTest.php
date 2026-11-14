@@ -17,6 +17,7 @@ use App\Services\Licensing\LicenseTelemetry;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use Nixpal\Licensing\Token;
@@ -297,6 +298,13 @@ class LicensingCheckTest extends TestCase
         $broken = $this->check();
         $this->assertSame('Active', $broken->json('status'));
         $this->assertNull($broken->json('token'));
+
+        // A good key with a kid that is not one: no token either, said once (not a report per check, with the key in it).
+        Log::spy();
+        config(['services.license_token.secret' => Token::keypair()['secret'], 'services.license_token.kid' => 'k.1']);
+        $this->assertNull($this->check()->json('token'));
+        $this->assertNull($this->check()->json('token'));
+        Log::shouldHaveReceived('error')->once();
     }
 
     /** In shadow: the clients say whether their last token verified; a bad one is a signal. */

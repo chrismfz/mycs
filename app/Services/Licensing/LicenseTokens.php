@@ -2,6 +2,8 @@
 
 namespace App\Services\Licensing;
 
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Nixpal\Licensing\Token;
 use Nixpal\Licensing\ZlicResponse;
 use Throwable;
@@ -24,14 +26,24 @@ final class LicenseTokens
         if ($secret === '') {
             return null;
         }
-        try {
+        try { // never throws to the answer: a cache down, a bad key, anything
+            $kid = (string) (config('services.license_token.kid') ?: 'k1');
+            // A key or kid that is not one fails every Active check alike: said once a day, without the key (review of the
+            // token PR: a report() per check, with the secret in its trace, flooded the log).
+            if (Token::publicKey($secret) === null || preg_match(Token::KID, $kid) !== 1) {
+                if (Cache::add('license_token:bad_config:' . now()->format('Ymd'), 1, now()->addDay())) {
+                    Log::error('License tokens: MYCS_LICENSE_TOKEN_KEY is not an ed25519 secret key, or MYCS_LICENSE_TOKEN_KID not a key id; no tokens are issued (php artisan mycs:license-token-key --show).');
+                }
+
+                return null;
+            }
             $now = now()->getTimestamp();
             $due = is_string($response->body['nextduedate'] ?? null) ? $response->body['nextduedate'] : null;
             $due = $due !== null && $due !== '0000-00-00' ? $due : null;
 
             return Token::issue(['key' => $key, 'ip' => $ip, 'status' => 'Active', 'due' => $due, 'iat' => $now,
                 'exp' => Token::expiry($now, $due, (int) config('services.license_token.max_days', 30))],
-                $secret, (string) (config('services.license_token.kid') ?: 'k1'));
+                $secret, $kid);
         } catch (Throwable $e) {
             report($e);
 

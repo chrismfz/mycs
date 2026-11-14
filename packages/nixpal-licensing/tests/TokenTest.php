@@ -22,6 +22,7 @@ final class TokenTest extends TestCase
         $this->assertSame($f['token'], Token::issue($claims, $f['secret'], $f['kid']));
         $this->assertSame($f['public'], Token::publicKey($f['secret']));
         $this->assertSame($f['claims'], Token::verify($f['token'], [$f['kid'] => $f['public']], $f['claims']['iat']));
+        $this->assertSame($f['claims']['exp'], Token::expiry($f['claims']['iat'], $f['claims']['due'], 30), 'the fixture keeps the expiry rule');
     }
 
     public function test_a_changed_wrongly_signed_expired_or_unknown_token_is_refused(): void
@@ -32,7 +33,7 @@ final class TokenTest extends TestCase
         [$kid, $payload, $signature] = explode('.', $f['token']);
         $other = Token::keypair();
 
-        $forged = rtrim(strtr(base64_encode(str_replace('2027-01-31', '2099-01-31', (string) base64_decode(strtr($payload, '-_', '+/')))), '+/', '-_'), '=');
+        $forged = rtrim(strtr(base64_encode(str_replace('2027-03-31', '2099-01-31', (string) base64_decode(strtr($payload, '-_', '+/')))), '+/', '-_'), '=');
         $this->assertNull(Token::verify("{$kid}.{$forged}.{$signature}", $keys, $now), 'a changed payload');
         $this->assertNull(Token::verify(Token::issue(['exp' => $now + 60], $other['secret'], $f['kid']), $keys, $now), 'another key');
         $this->assertNull(Token::verify($f['token'], ['other' => $f['public']], $now), 'an unknown kid');

@@ -37,7 +37,10 @@ final class Token
      * @param  string  $secret
      * @return string|null
      */
-    public static function publicKey($secret)
+    public static function publicKey(
+        #[\SensitiveParameter]
+        $secret
+    )
     {
         $raw = base64_decode((string) $secret, true);
         if ($raw === false || strlen($raw) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
@@ -55,8 +58,12 @@ final class Token
      *
      * @throws \InvalidArgumentException a secret key or kid that is not one
      */
-    public static function issue(array $claims, $secret, $kid)
-    {
+    public static function issue(
+        array $claims,
+        #[\SensitiveParameter]
+        $secret,
+        $kid
+    ) {
         $raw = base64_decode((string) $secret, true);
         if ($raw === false || strlen($raw) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
             throw new \InvalidArgumentException('Not an ed25519 secret key');
@@ -64,7 +71,7 @@ final class Token
         if (!preg_match(self::KID, (string) $kid)) {
             throw new \InvalidArgumentException('Not a key id');
         }
-        $payload = self::encode(json_encode(['v' => self::VERSION, 'kid' => $kid] + $claims, JSON_UNESCAPED_SLASHES));
+        $payload = self::encode(json_encode(['v' => self::VERSION, 'kid' => $kid] + $claims, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
         $signed = $kid . '.' . $payload;
 
         return $signed . '.' . self::encode(sodium_crypto_sign_detached($signed, $raw));
@@ -103,8 +110,9 @@ final class Token
     }
 
     /**
-     * When a token issued at $now expires: the end of the due date (UTC) or $now + $maxDays, whichever comes first. No
-     * due date (or WHMCS's 0000-00-00): $maxDays.
+     * When a token issued at $now expires: the end of the due date (23:59:59 UTC; the due date is the instance's local
+     * date, so a few hours later there) or $now + $maxDays, whichever comes first. No due date (or WHMCS's 0000-00-00):
+     * $maxDays.
      *
      * @param  int  $now
      * @param  string|null  $due  Y-m-d
