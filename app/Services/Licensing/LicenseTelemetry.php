@@ -58,7 +58,7 @@ final class LicenseTelemetry
                 : (is_string($in['licensed'] ?? null) ? ['1' => true, 'true' => true, '0' => false, 'false' => false][strtolower($in['licensed'])] ?? null : null),
             'failures' => ($failures = is_int($in['failures'] ?? null) ? $in['failures']
                 : (is_string($in['failures'] ?? null) && preg_match('/^\d{1,7}$/', $in['failures']) === 1 ? (int) $in['failures'] : null)) !== null
-                && $failures <= 1_000_000 ? $failures : null,
+                && $failures >= 0 && $failures <= 1_000_000 ? $failures : null,
         ];
 
         return array_filter($fields, fn ($value) => $value !== null);
