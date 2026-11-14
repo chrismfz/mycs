@@ -24,7 +24,9 @@ use App\Mcp\Tools\ProposeTicketReplyTool;
 use App\Mcp\Tools\RegistrarLogTool;
 use App\Mcp\Tools\RevenueTool;
 use App\Mcp\Tools\SearchTool;
+use App\Mcp\Tools\ServerAccountsTool;
 use App\Mcp\Tools\ServerTestTool;
+use App\Mcp\Tools\ServiceModuleTool;
 use App\Mcp\Tools\ServiceTool;
 use App\Mcp\Tools\TicketTool;
 use App\Mcp\Tools\ZlicTool;
@@ -39,7 +41,7 @@ use Laravel\Mcp\Server\Attributes\Version;
  * use it, and every call recorded.
  */
 #[Name('mycs')]
-#[Version('0.3.0')]
+#[Version('0.4.0')]
 #[Instructions(<<<'TEXT'
     MyCS is the hosting company's control plane (accounts, services, invoices, provisioning, licenses, mail). These tools
     are read-only and are for testing and troubleshooting.
@@ -62,6 +64,10 @@ use Laravel\Mcp\Server\Attributes\Version;
     - `catalog` shows products (plans, prices per currency), categories, coupons and client groups; `revenue` the income
       month by month against the month before and the same month a year earlier (as the admin's Income report).
 
+    - `service_module` shows what the modules last read of one service (usage, hosted domains, its cPanel account and
+      LVE, Proxmox guest, mailcow mailboxes, SSL order, BMC); `server_accounts` a server's accounts, guests or mail
+      domains, by use or by what needs a look (differs, not mapped, near limits, mail held). From the read-only syncs,
+      each with when it was read: nothing asks a server now.
     - `server_test` checks a provisioning server's connection with its stored settings (changes nothing).
     - `propose_ticket_reply` drafts a reply staff see on the ticket, change and send themselves: never sent from here.
     - `propose_*` tools only PROPOSE a change (retry or resolve a module action, resend a mail): staff approve or reject
@@ -85,6 +91,7 @@ class MycsServer extends Server
         HealthTool::class,
         SearchTool::class,
         ServiceTool::class,
+        ServiceModuleTool::class,
         ClientTool::class,
         InvoiceTool::class,
         ChargesTool::class,
@@ -94,6 +101,7 @@ class MycsServer extends Server
         LogsTool::class,
         ZlicTool::class,
         ServerTestTool::class,
+        ServerAccountsTool::class,
         TicketTool::class,
         DomainTool::class,
         RegistrarLogTool::class,

@@ -37,19 +37,32 @@ class AppLogTool extends McpTool
         $type = $request->get('type') === 'http' ? 'http' : 'error';
         $search = trim((string) $request->get('search'));
 
+        $column = $type === 'http' ? 'context->url' : 'context->message';
+        $shown = fn (array $context) => $type === 'http'
+            ? (isset($context['url']) ? Scrub::text((string) $context['url']) : null) // Scrub masks URLs as Redact::url and the config secrets too
+            : Scrub::text((string) ($context['message'] ?? ''));
+        // Scrubbed whole, then cut: a secret cut in two would no longer be known to Scrub (security review, SEC-3).
+        $cut = fn (mixed $value) => mb_substr((string) Scrub::text(is_string($value) ? $value : (string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)), 0, 1500);
+
         // Application errors are written as «exception» (bootstrap/app.php, the admin's Error Logs: review of #419).
-        return ['type' => $type, 'entries' => DebugLog::query()->where('type', $type === 'http' ? 'http' : 'exception')
-            ->when($search !== '', fn ($query) => $query->where($type === 'http' ? 'context->url' : 'context->message', 'like', '%' . $search . '%'))
-            ->latest('id')->limit(self::limit($request, 20, 100))->get()
-            ->map(function (DebugLog $log) use ($type) {
+        $query = DebugLog::query()->where('type', $type === 'http' ? 'http' : 'exception');
+        if ($search !== '') {
+            // % and _ taken literally; a hit counts only if what is shown still holds it (SEC-2).
+            $query->whereRaw($query->getQuery()->getGrammar()->wrap($column) . " LIKE ? ESCAPE '!'", ['%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%']);
+        }
+
+        return ['type' => $type, 'entries' => $query->latest('id')->limit(self::limit($request, 20, 100))->get()
+            // context is utf8mb4_bin: the database compares bytes, so what is shown must hold the very bytes (not folded as stillShows).
+            ->filter(fn (DebugLog $log) => $search === '' || (string) (((array) $log->context)[$type === 'http' ? 'url' : 'message'] ?? '') === (string) $shown((array) $log->context)
+                || str_contains((string) $shown((array) $log->context), $search))
+            ->values()->map(function (DebugLog $log) use ($type, $shown, $cut) {
                 $context = (array) $log->context;
 
                 return ['id' => $log->id, 'at' => $log->created_at?->toDateTimeString()] + ($type === 'http'
-                    ? ['method' => $context['method'] ?? null, 'url' => isset($context['url']) ? Redact::url((string) $context['url']) : null,
-                        'status' => $context['response_status'] ?? null,
-                        'response' => Scrub::text(mb_substr(is_string($context['response'] ?? null) ? $context['response'] : (string) json_encode($context['response'] ?? null), 0, 1500))]
-                    : ['message' => Scrub::text(mb_substr((string) ($context['message'] ?? ''), 0, 1500)), 'file' => $context['file'] ?? null, 'line' => $context['line'] ?? null,
-                        'trace' => Scrub::text(mb_substr(is_string($context['trace'] ?? null) ? $context['trace'] : (string) json_encode($context['trace'] ?? null), 0, 1500))]);
+                    ? ['method' => $context['method'] ?? null, 'url' => $shown($context), 'status' => $context['response_status'] ?? null,
+                        'response' => $cut($context['response'] ?? null)]
+                    : ['message' => mb_substr((string) $shown($context), 0, 1500), 'file' => $context['file'] ?? null, 'line' => $context['line'] ?? null,
+                        'trace' => $cut($context['trace'] ?? null)]);
             })->all()];
     }
 }

@@ -39,7 +39,7 @@ class FailedJobsTool extends McpTool
                 'job' => json_decode((string) $row->payload, true)['displayName'] ?? null,
                 'queue' => $row->queue,
                 'failed_at' => $row->failed_at,
-                'exception' => Scrub::text(mb_substr((string) $row->exception, 0, 1500)),
+                'exception' => mb_substr((string) Scrub::text((string) $row->exception), 0, 1500), // scrubbed whole, then cut (SEC-3)
             ])->all(),
         ];
     }
