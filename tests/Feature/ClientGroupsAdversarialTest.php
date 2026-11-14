@@ -357,8 +357,8 @@ class ClientGroupsAdversarialTest extends TestCase
         $group = $this->group('10');
         $staff = Staff::factory()->withPermissions(['admin.client_groups.viewAny', 'admin.clients.update'])->create();
 
-        $this->actingAs($staff)->get(ClientGroupResource::getUrl('edit', ['record' => $group]))->assertForbidden();
-        $this->actingAs($staff)->get(ClientGroupResource::getUrl('create'))->assertForbidden();
+        $this->actingAs($staff)->get(ClientGroupResource::getUrl('edit', ['record' => $group]))->assertNotFound();
+        $this->actingAs($staff)->get(ClientGroupResource::getUrl('create'))->assertNotFound();
     }
 
     /** A percentage over 100 is refused by the admin form (LinePricer would throw on every price of its members). */

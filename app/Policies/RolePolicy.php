@@ -38,8 +38,9 @@ class RolePolicy
      */
     public function update(User|Staff $user, Role $role): bool
     {
-        // Only roles that carry nothing beyond your own permissions.
-        return $user instanceof Staff && $user->hasPermission('admin.roles.update') && PermissionGuard::canGrant($user, $role->permissions ?? []);
+        // Only roles that carry nothing beyond your own permissions; the full admin role (#1) never. Here, not only in
+        // RoleResource::canEdit: since Filament 5.11.2 the edit page asks the policy directly (#20957).
+        return $user instanceof Staff && $role->id !== 1 && $user->hasPermission('admin.roles.update') && PermissionGuard::canGrant($user, $role->permissions ?? []);
     }
 
     /**

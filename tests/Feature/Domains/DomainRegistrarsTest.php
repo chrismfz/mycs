@@ -108,7 +108,7 @@ class DomainRegistrarsTest extends TestCase
 
         $this->actingAs($this->staff(['admin.domains.viewAny']))->get(DomainRegistrarConnectionResource::getUrl('index'))->assertForbidden();
         $this->actingAs($this->staff(['admin.domain_registrars.viewAny']))->get(DomainRegistrarConnectionResource::getUrl('index'))->assertOk()->assertSee('CNIC (manual)');
-        $this->actingAs($this->staff(['admin.domain_registrars.viewAny']))->get(DomainRegistrarConnectionResource::getUrl('edit', ['record' => $connection]))->assertForbidden();
+        $this->actingAs($this->staff(['admin.domain_registrars.viewAny']))->get(DomainRegistrarConnectionResource::getUrl('edit', ['record' => $connection]))->assertNotFound();
     }
 
     public function test_openprovider_creates_one_customer_per_contact_and_keeps_the_handles_on_the_domain(): void

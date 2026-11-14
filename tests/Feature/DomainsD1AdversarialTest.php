@@ -180,7 +180,7 @@ class DomainsD1AdversarialTest extends TestCase
         $domain = $this->domain();
 
         $this->actingAs($this->staff(['admin.domains.viewAny'], false))->get(DomainResource::getUrl('view', ['record' => $domain]))->assertForbidden();
-        $this->actingAs($this->staff(['admin.clients.viewAny']))->get(DomainResource::getUrl('view', ['record' => $domain]))->assertForbidden();
+        $this->actingAs($this->staff(['admin.clients.viewAny']))->get(DomainResource::getUrl('view', ['record' => $domain]))->assertNotFound();
 
         $this->actingAs($this->staff(['admin.clients.viewAny']), 'staff');
         $this->assertFalse(DomainResource::canGloballySearch());

@@ -106,7 +106,7 @@ class McpTicketReplyDraftTest extends TestCase
         $proposal = Proposals::propose(Proposals::TICKET_REPLY, ['ticket_id' => $ticket->id, 'message' => 'Secret draft'], $this->staff(['*']));
         $viewer = $this->staff(['admin.tickets.viewAny', 'admin.tickets.view']);
 
-        $this->livewireAs($viewer)->test(EditTicket::class, ['record' => $ticket->id])->assertDontSee('Secret draft')->call('useDraft', $proposal->id);
+        $this->livewireAs($viewer)->test(EditTicket::class, ['record' => $ticket->id])->assertNotFound();
 
         $this->assertSame(McpProposal::STATUS_PENDING, $proposal->fresh()->status);
     }

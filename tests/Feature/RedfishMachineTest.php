@@ -152,7 +152,7 @@ class RedfishMachineTest extends TestCase
         $server = $this->machine();
 
         $this->staff(['admin.servers.viewAny']);
-        Livewire::test(EditServer::class, ['record' => $server->id])->assertForbidden();
+        Livewire::test(EditServer::class, ['record' => $server->id])->assertNotFound();
         Http::assertNothingSent();
 
         $this->staff(['admin.servers.viewAny', 'admin.servers.update']);

@@ -339,8 +339,8 @@ class ResendWelcomeTest extends TestCase
     {
         // The page is the service's edit page: without «update» staff do not get it, nor its actions.
         $viewer = $this->staff(['admin.services.viewAny']);
-        $this->actingAs($viewer)->get(ServiceResource::getUrl('edit', ['record' => $this->service]))->assertForbidden();
-        $this->page($viewer)->assertForbidden();
+        $this->actingAs($viewer)->get(ServiceResource::getUrl('edit', ['record' => $this->service]))->assertNotFound();
+        $this->page($viewer)->assertNotFound();
 
         $this->assertSame([], $this->welcomes());
         $this->assertSame(self::OLD, $this->service->fresh()->password);

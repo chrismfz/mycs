@@ -172,7 +172,7 @@ class ResendWelcomeAdversarialTest extends TestCase
     {
         foreach ([['admin.services.viewAny'], ['admin.services.viewAny', 'admin.services.view'], ['admin.services.viewAny', 'admin.services.view', 'admin.clients.update']] as $permissions) {
             $staff = $this->staff($permissions);
-            $this->page($staff)->assertForbidden();
+            $this->page($staff)->assertNotFound();
             $this->assertFalse($staff->can('update', $this->service));
         }
     }
