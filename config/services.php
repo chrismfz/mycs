@@ -36,6 +36,14 @@ return [
         'token' => env('MYCS_HEALTH_TOKEN'),
     ],
 
+    // The signed license tokens of /licensing/v1/check (docs/licensing.md): the ed25519 secret key, base64, and its id.
+    // Unset: no tokens, everything else as before. `php artisan mycs:license-token-key` makes a pair.
+    'license_token' => [
+        'secret' => env('MYCS_LICENSE_TOKEN_KEY'),
+        'kid' => env('MYCS_LICENSE_TOKEN_KID', 'k1'),
+        'max_days' => 30,
+    ],
+
     // The WHMCS importer's read of its logins' 2FA (WHMCS 8 keeps it encrypted with this key, from WHMCS's
     // configuration.php): set it for the import run only, then remove it.
     'whmcs' => [

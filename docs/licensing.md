@@ -64,7 +64,7 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
   zlic.php δεν έχει (review 2-4 του #863).
 - **`telemetry`, προαιρετικό:** `product` (agent/node/controller), `version`, `build_time`, `commit`, `sha256` (του
   binary), `install_id` (UUID που φτιάχνεται μία φορά στην εγκατάσταση), `client_time` (unix ή ημερομηνία), `os`,
-  `arch`, `licensed` (bool), `failures` (int). Κάθε πεδίο ελέγχεται μόνο του: ό,τι λείπει ή είναι λάθος μένει έξω,
+  `arch`, `licensed` (bool), `failures` (int), `token` (`ok`, `bad` ή `none`: ο έλεγχος του token από τον client). Κάθε πεδίο ελέγχεται μόνο του: ό,τι λείπει ή είναι λάθος μένει έξω,
   **ποτέ δεν απορρίπτεται το request**. Ένα `build_time` στο μέλλον μένει έξω.
 - **Πού γράφεται:** `license_installs`, μία γραμμή ανά άδεια, IP, product και `install_id`, **μετά** την απάντηση.
   Κρατά την τελευταία έκδοση και την προηγούμενη, πόσα checks έγιναν, πότε φάνηκε πρώτη και τελευταία φορά, και το
@@ -88,7 +88,29 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
     - μια άδεια που δεν είναι bulk και τρέχει σε πάνω από μία εγκατάσταση. Μετά από reissue σε νέο server
       φαίνονται δύο για λίγες μέρες· το staff κρίνει.
   - Σελίδα υπηρεσίας: «Installs», οι 10 πιο πρόσφατες σε μία γραμμή η καθεμία.
-- **Επόμενο:** signed token (ed25519) σε λειτουργία σκιάς: εκδίδεται και ελέγχεται, αλλά δεν αποφασίζει τίποτα
+
+## Signed token (2026-11-15, λειτουργία σκιάς)
+Το localkey υπογράφεται με το PSK, που υπάρχει σε κάθε client, άρα πλαστογραφείται. Το token υπογράφεται με ed25519:
+το private key υπάρχει **μόνο** στον MyCS και οι clients κρατούν το public. Ούτε ένας patched client ούτε ένας ψεύτικος
+license server μπορεί να φτιάξει token.
+- **Πότε:** μόνο στο `/licensing/v1/check`, μόνο μαζί με «Active», και μόνο όταν έχει οριστεί κλειδί. Μπαίνει ως νέο
+  πεδίο `token`. Όλα τα άλλα πεδία της απάντησης μένουν του zlic.php, μαζί με τα `md5hash` και `localkey`. Το zlic.php
+  δεν δίνει ποτέ token. Χωρίς κλειδί, ή με χαλασμένο κλειδί, η απάντηση πάει χωρίς token, όπως πριν.
+- **Μορφή:** `<kid>.<payload>.<signature>` σε base64url. Η υπογραφή καλύπτει ακριβώς τα bytes `<kid>.<payload>`, οπότε
+  κανείς client δεν χρειάζεται να ξαναφτιάξει JSON. Το payload περιέχει `v` (1), `kid`, `key`, `ip` (του caller),
+  `status`, `due` (το due date της υπηρεσίας ή null), `iat`, `exp`. Ο κώδικας είναι στο
+  `packages/nixpal-licensing/src/Token.php`. Ένα σταθερό δείγμα για τα tests των clients, με δοκιμαστικό κλειδί, είναι
+  στο `tests/fixtures/token/v1.json`.
+- **Διάρκεια:** ως το τέλος του due date και το πολύ 30 μέρες (απόφαση ιδιοκτήτη 2026-11-15). Ο client παίρνει
+  καινούργιο σε κάθε check (κάθε 12 ώρες), οπότε μια άδεια έτους δεν φτάνει ποτέ το όριο. Τα 30 μέρες είναι πόσο μπορεί
+  να δουλέψει ένας client χωρίς να μας βρει, **όταν** το token αρχίσει να αποφασίζει.
+- **Κλειδί:** `php artisan mycs:license-token-key` φτιάχνει ένα ζεύγος. Το secret πάει στο `.env`
+  (`MYCS_LICENSE_TOKEN_KEY`, `MYCS_LICENSE_TOKEN_KID`), ποτέ στο repo, στη βάση ή σε log. Το public key πάει στους
+  clients μαζί με το kid. Με `--show` εμφανίζεται το public key του κλειδιού που έχει ήδη οριστεί. Ένα κλειδί ανά
+  εταιρεία (instance). Για rotation: νέο kid, και οι clients κρατούν και το παλιό και το νέο public key για όσο χρειαστεί.
+- **Σκιά:** ο client ελέγχει το token που πήρε και στο επόμενο check το αναφέρει στην τηλεμετρία
+  (`token`: `ok`, `bad` ή `none`). Το `token_check` στο `license_installs` το κρατά. Ένα `bad` εμφανίζεται στα Signals
+  και στη σελίδα της υπηρεσίας. **Το token δεν αποφασίζει τίποτα** μέχρι για εβδομάδες να μην εμφανιστεί κανένα `bad`
   (zonecloud `docs/roadmap-licensing.md`, Phase A).
 
 ## Επόμενα
