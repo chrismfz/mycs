@@ -230,7 +230,11 @@ class DiscordNotifications extends Extension
             'Invoice Paid' => fn ($event) => $this->createdEvent($event, 'invoice', ['id']),
             'Ticket Created' => fn ($event) => $this->createdEvent($event, 'ticket', ['id', 'client_id']),
             'Ticket Updated' => fn ($event) => $this->updatedEvent($event, 'ticket'),
-            'Ticket Replied' => fn ($event) => $this->createdEvent($event, 'ticketMessage', ['ticket_id', 'message']),
+            // An internal note is announced without its text: staff read it in MyCS, Discord is a third party's (security
+            // review of #860, SEC-860-1; an MCP agent may write notes too).
+            'Ticket Replied' => fn ($event) => $event->ticketMessage->is_internal
+                ? [...$this->createdEvent($event, 'ticketMessage', ['ticket_id']), ['name' => 'Internal note', 'value' => 'Added (its text stays in MyCS).', 'inline' => true]]
+                : $this->createdEvent($event, 'ticketMessage', ['ticket_id', 'message']),
             'Service Created' => fn ($event) => $this->serviceCreated($event->service),
             'Service Updated' => fn ($event) => $this->updatedEvent($event, 'service'),
         ];

@@ -12,8 +12,9 @@ use App\Support\Redact;
 final class Scrub
 {
     /**
-     * $headers false: a Bearer token still masked, but not «Basic …», for text that is kept (an MCP note), where «Basic
-     * troubleshooting» is English, not a header (review of #860, ADV-860-2 and its re-review).
+     * $headers false: a Bearer token and an «Authorization: Basic …» header still masked, but not a bare «Basic …», for
+     * text that is kept (an MCP note), where «Basic troubleshooting» is English, not a header (review of #860, ADV-860-2,
+     * its re-review and SEC-860-2).
      */
     public static function text(?string $text, bool $headers = true): ?string
     {
@@ -21,6 +22,7 @@ final class Scrub
             return $text;
         }
         $text = (string) preg_replace('/\b(' . ($headers ? 'Bearer|Basic' : 'Bearer') . ')\s+[A-Za-z0-9._~+\/=\-]{8,}/i', '$1 ' . Redact::MASK, $text);
+        $text = $headers ? $text : (string) preg_replace('/\b(Authorization\s*:\s*Basic)\s+[A-Za-z0-9._~+\/=\-]{8,}/i', '$1 ' . Redact::MASK, $text);
         $text = (string) preg_replace_callback('#https?://[^\s"\'<>]+#', fn (array $match) => Redact::url($match[0]), $text);
         $text = Redact::text($text);
         $values = self::configSecrets();
