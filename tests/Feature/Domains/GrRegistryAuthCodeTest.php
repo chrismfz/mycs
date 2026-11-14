@@ -101,6 +101,21 @@ class GrRegistryAuthCodeTest extends TestCase
         Livewire::test(GrRegistry::class)->set('authName', 'twice.gr')->call('emailAuthCode')->assertSet('authResult', 'twice.gr: sent');
     }
 
+    /** Review of #856: its punycode or another Unicode form is the same name, one mail, logged in one spelling. */
+    public function test_one_name_in_any_spelling_is_one_mail(): void
+    {
+        $this->staff();
+        $this->registrar()->shouldReceive('emailAuthCode')->once()->withArgs(fn (Domain $domain) => $domain->fqdn === 'δοκιμή.ελ')->andReturn('sent');
+
+        $page = Livewire::test(GrRegistry::class);
+        $page->set('authName', 'xn--jxalpdlp.xn--qxam')->call('emailAuthCode')->assertSet('authResult', 'δοκιμή.ελ: sent');
+        foreach (['δοκιμή.ελ', \Normalizer::normalize('δοκιμή.ελ', \Normalizer::FORM_D), 'ΔΟΚΙΜΉ.ΕΛ.'] as $same) {
+            $page->set('authName', $same)->call('emailAuthCode')->assertSet('authResult', null)
+                ->assertSet('authError', __('domains.gr_registry.auth_code_again', ['domain' => 'δοκιμή.ελ']));
+        }
+        $this->assertSame(['fqdn' => 'δοκιμή.ελ'], DomainRegistrarLog::query()->sole()->request);
+    }
+
     public function test_only_one_dot_gr_name_is_sent(): void
     {
         $this->staff();

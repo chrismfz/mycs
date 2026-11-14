@@ -20,7 +20,9 @@ use Filament\Pages\Page;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
+use InvalidArgumentException;
 use Livewire\Attributes\Locked;
+use MyCS\GrEpp\Command\Rules;
 use Throwable;
 
 /**
@@ -163,7 +165,14 @@ class GrRegistry extends Page
         $this->authResult = null;
         $this->authError = null;
         $name = self::name(mb_strtolower(mb_substr($this->authName, 0, 300)));
-        if (!self::isGr($name) || preg_match('/[\s,;]/', $name)) {
+        try {
+            // One spelling for its limit, the log and the registry (review of #856): NFC, Unicode, as Rules::name sends it,
+            // so its punycode or another Unicode form is the same name.
+            $name = self::isGr($name) && preg_match('/[\s,;]/', $name) !== 1 ? Rules::name($name) : '';
+        } catch (InvalidArgumentException) {
+            $name = '';
+        }
+        if ($name === '') {
             $this->authError = __('domains.gr_registry.auth_code_one');
 
             return;
