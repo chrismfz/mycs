@@ -49,6 +49,8 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 | `search` (query, in: clients/services/domains/tickets) | View Clients (+ each kind's own) | the admin's searches, in one call |
 | `catalog` (part: products/categories/coupons/client_groups; product, query) | View Products (+ each part's own) | Products, Categories, Coupons, Client Groups |
 | `revenue` (year, currency, by_product) | View Reports | Income report, Income by product |
+| `service_module` (id, license key, domain) | View Services (+ View Servers for the server's records) | the service page's usage, hosted domains, Hosting Accounts, LVE, guest, mailboxes, SSL, hardware |
+| `server_accounts` (server; show, sort, query) | View Servers | Hosting Accounts, Proxmox guests, mailcow domains, a machine's BMC |
 
 - **Masked:** passwords, PSKs, API credentials in URLs, Authorization headers and the config's secrets come out as
   `********`. A license key comes out as its prefix and last 4.
@@ -72,6 +74,11 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 - **Revenue** is the admin's Income report as it is (cash, informative; the fiscal books are Ekdosi's): each month's net
   against the month before and the same month a year earlier, the running month and the year so far against the same
   days a year earlier. No customer is named.
+- **Modules** (owner 2026-11-14): `service_module` and `server_accounts` read the tables the read-only syncs fill
+  (cPanel accounts every 30 min, LVE hourly, usage every 4 h, Proxmox and mailcow every 15 min, Redfish hourly, SSL
+  hourly), each part with when it was read. Nothing asks a server from the MCP: no new load on the servers, no new
+  credentials in play, and an answer even when a server is down (with its last read). A fresher read is the sync's, or
+  ssh. DirectAdmin, Ngm and the others keep only `service_usages` (in `service_module`).
 - **Ticket text** comes as staff read it in the admin (up to 10,000 characters a message); what a customer pasted into a
   ticket is not guessed at.
 
