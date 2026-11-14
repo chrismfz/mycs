@@ -149,14 +149,14 @@ class SearchTool extends McpTool
 
     /**
      * By subject, then by a message's text (newest first); the text around the match, so staff see why. A hit counts
-     * only if the text still holds $text once scrubbed: else asking for a masked token a character at a time would
-     * tell it (security review, SEC-2).
+     * only if the text still holds $text once scrubbed (stillShows, SEC-2). Rows are filtered after the LIMIT: a newer
+     * hit only inside a secret may push out an older one (known, low: an attacker cannot write older rows).
      *
      * @return list<array<string, mixed>>
      */
     private static function tickets(string $text, int $limit): array
     {
-        $still = fn (?string $raw) => mb_stripos((string) Scrub::text($raw), trim($text)) !== false;
+        $still = fn (?string $raw) => self::stillShows($raw, Scrub::text($raw), $text);
         $bySubject = self::anyContains(Ticket::query(), ['subject'], $text)->orderByDesc('id')->limit($limit)->get(['id', 'subject'])
             ->filter(fn (Ticket $ticket) => $still($ticket->subject))->pluck('id');
         $byText = self::anyContains(TicketMessage::query(), ['message'], $text)->orderByDesc('id')->limit($limit * 3)->get(['id', 'ticket_id', 'message'])

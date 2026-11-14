@@ -81,6 +81,19 @@ abstract class McpTool extends Tool
     }
 
     /**
+     * A search hit on $raw still counts once it is shown masked as $shown: else asking for a masked secret a character
+     * at a time would tell it (security review of #857/#858, SEC-2). Nothing masked: the database's match stands (its
+     * collation folds case and accents, Greek too). Something masked: $text must be in what is shown, case and accents
+     * aside as MariaDB compares.
+     */
+    protected static function stillShows(?string $raw, ?string $shown, string $text): bool
+    {
+        $fold = fn (string $s) => str_replace('ς', 'σ', preg_replace('/\p{Mn}+/u', '', (string) \Normalizer::normalize(mb_strtolower($s), \Normalizer::FORM_D)) ?? $s);
+
+        return (string) $raw === (string) $shown || str_contains($fold((string) $shown), $fold(trim($text)));
+    }
+
+    /**
      * The tool's own arguments only, each bounded, secrets masked, license keys as prefix…last4 (reviews MCP-R2, R3).
      *
      * @return array<string, mixed>

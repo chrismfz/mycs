@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Http\Middleware\McpAuth;
+use App\Mcp\Tools\SearchTool;
 use App\Models\ApiKey;
+use App\Models\DebugLog;
 use App\Models\Domain;
 use App\Models\Product;
 use App\Models\Role;
@@ -13,6 +15,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** Independent security review of #857/#858 (MCP reads): failing tests for what it found. */
@@ -107,5 +110,44 @@ class SecMcpSearchReviewTest extends TestCase
 
         $text = (string) json_encode($this->ask($key, 'ticket', ['ticket' => '#' . $ticket->id]));
         $this->assertFalse(str_contains($text, 'MailPassw0'), 'the head of the mail password goes out: …' . mb_substr($text, (int) mb_strpos($text, 'aaaa') + 9980, 40));
+    }
+
+    /**
+     * Re-review of the SEC-2 fix: the filter must fold accents and case as MariaDB's collation does, or a Greek search
+     * without tonos (found by the database) is dropped; text with nothing masked keeps the database's match as is.
+     */
+    public function test_sec_2_fix_keeps_greek_searches_without_tonos(): void
+    {
+        $still = new \ReflectionMethod(SearchTool::class, 'stillShows');
+
+        $this->assertTrue($still->invoke(null, 'Ο λογαριασμός μου', 'Ο λογαριασμός μου', 'xyz'), 'nothing masked: the database decided');
+        $this->assertTrue($still->invoke(null, 'Λογαριασμός token=Qw7', 'Λογαριασμός token=********', 'λογαριασμοσ'), 'accents, case and final sigma aside');
+        $this->assertFalse($still->invoke(null, 'Λογαριασμός token=Qw7', 'Λογαριασμός token=********', 'token=Qw7'), 'the masked part');
+    }
+
+    /** Re-review: the `http_error_logs` tool's search was the same oracle on a URL's masked query value, with % and _ as wildcards. */
+    public function test_logs_search_is_no_oracle_for_a_masked_url_value(): void
+    {
+        DebugLog::query()->create(['type' => 'http', 'context' => ['method' => 'GET', 'url' => 'https://api.example.test/v1?api_key=Zx81Kq55Lm&x=1']]);
+        $key = $this->key($this->staff([McpAuth::PERMISSION, 'admin.debug_logs.view']));
+        $ask = fn (string $search) => count($this->ask($key, 'http_error_logs', ['type' => 'http', 'search' => $search])['entries']);
+
+        $this->assertSame(1, $ask('api.example.test'), 'a visible part is found');
+        $this->assertSame($ask('api_key=Zx82'), $ask('api_key=Zx81'), 'the masked value is not told apart');
+        $this->assertSame(0, $ask('api%example'), '% literally');
+    }
+
+    /** Re-review: `http_error_logs` and `failed_jobs` cut to 1,500 characters before Scrub (the SEC-3 pattern). */
+    public function test_logs_and_failed_jobs_scrub_before_the_cut(): void
+    {
+        config(['settings.mail_password' => 'MailPassw0rdXYZ123']);
+        $text = str_repeat('a', 1490) . 'MailPassw0rdXYZ123 tail';
+        DebugLog::query()->create(['type' => 'exception', 'context' => ['message' => $text, 'trace' => $text]]);
+        DB::table('failed_jobs')->insert(['uuid' => 'u-1', 'connection' => 'database', 'queue' => 'default',
+            'payload' => json_encode(['displayName' => 'Job']), 'exception' => $text, 'failed_at' => now()]);
+        $key = $this->key($this->staff(['*']));
+
+        $this->assertStringNotContainsString('MailPassw0', (string) json_encode($this->ask($key, 'http_error_logs', ['type' => 'error'])));
+        $this->assertStringNotContainsString('MailPassw0', (string) json_encode($this->ask($key, 'failed_jobs')));
     }
 }
