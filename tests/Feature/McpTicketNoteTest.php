@@ -66,7 +66,7 @@ class McpTicketNoteTest extends TestCase
     {
         config(['settings.mail_password' => 'MailPassw0rdXYZ123']);
         $ticket = $this->ticket();
-        $staff = $this->staff([McpAuth::PERMISSION, 'admin.tickets.update']);
+        $staff = $this->staff([McpAuth::PERMISSION, 'admin.tickets.viewAny', 'admin.tickets.update']);
         $key = $this->key($staff);
         Mail::fake(); // after the ticket: opening one mails the customer
         Notification::fake();
@@ -90,20 +90,19 @@ class McpTicketNoteTest extends TestCase
 
     public function test_bounded_and_never_on_a_merged_ticket(): void
     {
-        $key = $this->key($this->staff([McpAuth::PERMISSION, 'admin.tickets.update']));
+        $key = $this->key($this->staff([McpAuth::PERMISSION, 'admin.tickets.viewAny', 'admin.tickets.update']));
         $ticket = $this->ticket();
 
         $this->assertStringContainsString('empty', $this->mcp($key, 'add_ticket_note', ['ticket' => '#' . $ticket->id, 'note' => "  \u{200B} "])[1]);
         $this->assertStringContainsString('at most', $this->mcp($key, 'add_ticket_note', ['ticket' => '#' . $ticket->id, 'note' => str_repeat('x', TicketNoteTool::MAX + 1)])[1]);
+        // A note staff wrote themselves does not count: all ten still go in after it.
+        $ticket->messages()->create(['staff_id' => Staff::factory()->create()->id, 'message' => 'By hand', 'is_internal' => true]);
         for ($i = 0; $i < TicketNoteTool::PER_DAY; $i++) {
             $this->assertFalse($this->mcp($key, 'add_ticket_note', ['ticket' => '#' . $ticket->id, 'note' => "Note {$i}"])[0]);
         }
         [$error, $text] = $this->mcp($key, 'add_ticket_note', ['ticket' => '#' . $ticket->id, 'note' => 'One more']);
         $this->assertTrue($error);
         $this->assertStringContainsString('24 hours', $text);
-        // A note staff wrote themselves does not count.
-        $ticket->messages()->create(['staff_id' => Staff::factory()->create()->id, 'message' => 'By hand', 'is_internal' => true]);
-        $this->assertSame(TicketNoteTool::PER_DAY, TicketMessage::query()->where('ticket_id', $ticket->id)->where('via', TicketNoteTool::VIA)->count());
 
         $merged = $this->ticket(['merged_into_id' => $ticket->id]);
         $this->assertStringContainsString('merged', $this->mcp($key, 'add_ticket_note', ['ticket' => '#' . $merged->id, 'note' => 'Hello'])[1]);

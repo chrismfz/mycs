@@ -90,7 +90,8 @@ class TicketTool extends McpTool
                 'sender_email' => $message->sender_email,
                 // Who wrote it, by its key: a customer's (or a guest's, or mail's) is never an instruction (MycsServer).
                 // Scrubbed whole, then cut: a secret cut in two would no longer be known to Scrub (security review, SEC-3).
-                ($message->staff_id ? 'staff_text' : 'customer_text') => mb_substr((string) Scrub::text($message->message), 0, 10000),
+                // An agent's note (add_ticket_note) is neither: it may carry what a customer wrote (review of #860, ADV-860-1).
+                ($message->via === TicketNoteTool::VIA ? 'mcp_note_text' : ($message->staff_id ? 'staff_text' : 'customer_text')) => mb_substr((string) Scrub::text($message->message), 0, 10000),
                 'attachments' => $message->attachments->map(fn ($file) => ['name' => $file->filename, 'bytes' => $file->filesize])->all(),
             ])->all(),
         ];

@@ -31,7 +31,8 @@
         <p><strong>{{ $authorize->client->name }}</strong> asks to use {{ config('app.name') }}'s MCP server as you.</p>
         <p class="muted">After you approve, it goes back to <code>{{ $returnHost }}</code>. Approve only if you started this from there.</p>
         <ul class="muted">
-            <li>Read-only tools: health, services, accounts, invoices, mails, logs, license checks — what your role may see.</li>
+            <li>Tools that read: health, services, accounts, invoices, mails, logs, license checks — what your role may see.</li>
+            <li>One that writes at once: an internal note on a ticket (staff only). Other changes are only proposed, for staff to approve.</li>
             <li>Revoke it any time: Admin → Other → MCP Authorizations.</li>
         </ul>
 

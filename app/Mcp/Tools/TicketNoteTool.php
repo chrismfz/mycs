@@ -16,6 +16,8 @@ use Laravel\Mcp\Server\Attributes\Name;
  * staff only, as the ticket page's «Internal note»: never mailed, never shown to the customer, moves no status
  * (TicketMessageCreatedListener). Written as the key's member of staff, marked as the MCP's (`via` mcp and its first
  * line), its secrets masked; bounded in length and in how many a day per ticket, so a looping agent never buries one.
+ * Read back as `mcp_note_text`, never as staff's (it may carry what a customer wrote: ADV-860-1), and shown in the admin
+ * as plain text with an «MCP» badge, links not clickable, as a drafted reply is (ADV-860-4).
  */
 #[Name('add_ticket_note')]
 #[Description('Write an INTERNAL note on a ticket, now (no approval): staff only, never mailed, never shown to the customer, changes no status. For what you found (the account, its services, what the logs and modules say, what to check next). Written as your member of staff and marked as the MCP\'s. Never a reply to the customer (that is `propose_ticket_reply`) and never secrets (they are masked). Markdown, at most 5,000 characters; at most 10 a day per ticket.')]
@@ -41,12 +43,18 @@ class TicketNoteTool extends McpTool
         return 'admin.tickets.update';
     }
 
+    /** And View Tickets: without it the admin opens no ticket, so no note there either (review of #860, ADV-860-6). */
+    public function shouldRegister(Request $request): bool
+    {
+        return parent::shouldRegister($request) && self::allowed($request->user(), 'admin.tickets.viewAny');
+    }
+
     protected function run(Request $request): array
     {
         $ticket = TicketTool::find((string) $request->get('ticket'));
         $staff = $request->user();
         // As the ticket page asks of who adds a note there (TicketPolicy::update).
-        if (!$staff instanceof Staff || !Gate::forUser($staff)->allows('update', $ticket)) {
+        if (!$staff instanceof Staff || !$staff->hasPermission('admin.tickets.viewAny') || !Gate::forUser($staff)->allows('update', $ticket)) {
             throw new \InvalidArgumentException('Your role may not write on this ticket.');
         }
         if ($ticket->isMerged()) {
@@ -67,7 +75,7 @@ class TicketNoteTool extends McpTool
 
         $message = $ticket->messages()->create([
             'staff_id' => $staff->id,
-            'message' => "**MCP note**\n\n" . Scrub::text($note),
+            'message' => "**MCP note**\n\n" . Scrub::text($note, headers: false),
             'is_internal' => true,
             'via' => self::VIA,
         ]);
