@@ -475,7 +475,10 @@ class ServiceResource extends Resource
             ]);
     }
 
-    /** «84.54.49.204 POST GuzzleHttp/7 · via /licensing/v1/check»: where the license's last check came from, and through which endpoint. */
+    /**
+     * «84.54.49.204 POST GuzzleHttp/7 · last check via /licensing/v1/check»: where its last good check came from, and the
+     * endpoint of its last check from its place (last_endpoint, written for Suspended/Expired too: rarely the same check).
+     */
     public static function lastSeen(Service $record): ?string
     {
         $seen = trim(($record->license->last_seen_ip ?? '') . ' ' . ($record->license->last_seen_client ?? ''));
@@ -484,8 +487,8 @@ class ServiceResource extends Resource
         }
 
         return $seen . match ($record->license->last_endpoint ?? null) {
-            'v1' => ' · via /licensing/v1/check',
-            'v0' => ' · via zlic.php',
+            'v1' => ' · last check via /licensing/v1/check',
+            'v0' => ' · last check via zlic.php',
             default => '',
         };
     }
