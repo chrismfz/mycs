@@ -57,6 +57,7 @@ use Filament\Support\Enums\FontWeight;
 use Filament\Support\Exceptions\Halt;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -519,7 +520,9 @@ class InvoiceResource extends Resource
                 Filter::make('paid_not_applied')
                     ->label(__('Paid, not applied'))
                     ->query(fn (Builder $query) => $query->where('status', Invoice::STATUS_PAID)->whereNotNull('apply_pending_since')),
-            ])
+            ], layout: FiltersLayout::AboveContentCollapsible)
+            // On the page, folded, as the tickets' (owner 2026-11-16), not in a popup.
+            ->filtersFormColumns(2)
             ->recordActions([
                 EditAction::make(),
                 Action::make('cancel')
