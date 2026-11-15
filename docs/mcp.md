@@ -37,6 +37,7 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 | `failed_jobs` | View Failed Jobs | failed jobs |
 | `logs` (level, laravel / payments) | View Failed Jobs | `mycs:logs` |
 | `zlic_probe` (key, ip) | View Services | `mycs:zlic` |
+| `licenses` (days; product, version, limit) | View Services | Licenses: the tabs' counts, the «Version» column across all, the API column, the Signals tab; with product/version, who runs it (2026-11-15) |
 | `server_test` (server) | Update Servers | Test Connection |
 | `ticket` (id, reference; or a list by status, account) | View Tickets | a ticket's page: messages, internal notes, CCs |
 | `domain` (id, name) | View Domains | a domain's page: dates, nameservers, handles, lines, registrar calls |

@@ -14,18 +14,25 @@ class ListLicenses extends ListRecords
     protected static string $resource = LicenseResource::class;
 
     /**
-     * All; active but silent (no good check in SILENT_DAYS); expired or suspended but still calling; and the ones that
-     * went quiet: still running after their end (their last answer was «Expired» or «Suspended») and then stopped, in the
-     * last QUIET_DAYS. Uninstalled, or something now keeps them running without asking (?tab=…).
+     * The tabs' filters, one place for the list and the MCP («licenses»), so both count the same. Live (the default):
+     * active, or still calling in the last QUIET_DAYS, what staff look at; Dormant: the rest, ended and not heard of for
+     * QUIET_DAYS, kept (history, an answer of «Expired» rather than «Invalid» if one calls again) but out of the way
+     * (owner 2026-11-15: no deleting). Silent: active but no good check in SILENT_DAYS. Expired but calling; went quiet
+     * after expiry (ran past its end, then stopped, in the last QUIET_DAYS); signals (what the software said of itself).
+     *
+     * @return array<string, \Closure(Builder): Builder>
      */
-    public function getTabs(): array
+    public static function filters(): array
     {
         $since = now()->subDays(LicenseResource::SILENT_DAYS);
+        $heard = now()->subDays(LicenseResource::QUIET_DAYS);
+        $live = fn (Builder $query) => $query->where(fn (Builder $q) => $q
+            ->whereIn('status', [License::STATUS_ACTIVE, License::STATUS_REISSUED])->orWhere('last_access', '>=', $heard));
         $silent = fn (Builder $query) => $query->where('status', License::STATUS_ACTIVE)
             ->where(fn ($q) => $q->whereNull('last_ok_at')->orWhere('last_ok_at', '<', $since));
         $calling = fn (Builder $query) => $query->whereIn('status', [License::STATUS_EXPIRED, License::STATUS_SUSPENDED])->where('last_access', '>=', $since);
         $quiet = fn (Builder $query) => $query->whereIn('status', [License::STATUS_EXPIRED, License::STATUS_SUSPENDED])
-            ->where('last_access', '<', $since)->where('last_access', '>=', now()->subDays(LicenseResource::QUIET_DAYS))
+            ->where('last_access', '<', $since)->where('last_access', '>=', $heard)
             // LicenseActivity writes «Expired (ip)» / «Suspended (ip)» when the answer was its end, and never clears it: an
             // older suspension followed by good checks is not «ran past its end» (review of #862, R1).
             ->where(fn (Builder $q) => $q->where('last_failure', 'like', License::STATUS_EXPIRED . ' (%')->orWhere('last_failure', 'like', License::STATUS_SUSPENDED . ' (%'))
@@ -45,11 +52,38 @@ class ListLicenses extends ListRecords
                 ->whereExists(LicenseTelemetry::moreThanOneInstall($recent))));
 
         return [
-            'all' => Tab::make('All'),
-            'silent' => Tab::make('Silent')->modifyQueryUsing($silent)->badge($silent(License::query())->count() ?: null),
-            'calling' => Tab::make('Expired but calling')->modifyQueryUsing($calling)->badge($calling(License::query())->count() ?: null),
-            'quiet' => Tab::make('Went quiet after expiry')->modifyQueryUsing($quiet)->badge($quiet(License::query())->count() ?: null),
-            'signals' => Tab::make('Signals')->modifyQueryUsing($signals)->badge($signals(License::query())->count() ?: null),
+            'live' => $live,
+            'silent' => $silent,
+            'calling' => $calling,
+            'quiet' => $quiet,
+            'signals' => $signals,
+            // Written out rather than «not live»: NOT over a NULL last_access is NULL in SQL, and a license that never
+            // called would be in neither tab.
+            'dormant' => fn (Builder $query) => $query->whereNotIn('status', [License::STATUS_ACTIVE, License::STATUS_REISSUED])
+                ->where(fn (Builder $q) => $q->whereNull('last_access')->orWhere('last_access', '<', $heard)),
         ];
+    }
+
+    public function getTabs(): array
+    {
+        $tab = fn (string $label, \Closure $filter, bool $badge = true) => Tab::make($label)->modifyQueryUsing($filter)
+            ->badge($badge ? ($filter(License::query())->count() ?: null) : null);
+        $filters = self::filters();
+
+        return [
+            'live' => $tab('Live', $filters['live'], false),
+            'silent' => $tab('Silent', $filters['silent']),
+            'calling' => $tab('Expired but calling', $filters['calling']),
+            'quiet' => $tab('Went quiet after expiry', $filters['quiet']),
+            'signals' => $tab('Signals', $filters['signals']),
+            'dormant' => $tab('Dormant', $filters['dormant'], false),
+            'all' => Tab::make('All'),
+        ];
+    }
+
+    /** Live: what staff look at; the ended ones not heard of in QUIET_DAYS wait in «Dormant». */
+    public function getDefaultActiveTab(): string|int|null
+    {
+        return 'live';
     }
 }

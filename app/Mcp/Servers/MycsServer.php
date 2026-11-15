@@ -14,6 +14,7 @@ use App\Mcp\Tools\FailedJobsTool;
 use App\Mcp\Tools\GatewayLogTool;
 use App\Mcp\Tools\HealthTool;
 use App\Mcp\Tools\InvoiceTool;
+use App\Mcp\Tools\LicensesTool;
 use App\Mcp\Tools\LogsTool;
 use App\Mcp\Tools\ModuleActionsTool;
 use App\Mcp\Tools\ProposalTool;
@@ -59,6 +60,9 @@ use Laravel\Mcp\Server\Attributes\Version;
     - `module_actions` lists server actions (create/suspend/…) still open or given up, with their errors.
     - `email_logs` answers "did the customer get the mail?"; `failed_jobs` and `logs` show what broke.
     - `zlic_probe` says what the license server would answer a customer's software from an address, without writing.
+    - `licenses` gives the licenses as a whole: live, silent, calling, dormant; which versions of the controller, agent
+      and node run and how many installs each; the endpoint of the checks; the signals. With product and version, the
+      licenses that run it (whom to tell to update).
     - `ticket` and `domain` give one ticket or domain whole; `registrar_log` and `gateway_log` show the registrars' and the
       payment gateways' calls; `cron_history` what the daily cron did each day; `http_error_logs` the outgoing calls and
       the application errors; `audit_search` who changed what and when.
@@ -104,6 +108,7 @@ class MycsServer extends Server
         FailedJobsTool::class,
         LogsTool::class,
         ZlicTool::class,
+        LicensesTool::class,
         ServerTestTool::class,
         ServerAccountsTool::class,
         TicketTool::class,
