@@ -83,6 +83,7 @@ class LicensesTool extends McpTool
 
         $filters = ListLicenses::filters();
         $recentInstalls = now()->subDays(LicenseResource::INSTALLS_DAYS);
+        /** @var \Illuminate\Database\Eloquent\Collection<int, License> $signals */
         $signals = $filters['signals'](License::query())->with(self::CLIENT)
             ->with(['installs' => fn ($q) => $q->where('last_seen_at', '>=', $recentInstalls)->orderByDesc('last_seen_at')])->limit($limit)->get();
 
@@ -114,7 +115,7 @@ class LicensesTool extends McpTool
         $versions = [];
         foreach (LicenseInstall::query()->where('last_seen_at', '>=', $since)->where('product', '!=', '')
             ->selectRaw('product, version, COUNT(DISTINCT install_id) AS installs, COUNT(DISTINCT license_id) AS licenses, MAX(last_seen_at) AS last_seen')
-            ->groupBy('product', 'version')->get() as $row) {
+            ->groupBy('product', 'version')->toBase()->get() as $row) { // aggregates, not models
             $versions[$row->product][] = ['version' => $row->version, 'installs' => (int) $row->installs, 'licenses' => (int) $row->licenses, 'last_seen' => (string) $row->last_seen];
         }
         foreach ($versions as $name => $rows) {
