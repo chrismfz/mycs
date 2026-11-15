@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\LicenseResource\Pages\ListLicenses;
+use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Helpers\ExtensionHelper;
 use App\Models\License;
@@ -416,12 +417,12 @@ class LicensingCheckTest extends TestCase
     public function test_the_service_page_says_through_which_endpoint_the_last_check_came(): void
     {
         $this->license->update(['last_seen_ip' => self::IP, 'last_seen_client' => 'POST GuzzleHttp/7', 'last_endpoint' => 'v1']);
-        $this->assertSame(self::IP . ' POST GuzzleHttp/7 · via /licensing/v1/check', \App\Admin\Resources\ServiceResource::lastSeen($this->service->fresh()));
+        $this->assertSame(self::IP . ' POST GuzzleHttp/7 · via /licensing/v1/check', ServiceResource::lastSeen($this->service->fresh()));
 
         $this->license->update(['last_endpoint' => 'v0']);
-        $this->assertSame(self::IP . ' POST GuzzleHttp/7 · via zlic.php', \App\Admin\Resources\ServiceResource::lastSeen($this->service->fresh()));
+        $this->assertSame(self::IP . ' POST GuzzleHttp/7 · via zlic.php', ServiceResource::lastSeen($this->service->fresh()));
 
         $this->license->update(['last_seen_ip' => null, 'last_seen_client' => null]);
-        $this->assertNull(\App\Admin\Resources\ServiceResource::lastSeen($this->service->fresh()));
+        $this->assertNull(ServiceResource::lastSeen($this->service->fresh()));
     }
 }
