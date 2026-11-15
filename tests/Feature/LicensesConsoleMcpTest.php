@@ -74,11 +74,13 @@ class LicensesConsoleMcpTest extends TestCase
         $this->install($new, 'agent', '2026.11.15.1012', 'install-agent');
 
         MycsServer::actingAs($this->staff, 'staff')->tool(LicensesTool::class, [])->assertOk()
-            // newest first, by version (2.10.0 above 2.8.0), each with its installs
-            ->assertSeeInOrder(['"controller"', '"version": "2.10.0"', '"version": "2.8.0"', '"version": "2.5.1"'])
+            ->assertSee('"version": "2.10.0"')->assertSee('"version": "2.5.1"')
             ->assertSee('"live": 2')->assertSee('"dormant": 1')->assertSee('"all": 3')
             ->assertSee('"v0 (zlic.php)": 1')->assertSee('"v1 (/licensing/v1/check)": 1')
             ->assertSee('"version": "2026.11.15.1012"');
+
+        // Newest first by version, not by text: 2.10.0 above 2.8.0.
+        $this->assertSame(['2.10.0', '2.8.0', '2.5.1'], array_column(LicensesTool::versions(now()->subDay())['controller'], 'version'));
 
         MycsServer::actingAs($this->staff, 'staff')->tool(LicensesTool::class, ['product' => 'controller', 'version' => '2.5.1'])->assertOk()
             ->assertSee('ZCWeb-…00aa')->assertDontSee('ZCWeb-00000000000000aa') // keys masked, as everywhere in the MCP

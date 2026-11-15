@@ -72,15 +72,7 @@ class LicensesTool extends McpTool
             ];
         }
 
-        $versions = [];
-        foreach ((clone $recent)->selectRaw('product, version, COUNT(DISTINCT install_id) AS installs, COUNT(DISTINCT license_id) AS licenses, MAX(last_seen_at) AS last_seen')
-            ->groupBy('product', 'version')->get() as $row) {
-            $versions[$row->product][] = ['version' => $row->version, 'installs' => (int) $row->installs, 'licenses' => (int) $row->licenses, 'last_seen' => (string) $row->last_seen];
-        }
-        foreach ($versions as $name => $rows) {
-            usort($rows, fn ($a, $b) => version_compare((string) $b['version'], (string) $a['version']));
-            $versions[$name] = $rows;
-        }
+        $versions = self::versions($since);
 
         $filters = ListLicenses::filters();
         $signals = $filters['signals'](License::query())->with('service.client')->limit($limit)->get();
@@ -101,5 +93,27 @@ class LicensesTool extends McpTool
                     ->orderByDesc('last_seen_at')->limit(5)->get()->map(fn (LicenseInstall $install) => LicenseTelemetry::describe($install))->all(),
             ])->all(),
         ];
+    }
+
+    /**
+     * Per product, the versions heard of since $since, newest first by version (2.10.0 above 2.8.0), each with its
+     * installs and licenses.
+     *
+     * @return array<string, list<array{version: ?string, installs: int, licenses: int, last_seen: string}>>
+     */
+    public static function versions(\DateTimeInterface $since): array
+    {
+        $versions = [];
+        foreach (LicenseInstall::query()->where('last_seen_at', '>=', $since)->where('product', '!=', '')
+            ->selectRaw('product, version, COUNT(DISTINCT install_id) AS installs, COUNT(DISTINCT license_id) AS licenses, MAX(last_seen_at) AS last_seen')
+            ->groupBy('product', 'version')->get() as $row) {
+            $versions[$row->product][] = ['version' => $row->version, 'installs' => (int) $row->installs, 'licenses' => (int) $row->licenses, 'last_seen' => (string) $row->last_seen];
+        }
+        foreach ($versions as $name => $rows) {
+            usort($rows, fn ($a, $b) => version_compare((string) $b['version'], (string) $a['version']));
+            $versions[$name] = $rows;
+        }
+
+        return $versions;
     }
 }

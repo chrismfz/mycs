@@ -57,7 +57,10 @@ class ListLicenses extends ListRecords
             'calling' => $calling,
             'quiet' => $quiet,
             'signals' => $signals,
-            'dormant' => fn (Builder $query) => $query->whereNot(fn (Builder $q) => $live($q)),
+            // Written out rather than «not live»: NOT over a NULL last_access is NULL in SQL, and a license that never
+            // called would be in neither tab.
+            'dormant' => fn (Builder $query) => $query->whereNotIn('status', [License::STATUS_ACTIVE, License::STATUS_REISSUED])
+                ->where(fn (Builder $q) => $q->whereNull('last_access')->orWhere('last_access', '<', $heard)),
         ];
     }
 
