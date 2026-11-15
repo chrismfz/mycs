@@ -27,11 +27,14 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[IsIdempotent]
 class LicensesTool extends McpTool
 {
+    /** What Client::name reads, loaded with the licenses (as the list, review R2). */
+    private const CLIENT = ['service.client.primaryContact', 'service.client.ownerGrant.user'];
+
     public function schema(JsonSchema $schema): array
     {
         return [
             'days' => $schema->integer()->description('Installs and checks heard of in this many days (default 7, at most 90).'),
-            'product' => $schema->string()->description('controller, agent or node: list the licenses running `version` of it (or every version, newest first).'),
+            'product' => $schema->string()->description('controller, agent or node: list the licenses running `version` of it (or any version), one row per license, the most recently heard first.'),
             'version' => $schema->string()->description('With product: only this version (e.g. 2.5.1).'),
             'limit' => $schema->integer()->description('Rows in a list (default 25, at most 100).'),
         ];
@@ -55,19 +58,23 @@ class LicensesTool extends McpTool
         $recent = LicenseInstall::query()->where('last_seen_at', '>=', $since)->where('product', '!=', '');
         if ($product !== '') {
             $version = trim((string) $request->get('version'));
-            $installs = (clone $recent)->where('product', $product)->when($version !== '', fn ($q) => $q->where('version', $version))
-                ->with('license.service.client')->orderByDesc('last_seen_at')->limit($limit)->get();
+            // One row per license (whom to tell), with what its installs of the product run; the most recently heard first.
+            $licenses = License::query()->with(self::CLIENT)
+                ->whereIn('id', (clone $recent)->where('product', $product)->when($version !== '', fn ($q) => $q->where('version', $version))->select('license_id'))
+                ->with(['installs' => fn ($q) => $q->where('last_seen_at', '>=', $since)->where('product', $product)
+                    ->when($version !== '', fn ($v) => $v->where('version', $version))->orderByDesc('last_seen_at')])
+                ->get()->sortByDesc(fn (License $license) => $license->installs->first()?->last_seen_at)->take($limit)->values();
 
             return [
                 'days' => $days,
                 'product' => $product,
                 'version' => $version !== '' ? $version : null,
-                'installs' => $installs->map(fn (LicenseInstall $install) => [
-                    'license' => Scrub::licenseKey($install->license?->license_key),
-                    'service_id' => $install->license?->service_id,
-                    'client' => $install->license?->service?->client?->name,
-                    'status' => $install->license?->status,
-                    'install' => LicenseTelemetry::describe($install),
+                'licenses' => $licenses->map(fn (License $license) => [
+                    'license' => Scrub::licenseKey($license->license_key),
+                    'service_id' => $license->service_id,
+                    'client' => $license->service?->client?->name,
+                    'status' => $license->status,
+                    'installs' => $license->installs->take(5)->map(fn (LicenseInstall $install) => LicenseTelemetry::describe($install))->all(),
                 ])->all(),
             ];
         }
@@ -75,7 +82,9 @@ class LicensesTool extends McpTool
         $versions = self::versions($since);
 
         $filters = ListLicenses::filters();
-        $signals = $filters['signals'](License::query())->with('service.client')->limit($limit)->get();
+        $recentInstalls = now()->subDays(LicenseResource::INSTALLS_DAYS);
+        $signals = $filters['signals'](License::query())->with(self::CLIENT)
+            ->with(['installs' => fn ($q) => $q->where('last_seen_at', '>=', $recentInstalls)->orderByDesc('last_seen_at')])->limit($limit)->get();
 
         return [
             'days' => $days,
@@ -89,8 +98,7 @@ class LicensesTool extends McpTool
                 'license' => Scrub::licenseKey($license->license_key),
                 'service_id' => $license->service_id,
                 'client' => $license->service?->client?->name,
-                'installs' => $license->installs()->where('last_seen_at', '>=', now()->subDays(LicenseResource::INSTALLS_DAYS))
-                    ->orderByDesc('last_seen_at')->limit(5)->get()->map(fn (LicenseInstall $install) => LicenseTelemetry::describe($install))->all(),
+                'installs' => $license->installs->take(5)->map(fn (LicenseInstall $install) => LicenseTelemetry::describe($install))->all(),
             ])->all(),
         ];
     }
