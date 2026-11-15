@@ -65,7 +65,7 @@ class StripePeriodEndTimezoneTest extends TestCase
     {
         $this->periodEnd = Carbon::parse($periodEnd, 'Europe/Athens')->timestamp;
         Http::fake(['https://api.stripe.com/*' => fn () => Http::response([
-            'id' => 'sub_123', 'schedule' => $schedule,
+            'id' => 'sub_123', 'schedule' => $schedule, 'status' => 'active',
             'items' => ['data' => [['id' => 'si_1', 'price' => ['product' => 'prod_1'], 'current_period_end' => $this->periodEnd]]],
         ])]);
     }

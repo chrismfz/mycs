@@ -41,11 +41,17 @@ class StripePeriodAnchors extends Command
             }
             $anchor = Stripe::anchorFor($service);
             try {
-                $periodEnd = $stripe->currentPeriodEnd($service);
+                ['status' => $status, 'period_end' => $periodEnd] = $stripe->currentPeriod($service);
             } catch (Throwable $e) {
                 report($e);
                 $failed++;
                 $this->error("#{$service->id} {$service->subscription_id}: not read ({$e->getMessage()})");
+
+                continue;
+            }
+            if ($periodEnd === null) {
+                // Canceled, unpaid, paused…: Stripe does not bill it, nothing to move (review REV-ANCHOR-2).
+                $this->warn("#{$service->id} {$service->subscription_id}: not billing at Stripe ({$status}), left for staff");
 
                 continue;
             }

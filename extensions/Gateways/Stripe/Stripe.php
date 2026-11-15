@@ -828,7 +828,20 @@ class Stripe extends Gateway
      */
     public static function anchorFor(Service $service): Carbon
     {
-        return Carbon::parse($service->expires_at->toDateString() . ' 12:00:00', date_default_timezone_get());
+        $zone = date_default_timezone_get();
+        $due = $service->expires_at->toDateString();
+        $noon = Carbon::parse($due . ' 12:00:00', $zone);
+        $utc = Carbon::parse($due . ' 00:00:00', 'UTC');
+        // Stripe keeps the anchor's UTC day: local noon must be well inside the due day in UTC too (every zone within
+        // ±10 h). Further out (UTC+12…+14, review REV-ANCHOR-1) the middle of the hours that are the due day both here
+        // and in UTC.
+        if ($noon->gte($utc->copy()->addHours(self::ANCHOR_SLACK_HOURS)) && $noon->lte($utc->copy()->addHours(24 - self::ANCHOR_SLACK_HOURS))) {
+            return $noon;
+        }
+        $start = max(Carbon::parse($due . ' 00:00:00', $zone), $utc);
+        $end = min(Carbon::parse($due . ' 00:00:00', $zone)->addDay(), $utc->copy()->addDay());
+
+        return Carbon::createFromTimestamp(intdiv($start->timestamp + $end->timestamp, 2), $zone);
     }
 
     /**
@@ -851,10 +864,18 @@ class Stripe extends Gateway
         return (int) $periodEnd;
     }
 
-    /** The current period end Stripe has for the service's subscription (unix time), read now. */
-    public function currentPeriodEnd(Service $service): int
+    /**
+     * The service's subscription as Stripe has it now: its status (paused collection reads `paused`) and, while it
+     * bills (active, trialing, past_due), its current period end (unix time); null when it does not bill.
+     *
+     * @return array{status: string, period_end: ?int}
+     */
+    public function currentPeriod(Service $service): array
     {
-        return self::periodEndOf($this->request('get', '/subscriptions/' . $service->subscription_id), $service);
+        $subscription = $this->request('get', '/subscriptions/' . $service->subscription_id);
+        $status = self::statusOf($subscription);
+
+        return ['status' => $status, 'period_end' => in_array($status, ['active', 'trialing', 'past_due'], true) ? self::periodEndOf($subscription, $service) : null];
     }
 
     /**
