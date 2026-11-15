@@ -788,7 +788,10 @@ class Stripe extends Gateway
             if ($periodEnd === null) {
                 throw new Exception('Stripe subscription ' . $service->subscription_id . ' has no current_period_end.');
             }
-            $subDate = Carbon::createFromTimestamp($periodEnd)->startOfDay();
+            // Its day in the app's timezone, the one expires_at (a date) is in: Carbon 3's createFromTimestamp() is in
+            // UTC, where a period ending at local midnight (setupSubscription starts it then) is the day before, so
+            // every renewal looked like an extension and released the schedule and re-set the trial end.
+            $subDate = Carbon::createFromTimestamp($periodEnd, date_default_timezone_get())->startOfDay();
             // Check if current date is before the end date of the subscription
             if ($subDate == $service->expires_at || $service->expires_at <= $subDate) {
                 return;
