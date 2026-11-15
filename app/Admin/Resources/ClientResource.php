@@ -41,6 +41,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
@@ -288,7 +289,9 @@ class ClientResource extends Resource
                         true: fn (Builder $query) => $query->whereHas('services', fn (Builder $query) => $query->where('status', 'active')),
                         false: fn (Builder $query) => $query->whereDoesntHave('services', fn (Builder $query) => $query->where('status', 'active')),
                     ),
-            ])
+            ], layout: FiltersLayout::AboveContentCollapsible)
+            // On the page, folded, as the tickets' (owner 2026-11-16), not in a popup.
+            ->filtersFormColumns(2)
             ->recordUrl(fn (Client $record) => static::getUrl('view', ['record' => $record]))
             ->recordActions([
                 ViewAction::make()->label(__('Summary')),

@@ -59,6 +59,7 @@ use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Support\RawJs;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -611,6 +612,8 @@ class ServiceResource extends Resource
                         DatePicker::make('expires_from')->label('Expires From'),
                         DatePicker::make('expires_until')->label('Expires Until'),
                     ])
+                    // Side by side across the filters' two columns (review of #872).
+                    ->columns(2)->columnSpanFull()
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
                             ->when(
@@ -622,7 +625,9 @@ class ServiceResource extends Resource
                                 fn (Builder $query, $date): Builder => $query->whereDate('expires_at', '<=', $date),
                             );
                     }),
-            ])
+            ], layout: FiltersLayout::AboveContentCollapsible)
+            // On the page, folded, as the tickets' (owner 2026-11-16), not in a popup.
+            ->filtersFormColumns(2)
             ->defaultSort(function (Builder $query): Builder {
                 return $query
                     ->orderBy('id', 'desc');

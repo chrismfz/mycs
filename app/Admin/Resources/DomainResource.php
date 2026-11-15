@@ -32,6 +32,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -136,7 +137,9 @@ class DomainResource extends Resource
                     ->getSearchResultsUsing(fn (string $search): array => ClientComponent::searchResults($search))
                     ->getOptionLabelUsing(fn ($value) => ClientComponent::labelOf($value))
                     ->indicateUsing(fn (array $data) => filled($data['value'] ?? null) ? __('Client') . ': ' . ClientComponent::labelOf($data['value']) : null),
-            ])
+            ], layout: FiltersLayout::AboveContentCollapsible)
+            // On the page, folded, as the tickets' (owner 2026-11-16), not in a popup.
+            ->filtersFormColumns(2)
             ->recordActions([ViewAction::make()]);
     }
 
