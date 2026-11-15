@@ -377,6 +377,24 @@ class LicensingCheckTest extends TestCase
             ->assertTableColumnStateSet('last_endpoint', 'v1', $this->license);
     }
 
+    /** «Last call» (last_access) in the app's timezone: Carbon 3's createFromTimestamp() is UTC, read back hours off. */
+    public function test_the_last_call_is_now_whatever_the_timezone(): void
+    {
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Athens');
+        try {
+            // zlic's clock is time(), not the test's: within a minute of it, never hours off.
+            $this->check()->assertOk(); // binds: the bind's write
+            $this->assertLessThan(60, abs($this->license->fresh()->last_access->getTimestamp() - time()), 'the bind');
+
+            $this->license->update(['last_access' => now()->subDay()]);
+            $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/zlic.php', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
+            $this->assertLessThan(60, abs($this->license->fresh()->last_access->getTimestamp() - time()), 'the touch of a bound license');
+        } finally {
+            date_default_timezone_set($zone);
+        }
+    }
+
     public function test_describe_says_the_install_in_one_line(): void
     {
         Carbon::setTestNow('2026-11-15 12:00:00');

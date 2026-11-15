@@ -96,7 +96,7 @@ final class MycsLicenseRepository implements LicenseRepository
 
     public function touch(License $license, $now)
     {
-        LicenseRow::query()->whereKey($license->id)->update(['last_access' => Carbon::createFromTimestamp($now)]);
+        LicenseRow::query()->whereKey($license->id)->update(['last_access' => self::at($now)]);
     }
 
     /**
@@ -121,8 +121,17 @@ final class MycsLicenseRepository implements LicenseRepository
                 'valid_ip' => $license->validIp,
                 'valid_directory' => $license->validDirectory,
                 'status' => $license->status,
-                'last_access' => Carbon::createFromTimestamp($now),
+                'last_access' => self::at($now),
             ]) === 1;
+    }
+
+    /**
+     * A unix time in the app's timezone, as Eloquent stores and reads every date. Carbon 3's createFromTimestamp() is in
+     * UTC: stored as its wall time, it read back hours off («Last call: 2 hours ago» for a check a minute old).
+     */
+    private static function at(int $now): Carbon
+    {
+        return Carbon::createFromTimestamp($now, date_default_timezone_get());
     }
 
     public function log($license, $domain, $ip, $directory, $message)
