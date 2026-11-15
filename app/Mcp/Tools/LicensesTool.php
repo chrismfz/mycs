@@ -9,6 +9,7 @@ use App\Models\LicenseInstall;
 use App\Services\Licensing\LicenseTelemetry;
 use App\Services\Ops\Scrub;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Database\Eloquent\Collection;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Attributes\Name;
@@ -83,7 +84,7 @@ class LicensesTool extends McpTool
 
         $filters = ListLicenses::filters();
         $recentInstalls = now()->subDays(LicenseResource::INSTALLS_DAYS);
-        /** @var \Illuminate\Database\Eloquent\Collection<int, License> $signals */
+        /** @var Collection<int, License> $signals */
         $signals = $filters['signals'](License::query())->with(self::CLIENT)
             ->with(['installs' => fn ($q) => $q->where('last_seen_at', '>=', $recentInstalls)->orderByDesc('last_seen_at')])->limit($limit)->get();
 
