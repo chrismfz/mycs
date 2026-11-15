@@ -75,10 +75,8 @@ class Rev815Test extends TestCase
         $stats = collect((fn () => $this->getStats())->call(Livewire::test(Overview::class)->instance()))
             ->keyBy(fn ($stat) => $stat->getLabel());
 
-        $url = isset($stats['Tickets']) ? $stats['Tickets']->getUrl() : null;
-        if ($url !== null) {
-            $this->get($url)->assertOk();
-        }
-        $this->assertTrue(true);
+        // Since 2026-11-15 the card is the tickets waiting on us: like the other queues, no card at all.
+        $this->assertArrayNotHasKey('Tickets to answer', $stats->all());
+        $this->assertArrayHasKey('New services', $stats->all());
     }
 }

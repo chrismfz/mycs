@@ -110,7 +110,7 @@ class DashboardLayoutReviewTest extends TestCase
     }
 
     /**
-     * R2. Staff without the orders' or the services' permission get 3 cards; the grid stays 5 wide at xl, so the row
+     * R2. Staff without the orders' or the services' permission get few cards (3, now 2); the grid stays 5 wide at xl, so the row
      * is 60% filled and 40% empty (Filament's own getColumns() follows the count).
      */
     public function test_three_cards_do_not_sit_in_a_five_column_row(): void
@@ -120,7 +120,8 @@ class DashboardLayoutReviewTest extends TestCase
         $stats = (fn () => $this->getStats())->call($widget);
         $columns = (fn () => $this->getColumns())->call($widget);
 
-        $this->assertCount(3, $stats);
+        // Revenue and New services: the tickets card needs the tickets' list since 2026-11-15.
+        $this->assertCount(2, $stats);
         $this->assertLessThanOrEqual(count($stats), is_array($columns) ? max($columns) : $columns, 'as many columns as cards');
     }
 }

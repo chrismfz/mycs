@@ -8,6 +8,7 @@ use App\Admin\Widgets\Renewals\ServiceRenewals;
 use App\Models\Currency;
 use App\Models\Order;
 use App\Models\Role;
+use App\Models\Service;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\User;
@@ -52,8 +53,8 @@ class DashboardTilesRenewalsTest extends TestCase
 
         $stats = $this->stats();
 
-        $this->assertFalse($this->quiet($stats['Tickets']), 'a new ticket in the period');
-        foreach (['Pending Orders', 'Revenue', 'Services', 'Clients with credit', 'Pending Cancellations', 'Pending Module Actions'] as $label) {
+        $this->assertFalse($this->quiet($stats['Tickets to answer']), 'a ticket waiting on us');
+        foreach (['Pending Orders', 'Revenue', 'New services', 'Clients with credit', 'Pending Cancellations', 'Pending Module Actions'] as $label) {
             $this->assertTrue($this->quiet($stats[$label]), $label);
         }
         Livewire::test(Overview::class)->assertSeeHtml('mycs-stat-quiet');
@@ -65,21 +66,50 @@ class DashboardTilesRenewalsTest extends TestCase
 
         $labels = array_keys($this->stats());
 
-        $this->assertSame(['Παραγγελίες σε αναμονή', 'Έσοδα', 'Tickets', 'Υπηρεσίες', 'Πελάτες με πίστωση', 'Ακυρώσεις σε αναμονή', 'Εκκρεμείς ενέργειες modules'], $labels);
+        $this->assertSame(['Παραγγελίες σε αναμονή', 'Έσοδα', 'Tickets προς απάντηση', 'Νέες υπηρεσίες', 'Πελάτες με πίστωση', 'Ακυρώσεις σε αναμονή', 'Εκκρεμείς ενέργειες modules'], $labels);
         Livewire::test(Overview::class)->assertSee('Καμία αλλαγή (τελευταίες 30 ημέρες)')->assertSee('Τίποτα σε αναμονή');
     }
 
-    public function test_a_change_is_said_with_its_period(): void
+    /**
+     * Owner 2026-11-15: «11 Tickets» was the new ones of the period and read as 11 unanswered. The number is the ones
+     * waiting on us (the «Awaiting us» tab and the menu's badge); the new ones of the period are said below.
+     */
+    public function test_the_tickets_card_counts_the_ones_waiting_on_us_and_says_the_new_ones_below(): void
     {
         $this->travelTo('2026-11-04 12:00:00');
         $client = User::factory()->create()->client();
         $this->travelTo('2026-09-20 12:00:00');
-        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Before', 'status' => 'open', 'priority' => 'low']);
-        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Before 2', 'status' => 'open', 'priority' => 'low']);
+        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Old, waiting', 'status' => Ticket::STATUS_CUSTOMER_REPLY, 'priority' => 'low']);
         $this->travelTo('2026-11-04 12:00:00');
-        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Now', 'status' => 'open', 'priority' => 'low']);
+        foreach ([Ticket::STATUS_OPEN, Ticket::STATUS_ANSWERED, Ticket::STATUS_ON_HOLD, Ticket::STATUS_CLOSED] as $status) {
+            Ticket::query()->create(['client_id' => $client->id, 'subject' => $status, 'status' => $status, 'priority' => 'low']);
+        }
 
-        $this->assertSame('Decreased by 50.0% (last 30 days)', $this->stats()['Tickets']->getDescription());
+        $card = $this->stats()['Tickets to answer'];
+
+        $this->assertSame('2', (string) $card->getValue(), 'open and customer reply, of any date');
+        $this->assertSame('4 new (last 30 days)', $card->getDescription());
+        $this->assertSame('warning', $card->getColor());
+        $this->assertSame(4, array_sum($card->getChart()));
+    }
+
+    public function test_all_answered_is_zero_and_gray_though_new_ones_came(): void
+    {
+        $this->travelTo('2026-11-04 12:00:00');
+        $client = User::factory()->create()->client();
+        foreach (range(1, 3) as $i) {
+            Ticket::query()->create(['client_id' => $client->id, 'subject' => "Done {$i}", 'status' => Ticket::STATUS_ANSWERED, 'priority' => 'low']);
+        }
+
+        $card = $this->stats()['Tickets to answer'];
+
+        $this->assertSame('0', (string) $card->getValue());
+        $this->assertSame('gray', $card->getColor());
+        $this->assertSame('3 new (last 30 days)', $card->getDescription());
+        $this->assertFalse($this->quiet($card), 'new ones came: not dimmed');
+
+        app()->setLocale('el');
+        $this->assertSame('3 νέα (τελευταίες 30 ημέρες)', $this->stats()['Tickets προς απάντηση']->getDescription());
     }
 
     public function test_the_renewals_say_their_window_under_the_heading_without_a_row_of_active_filters(): void
@@ -97,15 +127,15 @@ class DashboardTilesRenewalsTest extends TestCase
         $client = User::factory()->create()->client();
         Order::query()->create(['client_id' => $client->id, 'currency_code' => 'EUR', 'status' => Order::STATUS_PENDING]);
         $this->travelTo('2026-09-20 12:00:00');
-        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Before', 'status' => 'open', 'priority' => 'low']);
+        Service::factory()->create(['client_id' => $client->id]);
         $this->travelTo('2026-11-04 12:00:00');
 
         $stats = $this->stats();
 
         $this->assertFalse($this->quiet($stats['Pending Orders']));
-        $this->assertSame('0', (string) $stats['Tickets']->getValue());
-        $this->assertSame('Decreased by 100.0% (last 30 days)', $stats['Tickets']->getDescription());
-        $this->assertFalse($this->quiet($stats['Tickets']), 'a drop to nothing');
+        $this->assertSame('0', (string) $stats['New services']->getValue());
+        $this->assertSame('Decreased by 100.0% (last 30 days)', $stats['New services']->getDescription());
+        $this->assertFalse($this->quiet($stats['New services']), 'a drop to nothing');
     }
 
     /** Review of #640: the percentage as Greek writes it. */
@@ -114,13 +144,12 @@ class DashboardTilesRenewalsTest extends TestCase
         $this->travelTo('2026-11-04 12:00:00');
         $client = User::factory()->create()->client();
         $this->travelTo('2026-09-20 12:00:00');
-        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Before', 'status' => 'open', 'priority' => 'low']);
-        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Before 2', 'status' => 'open', 'priority' => 'low']);
+        Service::factory()->count(2)->create(['client_id' => $client->id]);
         $this->travelTo('2026-11-04 12:00:00');
-        Ticket::query()->create(['client_id' => $client->id, 'subject' => 'Now', 'status' => 'open', 'priority' => 'low']);
+        Service::factory()->create(['client_id' => $client->id]);
         app()->setLocale('el');
 
-        $this->assertSame('Μείωση 50,0% (τελευταίες 30 ημέρες)', $this->stats()['Tickets']->getDescription());
+        $this->assertSame('Μείωση 50,0% (τελευταίες 30 ημέρες)', $this->stats()['Νέες υπηρεσίες']->getDescription());
     }
 
     /** Review of #640: the heading and the query read the window the same way, an odd value as 30 days. */

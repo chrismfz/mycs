@@ -17,6 +17,7 @@ use App\Services\Licensing\LicenseTelemetry;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
@@ -95,9 +96,14 @@ class LicensingCheckTest extends TestCase
             $this->assertSame(self::steady($this->withServerVariables(['REMOTE_ADDR' => $ip])->post('/zlic.php', ['license' => $key, 'license_PSK' => $psk])),
                 self::steady($this->check($this->telemetry(['install_id' => 'eeeeeeee-0000-4000-8000-00000000000' . strlen($psk)]), $key, $ip, $psk)), "{$key} / {$psk} / {$ip}");
         }
-        // The two good checks above: with its telemetry, and the form's without.
-        $this->assertSame([['Active', '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b'], ['Active', '']],
-            LicenseInstall::query()->orderBy('id')->get()->map(fn (LicenseInstall $i) => [$i->last_status, $i->install_id])->all());
+        // The two good checks above: with its telemetry, and the form's without. MariaDB/MySQL compare strings without
+        // their trailing blanks, so there the key with a blank is the license itself and its check is kept too: as
+        // WHMCS's zlic.php on MySQL, and the caller proved the PSK and the address (owner 2026-11-15: the test, not the code).
+        $installs = [['Active', '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b'], ['Active', '']];
+        if (DB::getDriverName() !== 'sqlite') {
+            $installs[] = ['Active', 'eeeeeeee-0000-4000-8000-00000000000' . strlen('TestSecret')];
+        }
+        $this->assertSame($installs, LicenseInstall::query()->orderBy('id')->get()->map(fn (LicenseInstall $i) => [$i->last_status, $i->install_id])->all());
         $missing = $this->postJson('/licensing/v1/check', ['license' => $this->license->license_key]);
         $missing->assertStatus(400);
         $this->assertSame($this->post('/zlic.php', ['license' => $this->license->license_key])->getContent(), $missing->getContent());

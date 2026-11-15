@@ -50,11 +50,10 @@ class Overview extends BaseWidget
         return array_filter([
             $this->pendingOrders(),
             $this->invoiceTransaction(),
-            // Fewer new tickets is the good outcome, so the trend color is inverted
-            // Both open their list (owner 2026-11-12), as the other cards do.
-            // For staff who may open the list only (review of #815, REV-815-2).
-            $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true)->url(TicketResource::canAccess() ? TicketResource::getUrl('index') : null),
-            $this->getData(Service::class, 'Services')->url(ServiceResource::canAccess() ? ServiceResource::getUrl('index') : null),
+            $this->tickets(),
+            // New services in the period (owner 2026-11-15: a «9» read as all of them); it opens the list (owner
+            // 2026-11-12), for staff who may open it only (review of #815, REV-815-2).
+            $this->getData(Service::class, 'New services')->url(ServiceResource::canAccess() ? ServiceResource::getUrl('index') : null),
             $this->clientsWithCredit(),
             $this->pendingCancellations(),
             $this->pendingModuleActions(),
@@ -73,6 +72,30 @@ class Overview extends BaseWidget
         return ['default' => 1, '@sm' => min(2, $count), '@2xl' => min(3, $count), '@4xl' => min(4, $count), '@5xl' => $count,
             // A browser without container queries: by the screen's width, as Filament's own default.
             '!@md' => min(3, $count), '!@lg' => min(4, $count), '!@xl' => $count];
+    }
+
+    /**
+     * The tickets waiting on us, as the menu's badge and the list's «Awaiting us» tab count them (owner 2026-11-15: «11
+     * Tickets» was the new ones of the period, and read as 11 unanswered). The new ones of the period stay below, with
+     * their chart. Gray at zero; the list opens on its «Awaiting us» tab.
+     */
+    private function tickets(): ?Stat
+    {
+        // As the other queues: staff who may not open the tickets get no card (REV-815-2).
+        if (!TicketResource::canViewAny()) {
+            return null;
+        }
+        $awaiting = AdminBadge::count('tickets.awaiting', fn () => Ticket::query()->whereIn('status', Ticket::AWAITING_STAFF)->count());
+        $chart = $this->trend(Trend::model(Ticket::class))->count();
+        $new = (int) $chart->sum('aggregate');
+        $period = mb_strtolower(__($this->period()->label()));
+
+        return $this->quiet(Stat::make(__('Tickets to answer'), (string) $awaiting), $awaiting === 0 && $new === 0)
+            ->key('tickets-' . ($awaiting === 0 ? 'gray' : 'warning'))
+            ->description(trans_choice(':count new (:period)|:count new (:period)', $new, ['period' => $period]))
+            ->chart($chart->map(fn (TrendValue $value) => $value->aggregate)->toArray())
+            ->color($awaiting === 0 ? 'gray' : 'warning')
+            ->url(TicketResource::getUrl('index', ['tab' => 'open']));
     }
 
     /** WHMCS's «Pending Orders» counter (Σ1-b2): always there, gray at zero. */
@@ -160,13 +183,13 @@ class Overview extends BaseWidget
         return $this->stat('Revenue', $chart, $previous, money: true);
     }
 
-    private function getData(string $model, string $name, bool $lowerIsBetter = false): Stat
+    private function getData(string $model, string $name): Stat
     {
         $chart = $this->trend(Trend::model($model))->count();
 
         $previous = $this->previousPeriod($model::query())->count();
 
-        return $this->stat($name, $chart, $previous, $lowerIsBetter);
+        return $this->stat($name, $chart, $previous);
     }
 
     private function period(): DashboardPeriod
@@ -196,7 +219,7 @@ class Overview extends BaseWidget
             ->where('created_at', '<', $start);
     }
 
-    private function stat(string $label, Collection $chart, float|int $previous, bool $lowerIsBetter = false, bool $money = false): Stat
+    private function stat(string $label, Collection $chart, float|int $previous, bool $money = false): Stat
     {
         $current = $chart->sum('aggregate');
 
@@ -205,7 +228,7 @@ class Overview extends BaseWidget
         $percentage = $previous > 0 ? (abs($change) / $previous) * 100 : 0;
 
         // No change is neither good nor bad news (owner 2026-10-21: «Increased by 0.00%» in green, or red).
-        $color = $change == 0 ? 'gray' : (($lowerIsBetter ? $change < 0 : $change > 0) ? 'success' : 'danger');
+        $color = $change == 0 ? 'gray' : ($change > 0 ? 'success' : 'danger');
         $period = mb_strtolower(__($this->period()->label()));
         $description = match (true) {
             $change == 0 => __('No change') . " ({$period})",
