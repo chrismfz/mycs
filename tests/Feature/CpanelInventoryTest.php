@@ -118,6 +118,26 @@ class CpanelInventoryTest extends TestCase
         $this->assertSame($client->id, CpanelAccount::query()->where('user', 'client1')->value('service_id'), 'its cPanel username property');
     }
 
+    /**
+     * The suspension and creation times are kept as the instants WHM sent, in the app's timezone (Carbon 3's
+     * createFromTimestamp() is UTC): 1700000000 is 2023-11-14 22:13 UTC, already the 15th in Athens.
+     */
+    public function test_the_suspension_and_creation_times_are_the_same_instants_on_an_instance_not_in_utc(): void
+    {
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Athens');
+        try {
+            AccountSync::sync($this->server);
+
+            $alpha = CpanelAccount::query()->where('user', 'alpha')->sole();
+            $this->assertSame(1700000000, $alpha->created_on_server_at->timestamp);
+            $this->assertSame('15/11/2023', $alpha->created_on_server_at->format('d/m/Y'), 'the day it was created in Athens');
+            $this->assertSame(1790000000, CpanelAccount::query()->where('user', 'resel1')->sole()->suspended_at->timestamp);
+        } finally {
+            date_default_timezone_set($zone);
+        }
+    }
+
     public function test_bandwidth_that_cannot_be_read_keeps_what_was_read_and_a_failed_or_empty_read_marks_nothing_gone(): void
     {
         AccountSync::sync($this->server);

@@ -71,8 +71,9 @@ final class AccountSync implements ReadsAccounts
                 $new += $row->exists ? 0 : 1;
                 $fill = $data;
                 unset($fill['user'], $fill['created_at']);
-                $fill['suspended_at'] = $data['suspended_at'] ? Carbon::createFromTimestamp($data['suspended_at']) : null;
-                $fill['created_on_server_at'] = $data['created_at'] ? Carbon::createFromTimestamp($data['created_at']) : null;
+                // In the app's timezone, as Eloquent stores and reads them: Carbon 3's createFromTimestamp() is in UTC.
+                $fill['suspended_at'] = $data['suspended_at'] ? Carbon::createFromTimestamp($data['suspended_at'], date_default_timezone_get()) : null;
+                $fill['created_on_server_at'] = $data['created_at'] ? Carbon::createFromTimestamp($data['created_at'], date_default_timezone_get()) : null;
                 // What could not be read this time (bandwidth, resellers) keeps what was read before.
                 foreach (['bandwidth_used_mb', 'reseller'] as $key) {
                     if ($data[$key] === null && $row->exists) {

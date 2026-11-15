@@ -114,6 +114,22 @@ class MailcowInventoryTest extends TestCase
         $this->assertNull(MailcowMailbox::query()->where('address', 'old@example.org')->sole()->last_login_at);
     }
 
+    /** A last login is kept as the instant mailcow sent, in the app's timezone (Carbon 3's createFromTimestamp() is UTC). */
+    public function test_a_last_login_is_the_same_instant_on_an_instance_not_in_utc(): void
+    {
+        $zone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Athens');
+        try {
+            DomainSync::sync($this->server);
+
+            $login = MailcowMailbox::query()->where('address', 'info@example.org')->sole()->last_login_at;
+            $this->assertSame(1792000100, $login->timestamp, 'read back the instant mailcow sent, not hours off');
+            $this->assertSame('Europe/Athens', $login->tzName);
+        } finally {
+            date_default_timezone_set($zone);
+        }
+    }
+
     public function test_a_domain_of_two_live_services_or_of_another_servers_is_left_for_staff(): void
     {
         $this->service('example.org');
