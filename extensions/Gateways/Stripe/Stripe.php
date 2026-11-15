@@ -563,7 +563,9 @@ class Stripe extends Gateway
                             // again (sweep 3 REV3-LF-1).
                             return response()->json(['error' => 'Subscription not cancelled, draft not deleted: try again'], 503);
                         }
-                    } elseif ($service) {
+                    } elseif ($service && ($invoice->amount_due ?? null) !== 0) {
+                        // A $0 draft (a trial started: Stripe::anchorFor's move) is nothing to charge: Stripe finalises it
+                        // by itself, and /pay on it would fail the webhook (review R3-F2).
                         $this->request('post', '/invoices/' . $invoice->id . '/finalize');
                         // Pay the invoice using Stripe
                         $this->request('post', '/invoices/' . $invoice->id . '/pay');
@@ -575,6 +577,11 @@ class Stripe extends Gateway
                 $invoice = $event->data->object; // contains a StripeInvoice
 
                 if ($invoice->parent->type !== 'subscription_details') {
+                    break;
+                }
+                // A $0 invoice (a trial started: Stripe::anchorFor's move) paid nothing: no payment to record, none to
+                // look up (its /invoice_payments may be empty, review R3-F1).
+                if (($invoice->amount_paid ?? null) === 0) {
                     break;
                 }
 
@@ -590,7 +597,7 @@ class Stripe extends Gateway
                     $paymentIntents = $this->request('get', '/invoice_payments', ['invoice' => $invoice->id]);
                     $paymentIntent = collect($paymentIntents->data)->first();
 
-                    if ($paymentIntent->payment->type !== 'payment_intent') {
+                    if (($paymentIntent->payment->type ?? null) !== 'payment_intent') {
                         break;
                     }
 
@@ -783,14 +790,7 @@ class Stripe extends Gateway
         }
 
         if (array_key_exists('expires_at', $changes)) {
-            // API 2025-03-31.basil+ (pinned here) has the period on the item, older versions on the subscription.
-            $periodEnd = $scheduleId->items->data[0]->current_period_end ?? $scheduleId->current_period_end ?? null;
-            if ($periodEnd === null) {
-                throw new Exception('Stripe subscription ' . $service->subscription_id . ' has no current_period_end.');
-            }
-            $subDate = Carbon::createFromTimestamp($periodEnd)->startOfDay();
-            // Check if current date is before the end date of the subscription
-            if ($subDate == $service->expires_at || $service->expires_at <= $subDate) {
+            if (self::billsOnTime(self::periodEndOf($scheduleId, $service), $service) || !self::movable($scheduleId, $service)) {
                 return;
             }
 
@@ -818,10 +818,89 @@ class Stripe extends Gateway
             }
             // Update the subscription
             $this->request('post', '/subscriptions/' . $service->subscription_id, [
-                'trial_end' => $service->expires_at->timestamp,
+                'trial_end' => self::anchorFor($service)->timestamp,
                 'proration_behavior' => 'none',
             ]);
         }
+    }
+
+    /** Slack around the anchor: Stripe keeps the anchor's hour in UTC, an hour off local noon across DST. */
+    private const ANCHOR_SLACK_HOURS = 2;
+
+    /**
+     * When Stripe should bill a service's next period: local noon of its expires_at (a date in the app's timezone).
+     * Never near a midnight: Stripe counts periods in UTC calendar months and keeps the anchor's day and hour in UTC,
+     * so an anchor at local midnight (21:00/22:00 UTC the day before) falls on another local day after a DST change
+     * or a month of another length, and every renewal looked like an extension (review of the timezone fix).
+     */
+    public static function anchorFor(Service $service): Carbon
+    {
+        $zone = date_default_timezone_get();
+        $due = $service->expires_at->toDateString();
+        $noon = Carbon::parse($due . ' 12:00:00', $zone);
+        $utc = Carbon::parse($due . ' 00:00:00', 'UTC');
+        // Stripe keeps the anchor's UTC day: local noon must be well inside the due day in UTC too (every zone within
+        // ±10 h). Further out (UTC+12…+14, review REV-ANCHOR-1) the middle of the hours that are the due day both here
+        // and in UTC.
+        if ($noon->gte($utc->copy()->addHours(self::ANCHOR_SLACK_HOURS)) && $noon->lte($utc->copy()->addHours(24 - self::ANCHOR_SLACK_HOURS))) {
+            return $noon;
+        }
+        $start = max(Carbon::parse($due . ' 00:00:00', $zone), $utc);
+        $end = min(Carbon::parse($due . ' 00:00:00', $zone)->addDay(), $utc->copy()->addDay());
+
+        return Carbon::createFromTimestamp(intdiv($start->timestamp + $end->timestamp, 2), $zone);
+    }
+
+    /**
+     * Stripe already bills the service on its due day: its period ends at the anchor (give or take DST's hour) or later.
+     * Later is left as it is: an expiry moved earlier never shortens the subscription.
+     */
+    public static function billsOnTime(int $periodEnd, Service $service): bool
+    {
+        return $periodEnd >= self::anchorFor($service)->subHours(self::ANCHOR_SLACK_HOURS)->timestamp;
+    }
+
+    /** Longest trial Stripe allows (trial_end at most two years ahead), in days. */
+    private const MAX_TRIAL_DAYS = 730;
+
+    /**
+     * Whether the subscription may be moved to the anchor now: it bills normally (active or trialing, collection not
+     * paused: a past_due one has an invoice still retried, review R3-F6), and the anchor is in the future (R3-F7) and
+     * within the two years a trial_end may be (R3-F5). Otherwise it is left as it is, for staff.
+     */
+    public static function movable(object $subscription, Service $service): bool
+    {
+        $anchor = self::anchorFor($service);
+
+        return in_array(self::statusOf($subscription), ['active', 'trialing'], true)
+            && $anchor->isFuture() && $anchor->lte(now()->addDays(self::MAX_TRIAL_DAYS));
+    }
+
+    /** The subscription's current period end (unix time). API 2025-03-31.basil+ (pinned here) has it on the item. */
+    private static function periodEndOf(object $subscription, Service $service): int
+    {
+        $periodEnd = $subscription->items->data[0]->current_period_end ?? $subscription->current_period_end ?? null;
+        if ($periodEnd === null) {
+            throw new Exception('Stripe subscription ' . $service->subscription_id . ' has no current_period_end.');
+        }
+
+        return (int) $periodEnd;
+    }
+
+    /**
+     * The service's subscription as Stripe has it now: its status (paused collection reads `paused`) and, while it
+     * bills (active, trialing, past_due), its current period end (unix time); null when it does not bill.
+     *
+     * @return array{status: string, period_end: ?int, movable: bool}
+     */
+    public function currentPeriod(Service $service): array
+    {
+        $subscription = $this->request('get', '/subscriptions/' . $service->subscription_id);
+        $status = self::statusOf($subscription);
+        $bills = in_array($status, ['active', 'trialing', 'past_due'], true);
+
+        return ['status' => $status, 'period_end' => $bills ? self::periodEndOf($subscription, $service) : null,
+            'movable' => $bills && self::movable($subscription, $service)];
     }
 
     /**
@@ -835,7 +914,7 @@ class Stripe extends Gateway
     /**
      * A Stripe subscription: the marker, or a Stripe id (sub_...) whose marker was lost (staff-entered, legacy).
      */
-    private function ownsSubscription(Service $service): bool
+    public function ownsSubscription(Service $service): bool
     {
         return $service->subscription_id
             && ($service->properties()->where('key', 'has_stripe_subscription')->value('value') === '1'
