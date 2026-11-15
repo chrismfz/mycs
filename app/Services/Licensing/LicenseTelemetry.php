@@ -168,9 +168,7 @@ final class LicenseTelemetry
         if ($install->build_time !== null) {
             $parts[] = 'built ' . $install->build_time->format('d/m/Y');
         }
-        if ($install->first_seen_at !== null) {
-            $parts[] = 'since ' . $install->first_seen_at->format('d/m/Y') . ($install->checks ? ", {$install->checks} " . ($install->checks === 1 ? 'check' : 'checks') : '');
-        }
+        $parts[] = 'since ' . $install->first_seen_at->format('d/m/Y') . ($install->checks ? ", {$install->checks} " . ($install->checks === 1 ? 'check' : 'checks') : '');
         if ($install->licensed === false) {
             $parts[] = 'degraded' . ($install->failures ? " ({$install->failures} failures)" : '');
         }

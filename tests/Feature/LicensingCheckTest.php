@@ -399,9 +399,9 @@ class LicensingCheckTest extends TestCase
     {
         Carbon::setTestNow('2026-11-15 12:00:00');
         $install = new LicenseInstall(['product' => 'node', 'version' => '2026.11.14.2129', 'ip' => self::IP, 'last_seen_at' => now()->subHours(2),
-            'os' => 'linux', 'arch' => 'amd64', 'licensed' => false, 'failures' => 3, 'clock_skew' => 90000]);
+            'os' => 'linux', 'arch' => 'amd64', 'licensed' => false, 'failures' => 3, 'clock_skew' => 90000, 'first_seen_at' => now()->subDays(3), 'checks' => 1]);
 
-        $this->assertSame('node 2026.11.14.2129 · 198.51.100.7 · 2 hours ago · linux/amd64 · degraded (3 failures) · ⚠ clock +1d', LicenseTelemetry::describe($install));
+        $this->assertSame('node 2026.11.14.2129 · 198.51.100.7 · 2 hours ago · linux/amd64 · since 12/11/2026, 1 check · degraded (3 failures) · ⚠ clock +1d', LicenseTelemetry::describe($install));
     }
 
     public function test_describe_says_when_it_was_built_and_since_when_it_runs(): void
