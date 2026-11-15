@@ -126,7 +126,8 @@ final class DomainSync implements ReadsAccounts
                 'active' => (int) ($data['active_int'] ?? $data['active'] ?? 1) !== 0,
                 'quota_bytes' => self::int($data['quota'] ?? 0), 'used_bytes' => self::int($data['quota_used'] ?? 0),
                 'messages' => self::int($data['messages'] ?? 0),
-                'last_login_at' => max($logins) > 0 ? Carbon::createFromTimestamp(max($logins)) : null,
+                // In the app's timezone, as Eloquent stores and reads it: Carbon 3's createFromTimestamp() is in UTC.
+                'last_login_at' => max($logins) > 0 ? Carbon::createFromTimestamp(max($logins), date_default_timezone_get()) : null,
             ]);
             $seen[] = $address;
         }
