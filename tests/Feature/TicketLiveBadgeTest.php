@@ -110,8 +110,8 @@ class TicketLiveBadgeTest extends TestCase
         $stats = collect((fn () => $this->getStats())->call(Livewire::test(Overview::class)->instance()))
             ->keyBy(fn ($stat) => $stat->getLabel());
 
-        $this->assertSame(TicketResource::getUrl('index'), $stats['Tickets']->getUrl());
-        $this->assertSame(ServiceResource::getUrl('index'), $stats['Services']->getUrl());
+        $this->assertSame(TicketResource::getUrl('index', ['tab' => 'open']), $stats['Tickets to answer']->getUrl());
+        $this->assertSame(ServiceResource::getUrl('index'), $stats['New services']->getUrl());
     }
 
     public function test_the_staff_mail_names_the_attachments_stored_with_the_message(): void

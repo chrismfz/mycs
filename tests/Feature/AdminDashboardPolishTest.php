@@ -60,7 +60,7 @@ class AdminDashboardPolishTest extends TestCase
     {
         $stats = (fn () => $this->getStats())->call(Livewire::test(Overview::class)->instance());
 
-        $this->assertSame(['Pending Orders', 'Revenue', 'Tickets', 'Services', 'Clients with credit', 'Pending Cancellations', 'Pending Module Actions'], array_map(fn ($stat) => $stat->getLabel(), array_values($stats)));
+        $this->assertSame(['Pending Orders', 'Revenue', 'Tickets to answer', 'New services', 'Clients with credit', 'Pending Cancellations', 'Pending Module Actions'], array_map(fn ($stat) => $stat->getLabel(), array_values($stats)));
         $this->assertSame('gray', $stats[0]->getColor());
     }
 
