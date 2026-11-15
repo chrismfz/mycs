@@ -51,9 +51,10 @@ class ZlicController extends Controller
      * when it was asked: null when a limit or an error answered «Remote Check Failed».
      *
      * @param  array<string, string>  $params
+     * @param  string  $endpoint  v0 (zlic.php) or v1 (/licensing/v1/check), kept as the license's last_endpoint
      * @return array{0: Response, 1: ZlicResponse|null}
      */
-    public function answer(Request $request, ZlicLimiter $limiter, array $params): array
+    public function answer(Request $request, ZlicLimiter $limiter, array $params, string $endpoint = LicenseActivity::ENDPOINT_ZLIC): array
     {
         $ip = CallerIp::of($request);
         $caller = CallerIp::bucket($ip);
@@ -70,7 +71,7 @@ class ZlicController extends Controller
                 if ($key !== '') {
                     $counted['k'] = "k:{$caller}:{$keyId}";
                     if ($limiter->hit($counted['k'], 3600) > self::KEY_FAILURES_PER_HOUR) {
-                        $this->noteLimited($limiter, $caller, $keyId, $key, $ip, $request);
+                        $this->noteLimited($limiter, $caller, $keyId, $key, $ip, $request, $endpoint);
 
                         return [self::remoteCheckFailed(), null];
                     }
@@ -97,7 +98,7 @@ class ZlicController extends Controller
 
         if ($key !== '') {
             try {
-                LicenseActivity::record($key, $response, $ip, $request->method() . ' ' . $request->userAgent());
+                LicenseActivity::record($key, $response, $ip, $request->method() . ' ' . $request->userAgent(), $endpoint);
             } catch (Throwable $e) {
                 report($e); // never changes the answer
             }
@@ -129,12 +130,12 @@ class ZlicController extends Controller
     }
 
     /** A license held back is said on it once a day (review F5): staff see why it does not activate. */
-    private function noteLimited(ZlicLimiter $limiter, string $caller, string $keyId, string $key, string $ip, Request $request): void
+    private function noteLimited(ZlicLimiter $limiter, string $caller, string $keyId, string $key, string $ip, Request $request, string $endpoint): void
     {
         try {
             if ($limiter->hit("noted:{$caller}:{$keyId}", 86400) === 1) {
                 LicenseActivity::record($key, new ZlicResponse(200, ['status' => 'Invalid', 'description' => 'Rate limited: too many failed checks from this address']),
-                    $ip, $request->method() . ' ' . $request->userAgent());
+                    $ip, $request->method() . ' ' . $request->userAgent(), $endpoint);
             }
         } catch (Throwable $e) {
             report($e);

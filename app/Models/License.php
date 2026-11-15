@@ -29,6 +29,7 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property-read int|null $recent_installs the licenses console's count of its install ids of the last days
  * @property-read string|null $newest_version the licenses console's version of its newest install
  * @property Carbon|null $last_access
+ * @property string|null $last_endpoint v0 (zlic.php) or v1 (/licensing/v1/check): its last check's
  */
 class License extends Model implements Auditable
 {
@@ -49,10 +50,10 @@ class License extends Model implements Auditable
      * service's name only (Service::mailName, owner 2026-11-03), never as a field of its own.
      */
     public const TEMPLATE_HIDDEN = ['valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'max_ips', 'bulk_license_id', 'merged_at', 'whmcs_id', 'last_access', 'last_ok_at',
-        'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];
+        'last_seen_ip', 'last_seen_client', 'last_endpoint', 'last_failure_at', 'last_failure'];
 
     protected $fillable = ['service_id', 'license_key', 'status', 'valid_domain', 'valid_ip', 'valid_directory', 'reissues', 'tiers', 'max_ips', 'bulk_license_id', 'merged_at', 'last_access', 'whmcs_id',
-        'last_ok_at', 'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];
+        'last_ok_at', 'last_seen_ip', 'last_seen_client', 'last_endpoint', 'last_failure_at', 'last_failure'];
 
     protected $casts = [
         'last_access' => 'datetime',
@@ -65,7 +66,7 @@ class License extends Model implements Auditable
     ];
 
     /** Checks touch last_access on every call: not an audited change. */
-    protected $auditExclude = ['last_access', 'last_ok_at', 'last_seen_ip', 'last_seen_client', 'last_failure_at', 'last_failure'];
+    protected $auditExclude = ['last_access', 'last_ok_at', 'last_seen_ip', 'last_seen_client', 'last_endpoint', 'last_failure_at', 'last_failure'];
 
     /** @return BelongsTo<Service, $this> */
     public function service(): BelongsTo

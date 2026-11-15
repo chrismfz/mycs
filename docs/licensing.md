@@ -81,7 +81,10 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
 - **Deploy:** πρώτα το migration (`license_installs`). Χωρίς αυτό η κονσόλα Licenses βγάζει 500. Το endpoint όχι:
   πιάνει τα δικά του σφάλματα.
 - **Staff:**
-  - Κονσόλα Licenses: στήλες «Version» (της πιο πρόσφατης εγκατάστασης) και «Installs» (των τελευταίων 7 ημερών).
+  - Κονσόλα Licenses: στήλες «Version» (της πιο πρόσφατης εγκατάστασης), «Installs» (των τελευταίων 7 ημερών) και
+    «API» (2026-11-15). Η «API» δείχνει από ποιο endpoint ήρθε το τελευταίο check, πετυχημένο ή όχι: `v0` για το zlic.php,
+    `v1` για το `/licensing/v1/check`. Το κρατά το `licenses.last_endpoint`. Οι στήλες Client και Product κόβονται,
+    και το πλήρες όνομα φαίνεται στο hover.
   - Tab **Signals**, με ό,τι φάνηκε τις τελευταίες 7 μέρες:
     - downgrade σε παλιότερο build·
     - ρολόι πάνω από μία μέρα μακριά από το δικό μας (ένα ρολόι γυρισμένο πίσω κρατά ένα localkey έγκυρο)·

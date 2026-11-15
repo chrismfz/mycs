@@ -350,6 +350,26 @@ class LicensingCheckTest extends TestCase
         $this->artisan('mycs:license-token-key --show')->expectsOutputToContain($pair['public'])->assertExitCode(0);
     }
 
+    /** The console's «API»: the endpoint of the last check, good or not (v0 zlic.php, v1 /licensing/v1/check). */
+    public function test_the_license_keeps_the_endpoint_of_its_last_check(): void
+    {
+        $this->assertNull($this->license->fresh()->last_endpoint);
+        $this->check()->assertOk();
+        $this->assertSame('v1', $this->license->fresh()->last_endpoint);
+
+        $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/zlic.php', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
+        $this->assertSame('v0', $this->license->fresh()->last_endpoint);
+
+        // A failed check counts too: from another address, through v1.
+        $this->assertSame('Invalid', $this->check(ip: '203.0.113.9')->json('status'));
+        $this->assertSame('v1', $this->license->fresh()->last_endpoint);
+
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Role ' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->livewireAs($staff)->test(ListLicenses::class)->assertCanSeeTableRecords([$this->license])
+            ->assertTableColumnStateSet('last_endpoint', 'v1', $this->license);
+    }
+
     public function test_describe_says_the_install_in_one_line(): void
     {
         Carbon::setTestNow('2026-11-15 12:00:00');
