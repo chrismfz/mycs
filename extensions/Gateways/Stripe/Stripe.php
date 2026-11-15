@@ -783,17 +783,7 @@ class Stripe extends Gateway
         }
 
         if (array_key_exists('expires_at', $changes)) {
-            // API 2025-03-31.basil+ (pinned here) has the period on the item, older versions on the subscription.
-            $periodEnd = $scheduleId->items->data[0]->current_period_end ?? $scheduleId->current_period_end ?? null;
-            if ($periodEnd === null) {
-                throw new Exception('Stripe subscription ' . $service->subscription_id . ' has no current_period_end.');
-            }
-            // Its day in the app's timezone, the one expires_at (a date) is in: Carbon 3's createFromTimestamp() is in
-            // UTC, where a period ending at local midnight (setupSubscription starts it then) is the day before, so
-            // every renewal looked like an extension and released the schedule and re-set the trial end.
-            $subDate = Carbon::createFromTimestamp($periodEnd, date_default_timezone_get())->startOfDay();
-            // Check if current date is before the end date of the subscription
-            if ($subDate == $service->expires_at || $service->expires_at <= $subDate) {
+            if (self::billsOnTime(self::periodEndOf($scheduleId, $service), $service)) {
                 return;
             }
 
@@ -821,10 +811,50 @@ class Stripe extends Gateway
             }
             // Update the subscription
             $this->request('post', '/subscriptions/' . $service->subscription_id, [
-                'trial_end' => $service->expires_at->timestamp,
+                'trial_end' => self::anchorFor($service)->timestamp,
                 'proration_behavior' => 'none',
             ]);
         }
+    }
+
+    /** Slack around the anchor: Stripe keeps the anchor's hour in UTC, an hour off local noon across DST. */
+    private const ANCHOR_SLACK_HOURS = 2;
+
+    /**
+     * When Stripe should bill a service's next period: local noon of its expires_at (a date in the app's timezone).
+     * Never near a midnight: Stripe counts periods in UTC calendar months and keeps the anchor's day and hour in UTC,
+     * so an anchor at local midnight (21:00/22:00 UTC the day before) falls on another local day after a DST change
+     * or a month of another length, and every renewal looked like an extension (review of the timezone fix).
+     */
+    public static function anchorFor(Service $service): Carbon
+    {
+        return Carbon::parse($service->expires_at->toDateString() . ' 12:00:00', date_default_timezone_get());
+    }
+
+    /**
+     * Stripe already bills the service on its due day: its period ends at the anchor (give or take DST's hour) or later.
+     * Later is left as it is: an expiry moved earlier never shortens the subscription.
+     */
+    public static function billsOnTime(int $periodEnd, Service $service): bool
+    {
+        return $periodEnd >= self::anchorFor($service)->subHours(self::ANCHOR_SLACK_HOURS)->timestamp;
+    }
+
+    /** The subscription's current period end (unix time). API 2025-03-31.basil+ (pinned here) has it on the item. */
+    private static function periodEndOf(object $subscription, Service $service): int
+    {
+        $periodEnd = $subscription->items->data[0]->current_period_end ?? $subscription->current_period_end ?? null;
+        if ($periodEnd === null) {
+            throw new Exception('Stripe subscription ' . $service->subscription_id . ' has no current_period_end.');
+        }
+
+        return (int) $periodEnd;
+    }
+
+    /** The current period end Stripe has for the service's subscription (unix time), read now. */
+    public function currentPeriodEnd(Service $service): int
+    {
+        return self::periodEndOf($this->request('get', '/subscriptions/' . $service->subscription_id), $service);
     }
 
     /**
@@ -838,7 +868,7 @@ class Stripe extends Gateway
     /**
      * A Stripe subscription: the marker, or a Stripe id (sub_...) whose marker was lost (staff-entered, legacy).
      */
-    private function ownsSubscription(Service $service): bool
+    public function ownsSubscription(Service $service): bool
     {
         return $service->subscription_id
             && ($service->properties()->where('key', 'has_stripe_subscription')->value('value') === '1'
