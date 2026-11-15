@@ -158,13 +158,17 @@ final class LicenseTelemetry
             ->whereColumn('license_installs.license_id', 'licenses.id')->where('install_id', '!=', '')->where('last_seen_at', '>=', $since);
     }
 
-    /** One install for staff: «node 2026.11.14.2129 · 192.0.2.10 · 2 hours ago · ⚠ downgrade (was …)». */
+    /** One install for staff: «node 2026.11.14.2129 · 192.0.2.10 · 2 hours ago · built 14/11/2026 · since 01/11/2026, 40 checks · ⚠ downgrade (was …)». */
     public static function describe(LicenseInstall $install): string
     {
         $parts = [trim(($install->product === '' ? '?' : $install->product) . ' ' . ($install->version ?? '')), $install->ip, $install->last_seen_at->diffForHumans()];
         if ($install->os !== null || $install->arch !== null) {
             $parts[] = trim(($install->os ?? '') . '/' . ($install->arch ?? ''), '/');
         }
+        if ($install->build_time !== null) {
+            $parts[] = 'built ' . $install->build_time->format('d/m/Y');
+        }
+        $parts[] = 'since ' . $install->first_seen_at->format('d/m/Y') . ($install->checks ? ", {$install->checks} " . ($install->checks === 1 ? 'check' : 'checks') : '');
         if ($install->licensed === false) {
             $parts[] = 'degraded' . ($install->failures ? " ({$install->failures} failures)" : '');
         }

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\LicenseResource\Pages\ListLicenses;
+use App\Admin\Resources\ServiceResource;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
 use App\Helpers\ExtensionHelper;
 use App\Models\License;
@@ -405,8 +406,29 @@ class LicensingCheckTest extends TestCase
     {
         Carbon::setTestNow('2026-11-15 12:00:00');
         $install = new LicenseInstall(['product' => 'node', 'version' => '2026.11.14.2129', 'ip' => self::IP, 'last_seen_at' => now()->subHours(2),
-            'os' => 'linux', 'arch' => 'amd64', 'licensed' => false, 'failures' => 3, 'clock_skew' => 90000]);
+            'os' => 'linux', 'arch' => 'amd64', 'licensed' => false, 'failures' => 3, 'clock_skew' => 90000, 'first_seen_at' => now()->subDays(3), 'checks' => 1]);
 
-        $this->assertSame('node 2026.11.14.2129 · 198.51.100.7 · 2 hours ago · linux/amd64 · degraded (3 failures) · ⚠ clock +1d', LicenseTelemetry::describe($install));
+        $this->assertSame('node 2026.11.14.2129 · 198.51.100.7 · 2 hours ago · linux/amd64 · since 12/11/2026, 1 check · degraded (3 failures) · ⚠ clock +1d', LicenseTelemetry::describe($install));
+    }
+
+    public function test_describe_says_when_it_was_built_and_since_when_it_runs(): void
+    {
+        Carbon::setTestNow('2026-11-15 12:00:00');
+        $install = new LicenseInstall(['product' => 'agent', 'version' => '2026.11.14.2129', 'ip' => self::IP, 'last_seen_at' => now()->subMinutes(5),
+            'build_time' => Carbon::parse('2026-11-14 21:29:00'), 'first_seen_at' => Carbon::parse('2026-11-01 08:00:00'), 'checks' => 40]);
+
+        $this->assertSame('agent 2026.11.14.2129 · 198.51.100.7 · 5 minutes ago · built 14/11/2026 · since 01/11/2026, 40 checks', LicenseTelemetry::describe($install));
+    }
+
+    public function test_the_service_page_says_through_which_endpoint_the_last_check_came(): void
+    {
+        $this->license->update(['last_seen_ip' => self::IP, 'last_seen_client' => 'POST GuzzleHttp/7', 'last_endpoint' => 'v1']);
+        $this->assertSame(self::IP . ' POST GuzzleHttp/7 · last check via /licensing/v1/check', ServiceResource::lastSeen($this->service->fresh()));
+
+        $this->license->update(['last_endpoint' => 'v0']);
+        $this->assertSame(self::IP . ' POST GuzzleHttp/7 · last check via zlic.php', ServiceResource::lastSeen($this->service->fresh()));
+
+        $this->license->update(['last_seen_ip' => null, 'last_seen_client' => null]);
+        $this->assertNull(ServiceResource::lastSeen($this->service->fresh()));
     }
 }

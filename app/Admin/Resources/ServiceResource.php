@@ -459,7 +459,8 @@ class ServiceResource extends Resource
                             ->visible(fn (Service $record) => !Licenses::isBulk($record) && self::bulkMove($record) !== null),
                         TextEntry::make('license.last_ok_at')->label('Last good check')->since()->dateTimeTooltip()->placeholder('Never'),
                         TextEntry::make('license.last_seen_ip')->label('Last seen from')
-                            ->state(fn (Service $record) => trim(($record->license->last_seen_ip ?? '') . ' ' . ($record->license->last_seen_client ?? '')) ?: null)->placeholder('—'),
+                            // …and through which endpoint: /licensing/v1/check (the new releases) or zlic.php.
+                            ->state(fn (Service $record) => self::lastSeen($record))->placeholder('—'),
                         TextEntry::make('license.last_failure')->label('Last failure')
                             ->state(fn (Service $record) => $record->license?->last_failure_at
                                 ? $record->license->last_failure_at->diffForHumans() . ': ' . $record->license->last_failure : null)->placeholder('None'),
@@ -472,6 +473,24 @@ class ServiceResource extends Resource
                     ]),
                 Textarea::make('notes')->label('Admin Notes')->hintIcon(...$hint('Staff only.'))->rows(2)->columnSpanFull(),
             ]);
+    }
+
+    /**
+     * «84.54.49.204 POST GuzzleHttp/7 · last check via /licensing/v1/check»: where its last good check came from, and the
+     * endpoint of its last check from its place (last_endpoint, written for Suspended/Expired too: rarely the same check).
+     */
+    public static function lastSeen(Service $record): ?string
+    {
+        $seen = trim(($record->license->last_seen_ip ?? '') . ' ' . ($record->license->last_seen_client ?? ''));
+        if ($seen === '') {
+            return null;
+        }
+
+        return $seen . match ($record->license->last_endpoint ?? null) {
+            'v1' => ' · last check via /licensing/v1/check',
+            'v0' => ' · last check via zlic.php',
+            default => '',
+        };
     }
 
     /** WHMCS's «Module Commands», in its order: the page's «Trigger Extension Action» at each. */
