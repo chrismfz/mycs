@@ -17,7 +17,12 @@ class LicenseActivity
 {
     public const ACTIVE = 'License Active';
 
-    public static function record(string $key, ZlicResponse $response, string $ip, string $client): void
+    /** zlic.php's endpoint, and /licensing/v1/check's (licenses.last_endpoint). */
+    public const ENDPOINT_ZLIC = 'v0';
+
+    public const ENDPOINT_V1 = 'v1';
+
+    public static function record(string $key, ZlicResponse $response, string $ip, string $client, string $endpoint = self::ENDPOINT_ZLIC): void
     {
         // A key that joined a bulk license counts on the bulk one (its IP's last good check, §8).
         $license = MycsLicenseRepository::answering($key);
@@ -26,10 +31,15 @@ class LicenseActivity
         }
         $ok = ($response->body['status'] ?? null) === 'Active';
         $now = now();
-        License::query()->whereKey($license->id)->update($ok
+        License::query()->whereKey($license->id)->update(($ok
             ? ['last_ok_at' => $now, 'last_seen_ip' => mb_substr($ip, 0, 64), 'last_seen_client' => mb_substr($client, 0, 255)]
             // A failure says when, why and from where, without overwriting where it last worked (anyone may send one).
-            : ['last_failure_at' => $now, 'last_failure' => mb_substr(trim((string) ($response->body['message'] ?? $response->body['description'] ?? $response->body['status'] ?? '') . ' (' . $ip . ')'), 0, 255)]);
+            : ['last_failure_at' => $now, 'last_failure' => mb_substr(trim((string) ($response->body['message'] ?? $response->body['description'] ?? $response->body['status'] ?? '') . ' (' . $ip . ')'), 0, 255)])
+            // The endpoint of the last check from where the license runs (the console's «API»): an Active answer, or an
+            // ended one to a bound or listed address, as for the telemetry. Not anyone's failure: one bad request from
+            // whoever holds the key would flip it (review: «failed checks overwrite the badge»); ended licenses still
+            // calling from their own place show theirs.
+            + (LicenseTelemetry::fromItsPlace($license, $response, $ip) ? ['last_endpoint' => $endpoint] : []));
 
         // A bulk license's IP that answered (none for a single one): the customer sees which servers still run.
         if ($ok && ($address = LicenseIp::normalize($ip)) !== null) {

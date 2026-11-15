@@ -61,8 +61,15 @@ class LicenseResource extends Resource
                         : $query->where('license_key', trim($search)))
                     ->formatStateUsing(fn ($state) => auth()->user()?->hasPermission('admin.services.update') ? $state : Scrub::licenseKey($state))
                     ->copyable(fn (): bool => (bool) auth()->user()?->hasPermission('admin.services.update')),
-                TextColumn::make('service.client.name')->label('Client'),
-                TextColumn::make('service.product.name')->label('Product'),
+                // Narrow, the whole name on hover: room for the API column.
+                TextColumn::make('service.client.name')->label('Client')->limit(18)->tooltip(fn (License $record) => $record->service?->client?->name),
+                TextColumn::make('service.product.name')->label('Product')->limit(16)->tooltip(fn (License $record) => $record->service?->product?->name),
+                // The endpoint of its last check: v0 zlic.php, v1 /licensing/v1/check (the new releases).
+                TextColumn::make('last_endpoint')->label('API')->badge()->placeholder('—')
+                    ->color(fn (?string $state) => $state === 'v1' ? 'success' : 'gray')
+                    ->tooltip(fn (License $record) => match ($record->last_endpoint) {
+                        'v1' => '/licensing/v1/check', 'v0' => 'zlic.php', default => null,
+                    })->toggleable(),
                 TextColumn::make('status')->badge()->color(fn (string $state) => match ($state) {
                     License::STATUS_ACTIVE => 'success', License::STATUS_EXPIRED => 'danger', default => 'warning',
                 }),

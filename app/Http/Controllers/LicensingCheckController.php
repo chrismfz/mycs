@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Licensing\LicenseActivity;
 use App\Services\Licensing\LicenseTelemetry;
 use App\Services\Licensing\LicenseTokens;
 use App\Services\Licensing\ZlicLimiter;
@@ -21,7 +22,7 @@ class LicensingCheckController extends Controller
     public function __invoke(Request $request, ZlicLimiter $limiter, ZlicController $zlic): Response
     {
         $params = array_filter(['license' => $request->input('license'), 'license_PSK' => $request->input('license_PSK')], 'is_string');
-        [$answer, $response] = $zlic->answer($request, $limiter, $params);
+        [$answer, $response] = $zlic->answer($request, $limiter, $params, LicenseActivity::ENDPOINT_V1);
 
         // Only from where the license runs (LicenseTelemetry::fromItsPlace): not when a limit or an error answered, nor from
         // anyone who only knows a key (reviews R1 and 2-1 of #863).
