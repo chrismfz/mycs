@@ -88,10 +88,11 @@ class LicensingCheckTest extends TestCase
         $form = $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/licensing/v1/check', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
         $this->assertSame(self::steady($zlic), self::steady($form));
 
-        // Unknown, a wrong PSK, another address, a key with a blank (never trimmed, as zlic.php): the same answer, and
-        // nothing kept from a caller that did not prove it holds the license (review R1).
+        // Unknown, a wrong PSK, another address, a key with a blank (never trimmed, as zlic.php) or in other case (exact,
+        // also where MariaDB's collation would match it): the same answer, and nothing kept from a caller that did not
+        // prove it holds the license (review R1).
         foreach ([['ZCAgent-nothere', 'TestSecret', self::IP], [$this->license->license_key, 'wrong', self::IP], [$this->license->license_key, 'TestSecret', '203.0.113.9'],
-            [$this->license->license_key . ' ', 'TestSecret', self::IP]] as [$key, $psk, $ip]) {
+            [$this->license->license_key . ' ', 'TestSecret', self::IP], [strtolower($this->license->license_key), 'TestSecret', self::IP]] as [$key, $psk, $ip]) {
             $this->assertSame(self::steady($this->withServerVariables(['REMOTE_ADDR' => $ip])->post('/zlic.php', ['license' => $key, 'license_PSK' => $psk])),
                 self::steady($this->check($this->telemetry(['install_id' => 'eeeeeeee-0000-4000-8000-00000000000' . strlen($psk)]), $key, $ip, $psk)), "{$key} / {$psk} / {$ip}");
         }

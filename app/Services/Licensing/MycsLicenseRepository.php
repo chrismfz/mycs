@@ -83,10 +83,15 @@ final class MycsLicenseRepository implements LicenseRepository
     /**
      * The row that answers for $key: its own, or, once a standalone license joined a bulk one, the bulk license
      * (docs/zonecloud-bulk-license.md §8, Ε7: its status, list and service tags). One step only: a bulk never joins another.
+     * The key byte for byte: MariaDB's collation (PAD SPACE, case- and accent-insensitive) would match «KEY » or «key»
+     * where SQLite does not, so the stored key must equal the one sent, on both (owner, 2026-11-15).
      */
     public static function answering(string $key): ?LicenseRow
     {
         $row = LicenseRow::query()->where('license_key', $key)->first();
+        if ($row !== null && $row->license_key !== $key) {
+            return null;
+        }
         if ($row !== null && $row->merged_at !== null && $row->bulk_license_id !== null) {
             return LicenseRow::query()->find($row->bulk_license_id);
         }
