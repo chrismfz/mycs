@@ -21,6 +21,9 @@ final class LicenseTelemetry
 {
     public const PRODUCTS = ['agent', 'node', 'controller'];
 
+    /** What a client may say of its check of the last token. */
+    public const TOKEN_CHECKS = ['ok', 'bad', 'none'];
+
     /** Installs seen in this many days count towards MAX_INSTALLS: the older ones wait for the retention (review 2-3). */
     public const MAX_INSTALLS_DAYS = 30;
 
@@ -34,7 +37,7 @@ final class LicenseTelemetry
      * The fields of `telemetry` that pass, the others dropped.
      *
      * @return array{product: string, install_id: string, version?: string, build_time?: Carbon, commit?: string,
-     *     binary_sha256?: string, os?: string, arch?: string, clock_skew?: int, licensed?: bool, failures?: int}
+     *     binary_sha256?: string, os?: string, arch?: string, clock_skew?: int, token_check?: string, licensed?: bool, failures?: int}
      */
     public static function parse(mixed $telemetry, ?Carbon $now = null): array
     {
@@ -54,6 +57,8 @@ final class LicenseTelemetry
             'build_time' => self::time($in['build_time'] ?? null, $now, past: true),
             'clock_skew' => ($client = self::time($in['client_time'] ?? null, $now)) === null
                 ? null : (int) max(-2_000_000_000, min(2_000_000_000, $client->getTimestamp() - $now->getTimestamp())),
+            // The client's check of the token it got before: ok, bad, or none (docs/licensing.md, «Signed token»).
+            'token_check' => in_array($in['token'] ?? null, self::TOKEN_CHECKS, true) ? $in['token'] : null,
             // JSON's true/false, or a form's "1"/"0"/"true"/"false" (review R5).
             'licensed' => is_bool($in['licensed'] ?? null) ? $in['licensed']
                 : (is_string($in['licensed'] ?? null) ? ['1' => true, 'true' => true, '0' => false, 'false' => false][strtolower($in['licensed'])] ?? null : null),
@@ -165,6 +170,9 @@ final class LicenseTelemetry
         }
         if ($install->downgraded_at !== null) {
             $parts[] = '⚠ downgrade ' . $install->downgraded_at->format('d/m/Y') . ($install->previous_version ? " (was {$install->previous_version})" : '');
+        }
+        if ($install->token_check === 'bad') {
+            $parts[] = '⚠ token bad';
         }
         if ($install->clock_skew !== null && abs($install->clock_skew) > self::SKEW_FLAG) {
             $parts[] = '⚠ clock ' . ($install->clock_skew > 0 ? '+' : '-') . intdiv(abs($install->clock_skew), 86400) . 'd';

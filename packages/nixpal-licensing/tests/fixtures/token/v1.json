@@ -1,0 +1,18 @@
+{
+    "comment": "A test key (seed 32 x 0x07): never a real one. The clients verify this token with this public key, at a time between iat and exp. exp is iat + 30 days, whatever the due date (owner 2026-11-15, option A); due is for information.",
+    "kid": "test-1",
+    "secret": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwfqSmxj4pxSCr71UHsTLsX5lUd2rr6+e5JCHuppFEbSLA==",
+    "public": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
+    "claims": {
+        "v": 1,
+        "kid": "test-1",
+        "key": "ZCAgent-0000000000000001",
+        "install": "0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b",
+        "ip": "192.0.2.10",
+        "status": "Active",
+        "due": "2027-03-31",
+        "iat": 1800000000,
+        "exp": 1802592000
+    },
+    "token": "test-1.eyJ2IjoxLCJraWQiOiJ0ZXN0LTEiLCJrZXkiOiJaQ0FnZW50LTAwMDAwMDAwMDAwMDAwMDEiLCJpbnN0YWxsIjoiMGY4ZTJjMWEtM2I0ZC00ZTVmLThhOWItMGMxZDJlM2Y0YTViIiwiaXAiOiIxOTIuMC4yLjEwIiwic3RhdHVzIjoiQWN0aXZlIiwiZHVlIjoiMjAyNy0wMy0zMSIsImlhdCI6MTgwMDAwMDAwMCwiZXhwIjoxODAyNTkyMDAwfQ.0TJNWDugqXImV6x8dj9evGgCnnoH2DKBXMZVka5vZe-KVMZLYSUX1W-vKSglbZXEa7OWz9i7x7TwwZqj3s4BAA"
+}

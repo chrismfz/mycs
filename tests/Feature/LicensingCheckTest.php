@@ -17,8 +17,10 @@ use App\Services\Licensing\LicenseTelemetry;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
+use Nixpal\Licensing\Token;
 use Tests\TestCase;
 
 /**
@@ -251,6 +253,101 @@ class LicensingCheckTest extends TestCase
 
         $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
             ->assertSee('agent 2026.11.14.2129')->assertSee('⚠ downgrade')->assertSee('(was 2026.12.01.0900)')->assertSee('⚠ clock -2d');
+    }
+
+    /** «Signed token»: with Active, for the caller's key and address, 30 days from the check. */
+    public function test_an_active_answer_carries_a_token_the_clients_can_verify(): void
+    {
+        $pair = Token::keypair();
+        config(['services.license_token.secret' => $pair['secret'], 'services.license_token.kid' => 'k20261115']);
+        $keys = ['k20261115' => $pair['public']];
+        Carbon::setTestNow('2026-11-15 12:00:00');
+        $now = now()->getTimestamp();
+
+        // A yearly license: 30 days, a new one at every check.
+        $this->service->update(['expires_at' => now()->addYear()]);
+        $answer = $this->check($this->telemetry());
+        $claims = Token::verify($answer->json('token'), $keys, $now);
+        $this->assertSame(['v' => 1, 'kid' => 'k20261115', 'key' => $this->license->license_key, 'install' => '0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b', 'ip' => self::IP, 'status' => 'Active',
+            'due' => '2027-11-15', 'iat' => $now, 'exp' => $now + 30 * 86400], $claims);
+        // Everything else is zlic.php's.
+        $zlic = $this->withServerVariables(['REMOTE_ADDR' => self::IP])->post('/zlic.php', ['license' => $this->license->license_key, 'license_PSK' => 'TestSecret']);
+        $this->assertNull($zlic->json('token'), 'zlic.php never has one');
+        $this->assertSame(self::steady($zlic), array_diff_key(self::steady($answer), ['token' => 1]));
+
+        // Due in 5 days, or overdue and still Active (not suspended yet): 30 days all the same, the status decides
+        // (owner 2026-11-15, option A; review: an expired token for an Active answer).
+        foreach ([now()->addDays(5), now()->subDays(3)] as $due) {
+            $this->service->update(['expires_at' => $due]);
+            $claims = Token::verify($this->check()->json('token'), $keys, $now);
+            $this->assertSame([$due->format('Y-m-d'), $now + 30 * 86400], [$claims['due'], $claims['exp']]);
+        }
+
+        // Not for an answer that is not Active, nor from another address.
+        $foreign = $this->check(ip: '203.0.113.9');
+        $this->assertSame(['Invalid', 'IP Address Invalid', null], [$foreign->json('status'), $foreign->json('message'), $foreign->json('token')]);
+        // No telemetry, no install: the claim is there, empty (the client checks it against its own).
+        $this->assertSame('', Token::verify($this->check()->json('token'), $keys, $now)['install']);
+        $this->license->update(['status' => License::STATUS_SUSPENDED]);
+        $suspended = $this->check();
+        $this->assertSame('Suspended', $suspended->json('status'));
+        $this->assertNull($suspended->json('token'));
+    }
+
+    public function test_without_a_key_or_with_a_broken_one_the_answer_goes_without_a_token(): void
+    {
+        config(['services.license_token.secret' => null]);
+        $plain = $this->check();
+        $this->assertSame('Active', $plain->json('status'));
+        $this->assertNull($plain->json('token'));
+
+        // A key that is not one, then a good key with a kid that is not one: no token, said once a day in all (not a
+        // report per check, with the key in its trace).
+        Log::spy();
+        config(['services.license_token.secret' => base64_encode('not a key')]);
+        $broken = $this->check();
+        $this->assertSame('Active', $broken->json('status'));
+        $this->assertNull($broken->json('token'));
+
+        config(['services.license_token.secret' => Token::keypair()['secret'], 'services.license_token.kid' => 'k.1']);
+        $this->assertNull($this->check()->json('token'));
+        $this->assertNull($this->check()->json('token'));
+        Log::shouldHaveReceived('error')->once();
+
+        // The test vector's key: its secret is in the repository, so never one (review of #864).
+        $vector = json_decode((string) file_get_contents(base_path('packages/nixpal-licensing/tests/fixtures/token/v1.json')), true);
+        config(['services.license_token.secret' => $vector['secret'], 'services.license_token.kid' => 'k1']);
+        $this->assertSame([Token::TEST_PUBLIC_KEY, null], [$vector['public'], $this->check()->json('token')]);
+        $this->artisan('mycs:license-token-key --show')->assertExitCode(1);
+    }
+
+    /** In shadow: the clients say whether their last token verified; a bad one is a signal. */
+    public function test_the_clients_check_of_the_token_is_kept_and_a_bad_one_is_a_signal(): void
+    {
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'Role ' . uniqid(), 'permissions' => ['*']])->id]);
+        $this->check($this->telemetry(['token' => 'ok']));
+        $this->assertSame('ok', LicenseInstall::query()->sole()->token_check);
+        $this->livewireAs($staff)->withQueryParams(['tab' => 'signals'])->test(ListLicenses::class)->assertCanNotSeeTableRecords([$this->license]);
+
+        $this->check($this->telemetry(['token' => 'bad']));
+        $this->assertSame('bad', LicenseInstall::query()->sole()->token_check);
+        $this->livewireAs($staff)->withQueryParams(['tab' => 'signals'])->test(ListLicenses::class)->assertCanSeeTableRecords([$this->license]);
+        $this->assertStringContainsString('⚠ token bad', LicenseTelemetry::describe(LicenseInstall::query()->sole()));
+
+        $this->check($this->telemetry(['token' => 'forged']));
+        $this->assertSame('bad', LicenseInstall::query()->sole()->token_check, 'anything else is left out');
+    }
+
+    public function test_the_key_command_makes_a_pair_and_shows_the_public_half(): void
+    {
+        $this->artisan('mycs:license-token-key')->expectsOutputToContain('MYCS_LICENSE_TOKEN_KEY=')->assertExitCode(0);
+
+        config(['services.license_token.secret' => null]);
+        $this->artisan('mycs:license-token-key --show')->assertExitCode(1);
+        $pair = Token::keypair();
+        config(['services.license_token.secret' => $pair['secret'], 'services.license_token.kid' => 'k1']);
+        $this->artisan('mycs:license-token-key --show')->expectsOutputToContain($pair['public'])->assertExitCode(0);
     }
 
     public function test_describe_says_the_install_in_one_line(): void

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "975fc276f2a6a579180f846648b4c2c9",
+    "content-hash": "8dca90d1e3f9a23043d5bc82cf236252",
     "packages": [
         {
             "name": "altcha-org/altcha",
@@ -5593,9 +5593,10 @@
             "dist": {
                 "type": "path",
                 "url": "packages/nixpal-licensing",
-                "reference": "73c6ddc0a9f8f566be5614af3f37bfb60e5d0dce"
+                "reference": "6e6150a4ca6cc11c2bc372eccb07141cb81421b9"
             },
             "require": {
+                "ext-sodium": "*",
                 "php": ">=7.4"
             },
             "require-dev": {
@@ -15204,6 +15205,7 @@
     "prefer-lowest": false,
     "platform": {
         "php": "^8.3 || ^8.4",
+        "ext-sodium": "*",
         "ext-intl": "*",
         "ext-json": "*",
         "ext-mbstring": "*",

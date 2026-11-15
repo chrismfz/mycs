@@ -33,13 +33,13 @@ class ListLicenses extends ListRecords
             // A key that joined a bulk license answers as the bulk one from then on: its own row stays frozen (R2).
             ->whereNull('merged_at');
 
-        // What the software said of itself in the last days (/licensing/v1/check): it went back to an older build, its
-        // clock is far from ours (a clock turned back keeps a local key valid), or a standalone license runs in more than
-        // one place (two install ids of one product). Staff look: a reinstall shows as two for a few days.
+        // What the software said of itself in the last days (/licensing/v1/check): its token did not verify, it went back to
+        // an older build, its clock is far from ours (a clock turned back keeps a local key valid), or a standalone license
+        // runs in more than one place (two install ids of one product). Staff look: a reinstall shows as two for a few days.
         $recent = now()->subDays(LicenseResource::INSTALLS_DAYS);
         $signals = fn (Builder $query) => $query->where(fn (Builder $q) => $q
             ->whereHas('installs', fn (Builder $i) => $i->where('last_seen_at', '>=', $recent)->where(fn (Builder $flag) => $flag
-                ->where('downgraded_at', '>=', $recent)
+                ->where('downgraded_at', '>=', $recent)->orWhere('token_check', 'bad')
                 ->orWhere('clock_skew', '>', LicenseTelemetry::SKEW_FLAG)->orWhere('clock_skew', '<', -LicenseTelemetry::SKEW_FLAG)))
             ->orWhere(fn (Builder $single) => $single->whereDoesntHave('ips', fn (Builder $ips) => $ips->whereNull('removed_at'))
                 ->whereExists(LicenseTelemetry::moreThanOneInstall($recent))));

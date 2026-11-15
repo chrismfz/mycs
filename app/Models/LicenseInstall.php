@@ -24,6 +24,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $clock_skew
  * @property bool|null $licensed
  * @property int|null $failures
+ * @property string|null $token_check ok, bad or none: the client's check of its last token
  * @property string|null $last_status
  * @property int $checks
  * @property string|null $previous_version
