@@ -41,7 +41,7 @@ class StripePeriodAnchors extends Command
             }
             $anchor = Stripe::anchorFor($service);
             try {
-                ['status' => $status, 'period_end' => $periodEnd] = $stripe->currentPeriod($service);
+                ['status' => $status, 'period_end' => $periodEnd, 'movable' => $movable] = $stripe->currentPeriod($service);
             } catch (Throwable $e) {
                 report($e);
                 $failed++;
@@ -62,8 +62,13 @@ class StripePeriodAnchors extends Command
             $line = "#{$service->id} {$service->subscription_id}: Stripe bills "
                 . Carbon::createFromTimestamp($periodEnd, date_default_timezone_get())->format('Y-m-d H:i')
                 . ', due ' . $service->expires_at->toDateString();
-            if ($anchor->isPast()) {
-                $this->warn($line . ': its due day has passed, left for staff');
+            if (!$movable) {
+                $why = match (true) {
+                    $anchor->isPast() => 'its due day has passed',
+                    $status !== 'active' && $status !== 'trialing' => "it is {$status} at Stripe",
+                    default => 'its due day is more than two years ahead (Stripe\'s longest trial)',
+                };
+                $this->warn($line . ': ' . $why . ', left for staff');
 
                 continue;
             }

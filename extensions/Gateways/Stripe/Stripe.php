@@ -563,7 +563,9 @@ class Stripe extends Gateway
                             // again (sweep 3 REV3-LF-1).
                             return response()->json(['error' => 'Subscription not cancelled, draft not deleted: try again'], 503);
                         }
-                    } elseif ($service) {
+                    } elseif ($service && ($invoice->amount_due ?? null) !== 0) {
+                        // A $0 draft (a trial started: Stripe::anchorFor's move) is nothing to charge: Stripe finalises it
+                        // by itself, and /pay on it would fail the webhook (review R3-F2).
                         $this->request('post', '/invoices/' . $invoice->id . '/finalize');
                         // Pay the invoice using Stripe
                         $this->request('post', '/invoices/' . $invoice->id . '/pay');
@@ -575,6 +577,11 @@ class Stripe extends Gateway
                 $invoice = $event->data->object; // contains a StripeInvoice
 
                 if ($invoice->parent->type !== 'subscription_details') {
+                    break;
+                }
+                // A $0 invoice (a trial started: Stripe::anchorFor's move) paid nothing: no payment to record, none to
+                // look up (its /invoice_payments may be empty, review R3-F1).
+                if (($invoice->amount_paid ?? null) === 0) {
                     break;
                 }
 
@@ -590,7 +597,7 @@ class Stripe extends Gateway
                     $paymentIntents = $this->request('get', '/invoice_payments', ['invoice' => $invoice->id]);
                     $paymentIntent = collect($paymentIntents->data)->first();
 
-                    if ($paymentIntent->payment->type !== 'payment_intent') {
+                    if (($paymentIntent->payment->type ?? null) !== 'payment_intent') {
                         break;
                     }
 
@@ -783,7 +790,7 @@ class Stripe extends Gateway
         }
 
         if (array_key_exists('expires_at', $changes)) {
-            if (self::billsOnTime(self::periodEndOf($scheduleId, $service), $service)) {
+            if (self::billsOnTime(self::periodEndOf($scheduleId, $service), $service) || !self::movable($scheduleId, $service)) {
                 return;
             }
 
@@ -853,6 +860,22 @@ class Stripe extends Gateway
         return $periodEnd >= self::anchorFor($service)->subHours(self::ANCHOR_SLACK_HOURS)->timestamp;
     }
 
+    /** Longest trial Stripe allows (trial_end at most two years ahead), in days. */
+    private const MAX_TRIAL_DAYS = 730;
+
+    /**
+     * Whether the subscription may be moved to the anchor now: it bills normally (active or trialing, collection not
+     * paused: a past_due one has an invoice still retried, review R3-F6), and the anchor is in the future (R3-F7) and
+     * within the two years a trial_end may be (R3-F5). Otherwise it is left as it is, for staff.
+     */
+    public static function movable(object $subscription, Service $service): bool
+    {
+        $anchor = self::anchorFor($service);
+
+        return in_array(self::statusOf($subscription), ['active', 'trialing'], true)
+            && $anchor->isFuture() && $anchor->lte(now()->addDays(self::MAX_TRIAL_DAYS));
+    }
+
     /** The subscription's current period end (unix time). API 2025-03-31.basil+ (pinned here) has it on the item. */
     private static function periodEndOf(object $subscription, Service $service): int
     {
@@ -868,14 +891,16 @@ class Stripe extends Gateway
      * The service's subscription as Stripe has it now: its status (paused collection reads `paused`) and, while it
      * bills (active, trialing, past_due), its current period end (unix time); null when it does not bill.
      *
-     * @return array{status: string, period_end: ?int}
+     * @return array{status: string, period_end: ?int, movable: bool}
      */
     public function currentPeriod(Service $service): array
     {
         $subscription = $this->request('get', '/subscriptions/' . $service->subscription_id);
         $status = self::statusOf($subscription);
+        $bills = in_array($status, ['active', 'trialing', 'past_due'], true);
 
-        return ['status' => $status, 'period_end' => in_array($status, ['active', 'trialing', 'past_due'], true) ? self::periodEndOf($subscription, $service) : null];
+        return ['status' => $status, 'period_end' => $bills ? self::periodEndOf($subscription, $service) : null,
+            'movable' => $bills && self::movable($subscription, $service)];
     }
 
     /**

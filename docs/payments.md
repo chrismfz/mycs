@@ -136,6 +136,15 @@
       της. Όποια λήγει αργότερα δεν μικραίνει ποτέ. Με `php artisan stripe:period-anchors` το staff βλέπει όσες χρεώνουν
       πριν τη λήξη, χωρίς να γράφεται τίποτα. Με `--apply` μετακινούνται τώρα. Όσων η λήξη πέρασε, ή που το Stripe δεν
       χρεώνει πια (canceled, unpaid, paused), μένουν στο staff.
+      - Η μετακίνηση είναι trial: το Stripe βγάζει αμέσως ένα **invoice $0**. Το `invoice.payment_succeeded` του δεν
+        γράφει πληρωμή και το `invoice.created` του δεν κάνει finalize/pay (πριν: 500, και το Stripe ξανάστελνε μέρες).
+        Δεν μετακινείται μια συνδρομή `past_due` ή με παύση συλλογής, ούτε όταν το μεσημέρι της λήξης έχει περάσει ή
+        απέχει πάνω από δύο χρόνια (όριο του `trial_end`) (review γύρος 3, 2026-11-15).
+      - **Πριν το `--apply` (production)**, στο dashboard του Stripe: (α) Billing → Subscriptions and emails: αν είναι ανοιχτό
+        το «Send a reminder email 7 days before a free trial ends», κάθε πελάτης που μετακινείται παίρνει mail «η δοκιμή
+        σας λήγει» (για trial κάτω των 7 ημερών, αμέσως). (β) Οι αποδείξεις μετά το trial γράφουν στοιχεία trial, και το
+        statement descriptor μπορεί να πάρει `* TRIAL OVER`. (γ) Καμία συνδρομή `past_due`. Πρώτα χωρίς `--apply`, μετά
+        `--apply` σε μία και έλεγχος των events της, μετά οι υπόλοιπες.
   - **Τα events πρέπει να είναι στο webhook του PayPal** (runbook του cut-over, `docs/importer.md`): `BILLING.SUBSCRIPTION.
     CANCELLED/EXPIRED/SUSPENDED/ACTIVATED`, μαζί με `PAYMENT.SALE.COMPLETED`/`REFUNDED` των συνδρομών. Χωρίς αυτά
     τίποτα από τα παραπάνω δεν τρέχει.

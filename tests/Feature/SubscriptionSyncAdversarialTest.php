@@ -63,11 +63,11 @@ class SubscriptionSyncAdversarialTest extends TestCase
     }
 
     /** Stripe response; $basil = the shape of API version 2025-03-31.basil+ (current_period_end on the item). */
-    private function fakeStripe(bool $basil = false): void
+    private function fakeStripe(bool $basil = false, ?string $status = null): void
     {
         $periodEnd = now()->addMonth()->timestamp;
         $item = ['id' => 'si_1', 'price' => ['product' => 'prod_1']];
-        $body = ['id' => 'sub_123', 'schedule' => null, 'items' => ['data' => [$item]]];
+        $body = ['id' => 'sub_123', 'schedule' => null, 'items' => ['data' => [$item]]] + array_filter(['status' => $status]);
         if ($basil) {
             $body['items']['data'][0]['current_period_end'] = $periodEnd;
         } else {
@@ -77,9 +77,9 @@ class SubscriptionSyncAdversarialTest extends TestCase
         Http::fake(['https://api.stripe.com/*' => Http::response($body)]);
     }
 
-    private function bootStripe(bool $basil = false): void
+    private function bootStripe(bool $basil = false, ?string $status = null): void
     {
-        $this->fakeStripe($basil);
+        $this->fakeStripe($basil, $status);
         (new Stripe(['stripe_secret_key' => 'sk_test']))->boot();
     }
 
@@ -235,7 +235,7 @@ class SubscriptionSyncAdversarialTest extends TestCase
     public function test_holds_stripe_expires_at_sync_with_pre_basil_response_shape(): void
     {
         $service = $this->service('stripe');
-        $this->bootStripe(basil: false);
+        $this->bootStripe(basil: false, status: 'active');
 
         DB::transaction(fn () => $service->update(['expires_at' => now()->addMonths(3)]));
 
@@ -288,7 +288,7 @@ class SubscriptionSyncAdversarialTest extends TestCase
     public function test_stripe_expires_at_sync_with_basil_response_shape(): void
     {
         $service = $this->service('stripe');
-        $this->bootStripe(basil: true);
+        $this->bootStripe(basil: true, status: 'active');
 
         DB::transaction(fn () => $service->update(['expires_at' => now()->addMonths(3)]));
 

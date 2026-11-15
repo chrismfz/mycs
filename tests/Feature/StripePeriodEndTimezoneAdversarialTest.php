@@ -70,7 +70,7 @@ class StripePeriodEndTimezoneAdversarialTest extends TestCase
         $this->stripe = ['period_end' => $periodEnd, 'schedule' => $schedule, 'basil' => $basil];
         Http::fake(['https://api.stripe.com/*' => function () {
             $item = ['id' => 'si_1', 'price' => ['product' => 'prod_1']];
-            $body = ['id' => 'sub_123', 'schedule' => $this->stripe['schedule'], 'items' => ['data' => [$item]]];
+            $body = ['id' => 'sub_123', 'status' => 'active', 'schedule' => $this->stripe['schedule'], 'items' => ['data' => [$item]]];
             if ($this->stripe['basil']) {
                 $body['items']['data'][0]['current_period_end'] = $this->stripe['period_end'];
             } else {
