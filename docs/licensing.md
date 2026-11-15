@@ -55,8 +55,10 @@ Active), `last_seen_ip`, `last_seen_client` (μέθοδος + User-Agent: πόσ
 και `last_failure`· και `license_check_days` (ok / failed ανά ημέρα). Οι οθόνες έρχονται στο L2.
 
 ## Τηλεμετρία: `/licensing/v1/check` (2026-11-15)
-Ο έλεγχος των νέων releases του zonecloud. Ο controller (zcloudweb) μένει στο zlic.php προς το παρόν (απόφαση
-ιδιοκτήτη 2026-11-15).
+Ο έλεγχος των νέων releases του zonecloud. Από την 2.7.0 και ο controller (zcloudweb): ρωτά πρώτα εδώ με `product`
+`controller`, `version` (το `version.txt`), `install_id`, `client_time` και `os` (form), και στο zlic.php όταν αυτό
+δεν απαντά με JSON. Έτσι η στήλη «Version» των αδειών δείχνει ποιοι πελάτες έχουν μείνει σε παλιά έκδοση (ιδιοκτήτης
+2026-11-15). Ο controller ρωτά μόνο όταν λήξει το localkey του, περίπου μία φορά τη μέρα.
 - **Η απάντηση είναι του zlic.php, byte-for-byte.** Ίδιος κώδικας (`ZlicController::answer`), ίδια όρια, ίδιο JSON
   (`md5hash`, `localkey`). Ένας client που γυρίζει στο zlic.php όταν αυτό δεν απαντά διαβάζει το ίδιο και από τα δύο.
   Απαντά και σε deploy και δεν «καθαρίζει» το input, όπως το zlic.php. Μόνο POST, JSON ή form, με `license` και
