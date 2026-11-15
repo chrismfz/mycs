@@ -612,6 +612,8 @@ class ServiceResource extends Resource
                         DatePicker::make('expires_from')->label('Expires From'),
                         DatePicker::make('expires_until')->label('Expires Until'),
                     ])
+                    // Side by side across the filters' two columns (review of #872).
+                    ->columns(2)->columnSpanFull()
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
                             ->when(

@@ -48,13 +48,13 @@ class ListFiltersAndTicketTabsTest extends TestCase
 
         $tabs = Livewire::test(ListTickets::class)->instance()->getTabs();
 
-        $this->assertSame(['2', 'warning'], [$tabs['open']->getBadge(), $tabs['open']->getBadgeColor()]);
+        $this->assertSame(['2', 'warning'], [$tabs['open']->getBadge(), $tabs['open']->getBadgeColor($tabs['open']->getBadge())]);
         $this->assertSame('1', $tabs['answered']->getBadge());
-        $this->assertSame(['0', 'gray'], [$tabs['on_hold']->getBadge(), $tabs['on_hold']->getBadgeColor()], 'a 0 is shown, in gray');
+        $this->assertSame(['0', 'gray'], [$tabs['on_hold']->getBadge(), $tabs['on_hold']->getBadgeColor($tabs['on_hold']->getBadge())], 'a 0 is shown, in gray');
         $this->assertNull($tabs['closed']->getBadge());
 
         Ticket::query()->whereIn('status', Ticket::AWAITING_STAFF)->update(['status' => Ticket::STATUS_ANSWERED]);
         $tabs = Livewire::test(ListTickets::class)->instance()->getTabs();
-        $this->assertSame(['0', 'gray'], [$tabs['open']->getBadge(), $tabs['open']->getBadgeColor()]);
+        $this->assertSame(['0', 'gray'], [$tabs['open']->getBadge(), $tabs['open']->getBadgeColor($tabs['open']->getBadge())]);
     }
 }

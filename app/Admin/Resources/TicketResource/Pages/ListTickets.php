@@ -37,7 +37,7 @@ class ListTickets extends ListRecords
             'open' => Tab::make('Awaiting us')
                 ->icon('heroicon-o-lock-open')
                 ->badge(fn () => self::count(Ticket::AWAITING_STAFF))
-                ->badgeColor(fn () => self::count(Ticket::AWAITING_STAFF) > 0 ? 'warning' : 'gray')
+                ->badgeColor(fn (?string $badge) => (int) $badge > 0 ? 'warning' : 'gray')
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', Ticket::AWAITING_STAFF)),
             'answered' => Tab::make('Answered')
                 ->icon('heroicon-o-chat-bubble-left-right')
