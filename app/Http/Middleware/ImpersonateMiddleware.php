@@ -6,6 +6,7 @@ use App\Actions\Auth\Logout;
 use App\Models\Staff;
 use App\Models\User;
 use App\Support\Actor;
+use App\Support\ChatVisitor;
 use Closure;
 use Illuminate\Auth\SessionGuard;
 use Illuminate\Http\Request;
@@ -51,6 +52,8 @@ class ImpersonateMiddleware
         }
 
         Auth::guard('web')->onceUsingId($customer->id);
+        // Never a visitor's chat beside the customer's view (docs/livechat.md §3 Δ, F9, G3): the token leaves the session.
+        ChatVisitor::forget($request->session());
 
         return $next($request);
     }

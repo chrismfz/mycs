@@ -13,6 +13,7 @@ use App\Http\Controllers\ServicePanelLoginController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\SslFileController;
 use App\Http\Controllers\TicketAttachmentController;
+use App\Http\Middleware\ChatPopupHeaders;
 use App\Http\Middleware\LegacyWhmcsRp;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\MustVerfiyEmail;
@@ -85,7 +86,8 @@ Route::get('/captcha/altcha', fn (Altcha $altcha) => Contact::captchaKind() === 
 // auth()->logout();
 // Authorization routes
 Route::group(['middleware' => ['web', 'guest']], function () {
-    Route::get('/login', Auth\Login::class)->name('login');
+    // The popup's login too (docs/livechat.md §4, G10): no frame, no opener, no Referer beyond our origin.
+    Route::get('/login', Auth\Login::class)->name('login')->middleware(ChatPopupHeaders::class);
     Route::get('/2fa', Auth\Tfa::class)->name('2fa');
     Route::get('/register', Auth\Register::class)->name('register');
     // Todo

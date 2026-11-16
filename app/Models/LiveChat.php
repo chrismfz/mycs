@@ -8,15 +8,25 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
- * A live chat with a customer (docs/livechat.md §6, step 3α): waiting until an operator of its department takes it,
- * then active, then closed. Its state changes only through App\Support\LiveChats. Not Auditable: no message body is
- * ever copied into the audit log (F12).
+ * A live chat with a customer (docs/livechat.md §6, step 3α) or an anonymous visitor (step 4): waiting until an
+ * operator of its department takes it, then active, then closed. Its state changes only through App\Support\LiveChats
+ * and App\Support\ChatVisitor. Not Auditable: no message body is ever copied into the audit log (F12).
+ *
+ * A visitor's chat has no client: it is reached only by the token in the visitor's server session, kept here hashed
+ * (§3 Γ). The name and email are the visitor's word, never vouched for (§3 Δ); src and page only a label (§4).
  *
  * @property int $id
  * @property int|null $client_id
  * @property int|null $user_id
  * @property int|null $department_id
  * @property string $status
+ * @property string|null $visitor_token_hash
+ * @property bool $started_anonymously
+ * @property string|null $visitor_name
+ * @property string|null $visitor_email
+ * @property string|null $ip
+ * @property string|null $src
+ * @property string|null $page
  * @property int|null $assigned_to
  * @property Carbon|null $last_participant_message_at
  * @property Carbon|null $closed_at
@@ -30,11 +40,21 @@ class LiveChat extends Model
 
     public const CLOSED = 'closed';
 
-    protected $fillable = ['client_id', 'user_id', 'department_id', 'status', 'assigned_to', 'last_participant_message_at', 'closed_at'];
+    protected $fillable = ['client_id', 'user_id', 'department_id', 'status', 'assigned_to', 'last_participant_message_at', 'closed_at',
+        'started_anonymously', 'visitor_name', 'visitor_email', 'ip', 'src', 'page'];
+
+    /** Never in an array, JSON or a Livewire snapshot (F7): the hash is the key to the chat's only proof. */
+    protected $hidden = ['visitor_token_hash'];
 
     protected function casts(): array
     {
-        return ['last_participant_message_at' => 'datetime', 'closed_at' => 'datetime'];
+        return ['last_participant_message_at' => 'datetime', 'closed_at' => 'datetime', 'started_anonymously' => 'boolean'];
+    }
+
+    /** An anonymous visitor's chat, not (or not yet) linked to a client. */
+    public function isVisitor(): bool
+    {
+        return $this->client_id === null && $this->started_anonymously;
     }
 
     public function isOpen(): bool

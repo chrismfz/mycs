@@ -553,6 +553,36 @@ class Settings
                     'validation' => 'integer|min:0|max:1440',
                     'description' => 'A customer\'s chat with no message, from them or an operator, and not taken or transferred, for this many minutes is closed, whether it waits or was taken; the customer is told the chat ended. Internal notes do not count. 0 never closes one.',
                 ],
+                [
+                    // Step 4: anonymous visitors from our sites, through the launcher and the popup /chat (docs/livechat.md §4).
+                    'name' => 'livechat_guest_enabled',
+                    'label' => 'Live chat for visitors of our sites',
+                    'type' => 'checkbox',
+                    'database_type' => 'boolean',
+                    'default' => false,
+                    'description' => 'Visitors who are not logged in may chat from the popup /chat, which the launcher on our sites opens. Departments for clients only never take visitors.',
+                ],
+                [
+                    // §4: the sites a launcher may name; anything else is no label at all (F17).
+                    'name' => 'livechat_sites',
+                    'label' => 'Sites with the chat launcher',
+                    'type' => 'tags',
+                    'database_type' => 'array',
+                    'placeholder' => 'e.g. www.example.com',
+                    'nested_validation' => ['regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i', 'max:100'],
+                    'description' => 'The host names of the sites whose launcher opens the chat. The staff see which one a visitor came from; a site not listed shows none.',
+                ],
+                [
+                    // §3 Γ: how long a visitor's token reaches their chat after their last message.
+                    'name' => 'livechat_visitor_hours',
+                    'label' => 'A visitor\'s chat stays reachable for (hours)',
+                    'type' => 'number',
+                    'default' => 24,
+                    'required' => true,
+                    'min_value' => 1,
+                    'validation' => 'integer|min:1|max:168',
+                    'description' => 'After their last message, a visitor sees their chat in the same browser session for this long; never longer than the session itself.',
+                ],
             ],
 
             // The Automation tab: WHMCS's Automation Settings, its sections and wording (docs/settings-map.md). The

@@ -8,6 +8,7 @@ use App\Admin\Resources\UserResource;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\Actor;
+use App\Support\ChatVisitor;
 use App\Support\CurrentClient;
 use App\Support\StaffLink;
 use Filament\Actions\Action;
@@ -55,6 +56,8 @@ class EditUser extends EditRecord
     public static function impersonate(User $user, ?Client $client = null): void
     {
         session()->put('impersonating', $user->id);
+        // No visitor's chat in a session that shows a customer (docs/livechat.md §3 Δ, F9).
+        ChatVisitor::forget();
         // A new nonce each «Login as client»: a console staff open names it, and closes once it is gone (review 2, A1).
         session()->put(Actor::IMPERSONATION_NONCE, Str::random(32));
         if ($client !== null) {
