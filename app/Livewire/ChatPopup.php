@@ -170,7 +170,8 @@ class ChatPopup extends Component
             // Only the question of the move while it waits (G8): nothing is written as a visitor any more.
             $handoff !== null => 'handoff',
             $user instanceof User => LiveChats::customerMay($user) ? 'customer' : 'unavailable',
-            !ChatVisitor::guestEnabled() => 'unavailable',
+            // Off, or this address or session blocked (§3 Ε): only «not available», nothing to learn from.
+            !VisitorChats::may() => 'unavailable',
             default => null,
         };
         if ($mode === null) {

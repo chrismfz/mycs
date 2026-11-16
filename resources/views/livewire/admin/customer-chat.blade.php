@@ -74,7 +74,7 @@
         </div>
         <div class="flex flex-wrap gap-2">
             <x-filament::button size="xs" color="gray" wire:click="close" wire:confirm="{{ __('Close this chat?') }}">{{ __('Close chat') }}</x-filament::button>
-            @if ($chat->isVisitor())
+            @if ($chat->isVisitor() && $chat->assigned_to === $me?->id)
             {{-- No customer lookup in a visitor's chat (G6): for the account, they log in. --}}
             <x-filament::button size="xs" color="gray" wire:click="askLogin" :disabled="$chat->login_requested_at !== null">{{ $chat->login_requested_at ? __('Asked to log in') : __('Ask to log in') }}</x-filament::button>
             <x-filament::button size="xs" color="danger" wire:click="block" wire:confirm="{{ __('Block this visitor\'s address for :hours hours and close the chat?', ['hours' => \App\Support\VisitorChatTools::BLOCK_HOURS]) }}">{{ __('Block') }}</x-filament::button>

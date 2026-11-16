@@ -1959,5 +1959,8 @@
     "Only a closed chat may be linked.": "Μόνο κλειστό chat μπορεί να συνδεθεί.",
     "started anonymously": "ξεκίνησε ανώνυμα",
     "unverified": "ανεπιβεβαίωτο",
-    "Started from :where, :time": "Ξεκίνησε από :where, :time"
+    "Started from :where, :time": "Ξεκίνησε από :where, :time",
+    "The visitor signed in; waiting for them to continue as a customer.": "Ο επισκέπτης συνδέθηκε· αναμένεται να συνεχίσει ως πελάτης.",
+    "Closed: the visitor signed in and did not continue.": "Έκλεισε: ο επισκέπτης συνδέθηκε και δεν συνέχισε.",
+    "Closed: the visitor signed in and did not continue within :minutes minutes.": "Έκλεισε: ο επισκέπτης συνδέθηκε και δεν συνέχισε μέσα σε :minutes λεπτά."
 }

@@ -47,7 +47,7 @@ class VisitorChatTools
 
         return DB::transaction(function () use ($staff, $chat) {
             $asked = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::ACTIVE)->where('assigned_to', $staff->id)
-                ->whereNull('client_id')->update(['login_requested_at' => now(), 'updated_at' => now()]);
+                ->whereNull('client_id')->whereNull('login_requested_at')->update(['login_requested_at' => now(), 'updated_at' => now()]);
             if ($asked !== 1) {
                 return false;
             }
@@ -72,7 +72,10 @@ class VisitorChatTools
         if (!LiveChats::canReply($staff, $chat) || !$chat->isVisitor() || $chat->ip === null || $chat->ip === '') {
             return false;
         }
-        Cache::put(self::blockKey($chat->ip), true, now()->addHours(self::BLOCK_HOURS));
+        $until = now()->addHours(self::BLOCK_HOURS);
+        Cache::put(self::blockKey($chat->ip), true, $until);
+        // Its session too, whatever network it comes from next (§3 Ε, ADV-889-1).
+        ChatVisitor::blockToken($chat, $until);
         DB::transaction(function () use ($staff, $chat) {
             $closed = LiveChat::query()->whereKey($chat->id)->where('status', '!=', LiveChat::CLOSED)
                 ->update(['status' => LiveChat::CLOSED, 'closed_at' => now(), 'updated_at' => now()]);
@@ -96,8 +99,18 @@ class VisitorChatTools
         if (!is_string($token) || $token === '') {
             return;
         }
-        LiveChat::query()->where('visitor_token_hash', hash('sha256', $token))->whereNull('client_id')->whereNull('handoff_user_id')
-            ->where('status', '!=', LiveChat::CLOSED)->update(['handoff_user_id' => $user->id, 'handoff_at' => now(), 'updated_at' => now()]);
+        $chat = LiveChat::query()->where('visitor_token_hash', hash('sha256', $token))->whereNull('client_id')->whereNull('handoff_user_id')
+            ->where('status', '!=', LiveChat::CLOSED)->first();
+        if ($chat === null) {
+            return;
+        }
+        $frozen = LiveChat::query()->whereKey($chat->id)->whereNull('client_id')->whereNull('handoff_user_id')->where('status', '!=', LiveChat::CLOSED)
+            ->update(['handoff_user_id' => $user->id, 'handoff_at' => now(), 'updated_at' => now()]);
+        if ($frozen === 1) {
+            // The operator learns why the visitor stopped answering (review of #889).
+            $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM,
+                'body' => __('The visitor signed in; waiting for them to continue as a customer.')]);
+        }
     }
 
     /** The visitor's chat frozen for this login in this session, still open: what the popup asks about (G8). */
@@ -127,9 +140,12 @@ class VisitorChatTools
             return __('This chat can no longer be continued.');
         }
         $clientId = CurrentClient::id();
-        $refusal = DB::transaction(function () use ($user, $pending, $clientId) {
+        // The account's lock first, as LiveChats::start takes it: one open chat per account, also against a start in the
+        // client area at the same moment (F10, review of #889); then the chat's row.
+        $refusal = Cache::lock('live-chat-open:' . $clientId, 10)->block(5, fn () => DB::transaction(function () use ($user, $pending, $clientId) {
             $chat = LiveChat::query()->whereKey($pending->id)->lockForUpdate()->first();
-            if ($chat === null || !$chat->isOpen() || $chat->client_id !== null || $chat->handoff_user_id !== $user->id) {
+            if ($chat === null || !$chat->isOpen() || $chat->client_id !== null || $chat->handoff_user_id !== $user->id
+                || $chat->handoff_at === null || $chat->handoff_at->lte(now()->subMinutes(self::HANDOFF_MINUTES))) {
                 return __('This chat can no longer be continued.');
             }
             $may = LiveChats::customerMay($user) && !self::blocked((string) $chat->ip) && LiveChats::openChatOf($clientId) === null;
@@ -155,19 +171,18 @@ class VisitorChatTools
                 'body' => __('Continues the visitor\'s chat #:id after a login (:email). Ask again for what was asked before.', ['id' => $chat->id, 'email' => (string) $user->email])]);
 
             return null;
-        });
+        }));
         ChatVisitor::forget();
 
         return $refusal;
     }
 
-    /** The customer declines (or closes the popup and comes back): the visitor's chat closes. */
+    /** The customer answers «No»: the visitor's chat closes. (A popup closed without an answer: expireHandoffs.) */
     public static function decline(User $user): void
     {
         $pending = self::pending($user);
         if ($pending !== null) {
-            LiveChat::query()->whereKey($pending->id)->where('handoff_user_id', $user->id)->where('status', '!=', LiveChat::CLOSED)
-                ->update(['status' => LiveChat::CLOSED, 'closed_at' => now(), 'visitor_token_hash' => null, 'updated_at' => now()]);
+            self::closeFrozen($pending, $user->id, __('Closed: the visitor signed in and did not continue.'));
         }
         ChatVisitor::forget();
     }
@@ -175,9 +190,29 @@ class VisitorChatTools
     /** The frozen chats no one confirmed in HANDOFF_MINUTES close (the minute's command). Returns how many. */
     public static function expireHandoffs(): int
     {
-        return LiveChat::query()->whereNotNull('handoff_user_id')->whereNull('client_id')->where('status', '!=', LiveChat::CLOSED)
-            ->where('handoff_at', '<=', now()->subMinutes(self::HANDOFF_MINUTES))
-            ->update(['status' => LiveChat::CLOSED, 'closed_at' => now(), 'visitor_token_hash' => null, 'updated_at' => now()]);
+        $closed = 0;
+        $stale = LiveChat::query()->whereNotNull('handoff_user_id')->whereNull('client_id')->where('status', '!=', LiveChat::CLOSED)
+            ->where('handoff_at', '<=', now()->subMinutes(self::HANDOFF_MINUTES))->get();
+        foreach ($stale as $chat) {
+            $closed += (int) self::closeFrozen($chat, (int) $chat->handoff_user_id,
+                __('Closed: the visitor signed in and did not continue within :minutes minutes.', ['minutes' => self::HANDOFF_MINUTES]));
+        }
+
+        return $closed;
+    }
+
+    /** Closes a chat still frozen for this login, with a line for the staff saying why. */
+    private static function closeFrozen(LiveChat $chat, int $userId, string $why): bool
+    {
+        return DB::transaction(function () use ($chat, $userId, $why) {
+            $closed = LiveChat::query()->whereKey($chat->id)->where('handoff_user_id', $userId)->whereNull('client_id')->where('status', '!=', LiveChat::CLOSED)
+                ->update(['status' => LiveChat::CLOSED, 'closed_at' => now(), 'visitor_token_hash' => null, 'updated_at' => now()]);
+            if ($closed === 1) {
+                $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM, 'body' => $why]);
+            }
+
+            return $closed === 1;
+        });
     }
 
     // ---- the manual link (§6α)

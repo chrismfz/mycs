@@ -301,4 +301,46 @@ class LiveChatVisitorOperatorTest extends TestCase
             $this->assertStringContainsString('&lt;img/src=x/onerror=alert(1)&gt;', $html);
         }
     }
+
+    public function test_no_move_while_the_account_has_its_own_chat_open(): void
+    {
+        $chat = $this->visitorChat();
+        $user = $this->customer();
+        LiveChat::query()->create(['client_id' => $user->client()->id, 'department_id' => $this->sales->id, 'status' => LiveChat::WAITING]);
+        app(Login::class)->execute($user);
+
+        $this->assertSame(__('This chat can no longer be continued.'), VisitorChatTools::confirm($user));
+        $this->assertSame(LiveChat::CLOSED, $chat->fresh()->status);
+        $this->assertSame(1, LiveChat::query()->where('client_id', $user->client()->id)->count());
+    }
+
+    public function test_the_operator_is_told_of_the_freeze_and_of_the_close_without_an_answer(): void
+    {
+        $chat = $this->visitorChat();
+        app(Login::class)->execute($this->customer());
+        $this->assertSame(__('The visitor signed in; waiting for them to continue as a customer.'), $chat->messages()->latest('id')->first()->body);
+
+        $this->travel(VisitorChatTools::HANDOFF_MINUTES + 1)->minutes();
+        $this->assertSame(1, VisitorChatTools::expireHandoffs());
+        $this->assertStringStartsWith('Closed: the visitor signed in', $chat->messages()->latest('id')->first()->body);
+    }
+
+    public function test_the_link_action_on_the_clients_tab(): void
+    {
+        $linker = $this->operator([...self::OPERATOR, 'admin.chats.link', 'admin.clients.viewAny', 'admin.clients.view']);
+        $chat = $this->visitorChat();
+        LiveChats::closeAsStaff($this->operator, $chat);
+        $client = $this->customer()->client();
+        $this->asStaff($linker);
+        $link = fn (string $password) => Livewire::test(ShowChats::class, ['record' => $client->getKey()])->mountTableAction('linkVisitorChat')
+            ->setTableActionData(['chat' => $chat->id, 'password' => $password])->callMountedTableAction();
+
+        $link('wrong')->assertNotified(__('The password is not right.'));
+        $this->assertNull($chat->fresh()->client_id);
+        $link('staff-secret')->assertNotified(__('The chat is linked to this client.'));
+        $this->assertSame($client->id, $chat->fresh()->client_id);
+
+        $this->asStaff($this->operator([...self::OPERATOR, 'admin.clients.viewAny', 'admin.clients.view']));
+        Livewire::test(ShowChats::class, ['record' => $client->getKey()])->assertTableActionHidden('linkVisitorChat');
+    }
 }

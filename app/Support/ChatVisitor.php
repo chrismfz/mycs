@@ -7,6 +7,7 @@ use App\Models\LiveChatMessage;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * An anonymous visitor's hold on their chat (docs/livechat.md §3 Γ, step 4): a random 256-bit token that lives only in
@@ -25,6 +26,12 @@ class ChatVisitor
 
     /** Set when the session's chat was found closed: the popup says it ended, and shows nothing of it (§3 Γ, F22). */
     public const ENDED_KEY = 'live_chat_visitor_ended';
+
+    /**
+     * Until when this session may start or write no visitor's chat: an operator blocked its chat (§3 Ε), so another
+     * network from the same browser is no way back (ADV-889-1). Kept through a login, gone with the session.
+     */
+    public const BLOCKED_KEY = 'live_chat_visitor_blocked_until';
 
     /** Set by the popup's «Sign in», taken by the login: a login begun there never remembers the browser (G5). */
     public const LOGIN_KEY = 'live_chat_login';
@@ -93,6 +100,33 @@ class ChatVisitor
         }
 
         return $chat;
+    }
+
+    /** The chat's token, wherever it is held, is blocked until $until (VisitorChatTools::block). */
+    public static function blockToken(LiveChat $chat, \DateTimeInterface $until): void
+    {
+        if ($chat->visitor_token_hash !== null) {
+            Cache::put('live-chat-blocked-token:' . $chat->visitor_token_hash, $until->getTimestamp(), $until);
+        }
+    }
+
+    /** This session was blocked: by its mark, or by the token of a chat an operator blocked (then marked now). */
+    public static function blockedHere(?Session $session = null): bool
+    {
+        $session ??= session()->driver();
+        $until = $session->get(self::BLOCKED_KEY);
+        if (is_int($until) && $until > time()) {
+            return true;
+        }
+        $token = $session->get(self::SESSION_KEY);
+        $until = is_string($token) && $token !== '' ? Cache::get('live-chat-blocked-token:' . self::hash($token)) : null;
+        if (is_int($until) && $until > time()) {
+            $session->put(self::BLOCKED_KEY, $until);
+
+            return true;
+        }
+
+        return false;
     }
 
     /** The session's chat closed since it was last seen: what the popup says instead of showing it. */
