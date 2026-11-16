@@ -68,14 +68,16 @@ class LicenseResource extends Resource
                 // Narrow, the whole name on hover: room for the API column.
                 // Sortable (owner 2026-11-16): by the main contact's company or name, as the list shows it, and by product.
                 TextColumn::make('service.client.name')->label('Client')->limit(18)->tooltip(fn (License $record) => $record->service?->client?->name)
-                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy(Contact::query()
-                        ->selectRaw("COALESCE(NULLIF(contacts.company_name, ''), contacts.first_name)")
-                        ->join('services', 'services.client_id', '=', 'contacts.primary_of_client_id')
-                        ->whereColumn('services.id', 'licenses.service_id')->limit(1), $direction)),
+                    // As Contact::displayName: a business's company, else first then last name (review of #877); ties by id.
+                    ->sortable(query: fn (Builder $query, string $direction) => $query
+                        ->orderBy(self::primaryContact("CASE WHEN contacts.type = 'business' AND contacts.company_name <> '' THEN contacts.company_name ELSE contacts.first_name END"), $direction)
+                        ->orderBy(self::primaryContact('contacts.last_name'), $direction)
+                        ->orderBy('licenses.id', $direction)),
                 TextColumn::make('service.product.name')->label('Product')->limit(16)->tooltip(fn (License $record) => $record->service?->product?->name)
                     ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy(Product::query()->select('products.name')
                         ->join('services', 'services.product_id', '=', 'products.id')
-                        ->whereColumn('services.id', 'licenses.service_id')->limit(1), $direction)),
+                        ->whereColumn('services.id', 'licenses.service_id')->limit(1), $direction)
+                        ->orderBy('licenses.id', $direction)),
                 // The endpoint of its last check: v0 zlic.php, v1 /licensing/v1/check (the new releases).
                 TextColumn::make('last_endpoint')->label('API')->badge()->placeholder('—')
                     ->color(fn (?string $state) => $state === 'v1' ? 'success' : 'gray')
@@ -132,6 +134,14 @@ class LicenseResource extends Resource
             // On the page, folded, as the other lists (owner 2026-11-16).
             ->filtersFormColumns(2)
             ->recordUrl(fn (License $record) => ServiceResource::getUrl('edit', ['record' => $record->service_id]));
+    }
+
+    /** One column of the license's client's main contact, for a sort. */
+    private static function primaryContact(string $expression): Builder
+    {
+        return Contact::query()->selectRaw($expression)
+            ->join('services', 'services.client_id', '=', 'contacts.primary_of_client_id')
+            ->whereColumn('services.id', 'licenses.service_id')->limit(1);
     }
 
     public static function getPages(): array
