@@ -20,6 +20,14 @@
             <p class="text-center text-xs text-gray-500 dark:text-gray-400">{!! \App\Support\ChatText::render($message->body) !!} · {{ $message->created_at?->format('d/m/Y H:i') }}</p>
             @continue
             @endif
+            @if ($message->author_type === \App\Models\LiveChatMessage::NOTE)
+            {{-- An operator's internal note (step 3β): the staff only, never the customer. --}}
+            <div class="flex flex-col items-center">
+                <div class="text-xs text-warning-700 dark:text-warning-400">{{ __('Internal note') }} · {{ $message->staff?->name ?? __('Staff') }} · {{ $message->created_at?->format('d/m/Y H:i') }}</div>
+                <div class="mt-0.5 w-[85%] rounded-lg border border-dashed border-warning-400 bg-warning-50 px-3 py-2 text-sm break-words text-gray-900 dark:border-warning-500/50 dark:bg-warning-500/10 dark:text-gray-100">{!! \App\Support\ChatText::render($message->body) !!}</div>
+            </div>
+            @continue
+            @endif
             <div @class(['flex flex-col', 'items-start' => $client, 'items-end' => !$client])>
                 <div class="text-xs text-gray-500 dark:text-gray-400">
                     {{ $client ? ($message->user?->name ?? __('Customer')) : ($message->staff?->name ?? __('System')) }} · {{ $message->created_at?->format('d/m/Y H:i') }}

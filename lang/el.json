@@ -1892,5 +1892,19 @@
     "Processing": "Σε επεξεργασία",
     "Fee": "Fee",
     "To credit": "Σε πίστωση",
-    "Of the balance, held as the client's credit": "Από το υπόλοιπο, ως πίστωση του πελάτη"
+    "Of the balance, held as the client's credit": "Από το υπόλοιπο, ως πίστωση του πελάτη",
+    "Transferred from :from to :to.": "Μεταφορά από :from σε :to.",
+    "A chat was transferred to you": "Σας μεταφέρθηκε ένα chat",
+    "You may not transfer this chat.": "Δεν μπορείτε να μεταφέρετε αυτό το chat.",
+    "Choose an operator or a department.": "Επιλέξτε operator ή τμήμα.",
+    "This operator cannot take the chat.": "Αυτός ο operator δεν μπορεί να αναλάβει το chat.",
+    "This department does not take chats.": "Αυτό το τμήμα δεν δέχεται chats.",
+    "This chat changed in the meantime.": "Το chat άλλαξε στο μεταξύ.",
+    "Transfer to…": "Μεταφορά σε…",
+    "Operators": "Operators",
+    "Departments": "Τμήματα",
+    "Transfer this chat?": "Μεταφορά αυτού του chat;",
+    "Add an internal note": "Προσθήκη εσωτερικής σημείωσης",
+    "Internal note, the customer does not see it…": "Εσωτερική σημείωση, ο πελάτης δεν τη βλέπει…",
+    "Add note": "Προσθήκη σημείωσης"
 }

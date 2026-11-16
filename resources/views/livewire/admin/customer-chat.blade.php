@@ -24,6 +24,14 @@
         <p class="text-center text-xs text-gray-500 dark:text-gray-400">{{ $message->body }} · {{ $message->created_at?->format('d/m H:i') }}</p>
         @continue
         @endif
+        @if ($message->author_type === \App\Models\LiveChatMessage::NOTE)
+        {{-- An internal note: the staff only, never the customer (step 3β, F20). --}}
+        <div class="flex flex-col items-center">
+            <div class="text-xs text-warning-700 dark:text-warning-400">{{ __('Internal note') }} · {{ $message->staff?->name ?? __('Staff') }} · {{ $message->created_at?->format('d/m H:i') }}</div>
+            <div class="mt-0.5 w-[85%] rounded-lg border border-dashed border-warning-400 bg-warning-50 px-3 py-2 text-sm break-words text-gray-900 dark:border-warning-500/50 dark:bg-warning-500/10 dark:text-gray-100">{!! \App\Support\ChatText::render($message->body) !!}</div>
+        </div>
+        @continue
+        @endif
         <div @class(['flex flex-col', 'items-start' => $client, 'items-end' => !$client])>
             <div class="text-xs text-gray-500 dark:text-gray-400">
                 {{-- Which login of the account writes (G11), not only the account. --}}
@@ -57,8 +65,44 @@
         </div>
         <div><x-filament::button size="xs" color="gray" wire:click="close" wire:confirm="{{ __('Close this chat?') }}">{{ __('Close chat') }}</x-filament::button></div>
     </form>
+    @if ($targets['operators'] !== [] || $targets['departments']->isNotEmpty())
+    <form wire:submit="transfer" wire:confirm="{{ __('Transfer this chat?') }}" class="flex flex-wrap items-center gap-2">
+        <select wire:model="transferTo" class="rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-900">
+            <option value="">{{ __('Transfer to…') }}</option>
+            @if ($targets['operators'] !== [])
+            <optgroup label="{{ __('Operators') }}">
+                @foreach ($targets['operators'] as $operator)
+                <option value="staff:{{ (int) $operator->id }}">{{ $operator->name }}</option>
+                @endforeach
+            </optgroup>
+            @endif
+            @if ($targets['departments']->isNotEmpty())
+            <optgroup label="{{ __('Departments') }}">
+                @foreach ($targets['departments'] as $department)
+                <option value="department:{{ (int) $department->id }}">{{ $department->name }}</option>
+                @endforeach
+            </optgroup>
+            @endif
+        </select>
+        <x-filament::button type="submit" size="xs" color="gray">{{ __('Transfer') }}</x-filament::button>
+    </form>
+    @endif
+    @error('transfer') <p class="text-sm text-warning-600">{{ $message }}</p> @enderror
     @elseif ($chat->isOpen())
     <p class="text-xs text-gray-500 dark:text-gray-400">{{ __('Only the operator who took this chat writes in it.') }}</p>
+    @endif
+
+    @if ($canReply && $chat->isOpen())
+    {{-- A form of its own, never a switch on the reply: a note can never go to the customer by a forgotten toggle. --}}
+    <form wire:submit="addNote" x-data="{ open: false }" class="flex flex-col gap-1">
+        <button type="button" x-show="!open" x-on:click="open = true" class="self-start text-xs text-warning-700 hover:underline dark:text-warning-400">{{ __('Add an internal note') }}</button>
+        <div x-show="open" x-cloak class="flex items-end gap-2">
+            <textarea wire:model="note" rows="2" maxlength="{{ \App\Support\ChatText::MAX }}"
+                class="block w-full rounded-lg border-dashed border-warning-400 bg-warning-50 text-sm dark:border-warning-500/50 dark:bg-warning-500/10" placeholder="{{ __('Internal note, the customer does not see it…') }}"></textarea>
+            <x-filament::button type="submit" color="warning">{{ __('Add note') }}</x-filament::button>
+        </div>
+        @error('note') <p class="text-sm text-warning-600">{{ $message }}</p> @enderror
+    </form>
     @endif
     @endif
 </div>

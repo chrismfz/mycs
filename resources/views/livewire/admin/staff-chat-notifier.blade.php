@@ -97,10 +97,12 @@
             // The Live chat page marks itself in front, and unmarks itself as soon as it is not.
             this.front();
             const d = this.$el.dataset;
-            // Three channels, each with its own last id (ids of different tables never compare): the staff's chat, a new
-            // customer's chat waiting, a new message of a customer in the member's own chats.
+            // Three channels, each with its own last id (ids of different tables never compare): the staff's chat, a
+            // customer's chat come to the queue (by message id since step 3β, so a transfer rings; a new channel name, so
+            // the chat ids remembered before never compare with them), a new message of a customer in the member's own
+            // chats or a chat transferred to them.
             this.ring('', Number(d.latest), d.title, d.url);
-            this.ring('-waiting', Number(d.chatLatest), d.chatTitle, d.chatUrl, 3);
+            this.ring('-queue', Number(d.chatLatest), d.chatTitle, d.chatUrl, 3);
             this.ring('-customer', Number(d.msgLatest), d.msgTitle, d.msgUrl, 2);
         },
         // The member is reading the Live chat page, here or in another tab of this browser.
@@ -129,7 +131,7 @@
             // reminder the ring only notifies, and the reminder counts from a new chat's ring.
             if (channel !== '') {
                 const reminded = Number(this.store(this.key() + '-reminded') ?? 0);
-                if (channel === '-waiting') this.store(this.key() + '-reminded', String(Date.now()));
+                if (channel === '-queue') this.store(this.key() + '-reminded', String(Date.now()));
                 if (Date.now() - reminded < 5000) times = 0;
             }
             window.mycsChatAlert?.(title, url, this.away(), times);
