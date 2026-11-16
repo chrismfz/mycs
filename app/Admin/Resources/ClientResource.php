@@ -80,12 +80,39 @@ class ClientResource extends Resource
 
     public static function getGloballySearchableAttributes(): array
     {
-        return ['id', 'primaryContact.first_name', 'primaryContact.last_name', 'primaryContact.company_name', 'primaryContact.email'];
+        // …and its ΑΦΜ / VAT number and phone (owner 2026-11-16).
+        return ['id', 'primaryContact.first_name', 'primaryContact.last_name', 'primaryContact.company_name', 'primaryContact.email',
+            'primaryContact.tax_id', 'primaryContact.vat_number', 'primaryContact.phone'];
     }
 
     public static function getGlobalSearchResultTitle(Model $record): string|Htmlable
     {
         return '#' . $record->getKey() . ' ' . ($record instanceof Client ? $record->name : '');
+    }
+
+    /**
+     * The list's search (owner 2026-11-16: «καμιά φορά ψάχνουμε με ΑΦΜ»): the name, company, email and phone of any of
+     * the client's contacts (the phone with or without its blanks and dashes), and their ΑΦΜ or VAT number, with or
+     * without the country prefix (EL123456789 finds 123456789 and the other way round).
+     */
+    public static function searchContacts(Builder $query, string $search): Builder
+    {
+        $search = trim($search);
+        $bare = preg_replace('/^[A-Za-z]{2}(?=\d)|[\s.\-]/', '', $search);
+
+        return $query->whereHas('contacts', fn (Builder $contacts) => $contacts->where(function (Builder $contacts) use ($search, $bare) {
+            foreach (['first_name', 'last_name', 'company_name', 'email', 'phone', 'tax_id', 'vat_number'] as $column) {
+                $contacts->orWhere($column, 'like', "%{$search}%");
+            }
+            if ($bare !== '' && $bare !== $search && ctype_digit($bare)) {
+                $contacts->orWhere('tax_id', 'like', "%{$bare}%")->orWhere('vat_number', 'like', "%{$bare}%");
+            }
+            // A phone however it was typed: «210 555-0123» finds «+302105550123» and the other way round.
+            $digits = preg_replace('/\D/', '', $search);
+            if (strlen($digits) >= 6 && preg_match('/^[\d\s+().\-]+$/', $search)) {
+                $contacts->orWhereRaw("REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '.', ''), '(', ''), ')', '') like ?", ["%{$digits}%"]);
+            }
+        }));
     }
 
     /** With its contact, not one query each. */
@@ -234,8 +261,7 @@ class ClientResource extends Resource
                     ->html(),
                 TextColumn::make('name')
                     ->label(__('Name'))
-                    ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('primaryContact', fn (Builder $query) => $query
-                        ->where('first_name', 'like', "%$search%")->orWhere('last_name', 'like', "%$search%")->orWhere('company_name', 'like', "%$search%")))
+                    ->searchable(query: fn (Builder $query, string $search) => self::searchContacts($query, $search))
                     // Its credit, as the Summary shows it: only to staff who may see credits (review #213).
                     ->description(function (Client $client) {
                         if (!auth()->user()?->hasPermission('admin.credits.viewAny')) {
