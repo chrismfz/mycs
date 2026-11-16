@@ -661,6 +661,7 @@ class EditService extends EditRecord
                         }
                         Notification::make()->success()->title('License reissued')->send();
                         $this->refreshFormData(['license']);
+                        $this->dispatch('bulk-license-changed');
                     }),
                 // A bulk license's list (docs/zonecloud-bulk-license.md): staff add and remove, each change dated and audited.
                 Action::make('addLicenseIps')->label('Add IPs')->icon('ri-add-line')->color('gray')
@@ -685,11 +686,14 @@ class EditService extends EditRecord
                         }
                         $done->send();
                         $this->refreshFormData(['license']);
+                        $this->dispatch('bulk-license-changed');
                     }),
                 Action::make('removeLicenseIps')->label('Remove IPs')->icon('ri-subtract-line')->color('gray')
                     // Also on a license whose product stopped being bulk: what it still holds can be freed.
                     ->visible(fn (Service $record) => $record->license !== null && (Licenses::isBulk($record) || $record->license->ips()->active()->exists()))
                     ->authorize('update')
+                    // A row's «Remove» opens it with that IP chosen (owner 2026-11-16).
+                    ->fillForm(fn (array $arguments) => ['ids' => array_map('intval', (array) ($arguments['ids'] ?? []))])
                     ->schema([
                         Select::make('ids')->label('IP addresses')->multiple()->required()->searchable()
                             ->options(fn (Service $record) => $record->license->ips()->active()->orderBy('ip')->get()
@@ -706,6 +710,7 @@ class EditService extends EditRecord
                         }
                         Notification::make()->success()->title($removed . ' removed')->send();
                         $this->refreshFormData(['license']);
+                        $this->dispatch('bulk-license-changed');
                     }),
                 // Standalone licenses moved into this bulk one (docs/zonecloud-bulk-license.md §8.1): each joins at its own expiry.
                 Action::make('moveLicensesIn')->label('Move standalone licenses in')->icon('ri-inbox-archive-line')->color('gray')
@@ -735,6 +740,7 @@ class EditService extends EditRecord
                         }
                         Notification::make()->success()->title($moved . ' moving in')->body('Each joins at its own expiry.')->send();
                         $this->refreshFormData(['license']);
+                        $this->dispatch('bulk-license-changed');
                     }),
                 // Withdrawn before it joined: it renews again as a standalone license.
                 Action::make('undoMoveToBulk')->label('Undo move to bulk')->icon('ri-arrow-go-back-line')->color('gray')
@@ -761,6 +767,7 @@ class EditService extends EditRecord
                         }
                         Notification::make()->success()->title('Move withdrawn')->send();
                         $this->refreshFormData(['license']);
+                        $this->dispatch('bulk-license-changed');
                     }),
                 Action::make('editLicense')->label('Edit license')->icon('ri-key-2-line')->color('gray')
                     // Not once it joined a bulk license: its key answers as that one, its own row is history (review of #850).
@@ -799,6 +806,7 @@ class EditService extends EditRecord
 
                             Notification::make()->success()->title('License saved')->send();
                             $this->refreshFormData(['license']);
+                            $this->dispatch('bulk-license-changed');
 
                             return;
                         }
@@ -808,6 +816,7 @@ class EditService extends EditRecord
                         $record->license->update(array_map(fn ($value) => $value === '' ? null : $value, $data)); // audited
                         Notification::make()->success()->title('License saved')->send();
                         $this->refreshFormData(['license']);
+                        $this->dispatch('bulk-license-changed');
                     }),
             ])->label('More')->icon('heroicon-o-chevron-down')->iconPosition('after')->button()->color('gray'),
             AuditAction::make()->auditChildren([

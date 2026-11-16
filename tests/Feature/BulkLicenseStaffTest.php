@@ -182,4 +182,35 @@ class BulkLicenseStaffTest extends TestCase
         $this->livewireAs($this->staff)->test(BulkLicenseStaff::class, ['service' => $this->bulk])
             ->assertSee('+16.50 · invoice #' . $invoice->id);
     }
+
+    /**
+     * Owner 2026-11-16: the buttons were only under «More», and after «2 added» the list stayed as it was. Now Add IPs and
+     * Remove IPs sit by the list, each row has its Remove (the IP chosen), and the list is drawn again after each change.
+     */
+    public function test_the_list_has_its_buttons_and_is_drawn_again_after_a_change(): void
+    {
+        BulkLicenseIps::add($this->bulk->license, '198.51.100.7 web1');
+        $id = LicenseIp::query()->where('ip', '198.51.100.7')->value('id');
+
+        $this->livewireAs($this->staff)->test(BulkLicenseStaff::class, ['service' => $this->bulk])
+            ->assertSeeHtml("\$parent.mountAction('addLicenseIps')")
+            ->assertSeeHtml("\$parent.mountAction('removeLicenseIps', { ids: [{$id}] })")
+            ->assertSeeHtml("\$parent.mountAction('removeLicenseIps')");
+
+        $page = $this->livewireAs($this->staff)->test(EditService::class, ['record' => $this->bulk->getRouteKey()]);
+        $page->callAction('addLicenseIps', ['ips' => '198.51.100.9 web9'])->assertDispatched('bulk-license-changed');
+        // A row's Remove: the form opens with that IP chosen.
+        $page->mountAction('removeLicenseIps', ['ids' => [$id]])->assertActionDataSet(['ids' => [$id]])
+            ->callMountedAction()->assertDispatched('bulk-license-changed');
+        $this->assertSame(['198.51.100.9'], $this->bulk->license->ips()->active()->pluck('ip')->all());
+    }
+
+    public function test_staff_who_may_only_look_get_no_buttons(): void
+    {
+        $viewer = Staff::factory()->create(['role_id' => Role::create(['name' => 'Viewer', 'permissions' => ['admin.services.viewAny', 'admin.services.view']])->id]);
+        BulkLicenseIps::add($this->bulk->license, '198.51.100.7 web1');
+
+        $this->livewireAs($viewer)->test(BulkLicenseStaff::class, ['service' => $this->bulk])
+            ->assertSee('198.51.100.7')->assertDontSeeHtml('mountAction(');
+    }
 }

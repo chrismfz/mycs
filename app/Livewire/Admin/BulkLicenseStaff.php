@@ -12,17 +12,20 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Licensing\BulkLicenseIps;
 use App\Services\Licensing\BulkUsage;
+use App\Services\Licensing\Licenses;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
 
 /**
  * A bulk license on its service's admin page (docs/zonecloud-bulk-license.md §7.2, mockup approved 2026-11-13): what the
  * customer sees, plus the removed IPs, who did each change, the licenses moving in and the closed periods. Read only:
- * staff change the list with the page's own actions (Add IPs, Remove IPs, Move standalone licenses in, Edit license).
+ * staff change the list with the page's own actions (Add IPs, Remove IPs, Move standalone licenses in, Edit license),
+ * which its buttons open (owner 2026-11-16: «I looked for the buttons by the list»), and it is drawn again after each.
  */
 class BulkLicenseStaff extends Component
 {
@@ -41,6 +44,14 @@ class BulkLicenseStaff extends Component
     public function mount(): void
     {
         abort_unless($this->allowed(), 403);
+    }
+
+    /** The page changed the list (an action of its own): draw it again (owner 2026-11-16: «2 added» and the old list). */
+    #[On('bulk-license-changed')]
+    public function refreshList(): void
+    {
+        // Back to the first page: a page emptied by a removal would read «None.» (review of #881).
+        $this->resetPage();
     }
 
     public function updatedSearch(): void
@@ -101,6 +112,10 @@ class BulkLicenseStaff extends Component
             // Still to bill, as billing reads it (BulkUsage::owed): its invoice cancelled or its line gone (review of #851).
             'owed' => BulkUsage::owed($license)->pluck('id')->all(),
             'silentSince' => $silentSince,
+            // The page's Add IPs / Remove IPs, to staff who may change the service.
+            'canEdit' => (bool) auth('staff')->user()?->can('update', $this->service),
+            // «Add IPs» only on a bulk license (a license no longer bulk shows its list to be freed: review of #881).
+            'isBulk' => Licenses::isBulk($this->service),
         ]);
     }
 
