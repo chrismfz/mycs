@@ -497,8 +497,8 @@ class LiveChats
     }
 
     /**
-     * Closes the open chats, waiting or active, where neither the customer nor an operator wrote for idleMinutes(); notes
-     * and the system's lines do not count. Each one under the chat's lock, checked again there, so a message written at
+     * Closes the open chats, waiting or active, where neither the customer nor an operator wrote, and no one took or
+     * moved the chat, for idleMinutes(); notes and the system's lines do not count. Each one under the chat's lock, checked again there, so a message written at
      * that moment either lands first and keeps the chat open, or finds it closed (F16). A note for the staff says why.
      * Returns how many it closed.
      */
@@ -534,7 +534,9 @@ class LiveChats
     {
         $since = now()->subMinutes($minutes);
 
-        return $query->where('status', '!=', LiveChat::CLOSED)->where('created_at', '<=', $since)
+        // Since the chat last changed hands too (updated_at: a claim, a take-over, a transfer), so one just taken or moved
+        // to another department is not closed a minute later (ADV-885-1/2).
+        return $query->where('status', '!=', LiveChat::CLOSED)->where('created_at', '<=', $since)->where('updated_at', '<=', $since)
             ->whereDoesntHave('messages', fn ($messages) => $messages->whereIn('author_type', LiveChatMessage::CUSTOMER_VISIBLE)->where('created_at', '>', $since));
     }
 

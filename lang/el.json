@@ -1908,7 +1908,7 @@
     "Internal note, the customer does not see it…": "Εσωτερική σημείωση, ο πελάτης δεν τη βλέπει…",
     "Add note": "Προσθήκη σημείωσης",
     "Close idle chats after (minutes)": "Κλείσιμο αδρανών chats μετά από (λεπτά)",
-    "A customer's chat with no message, from them or an operator, for this many minutes is closed, whether it waits or was taken; the customer is told the chat ended. Internal notes do not count. 0 never closes one.": "Ένα chat πελάτη χωρίς μήνυμα, από τον ίδιο ή από operator, για τόσα λεπτά κλείνει, είτε περιμένει είτε το έχει αναλάβει κάποιος· ο πελάτης βλέπει ότι η συζήτηση έκλεισε. Οι εσωτερικές σημειώσεις δεν μετράνε. Με 0 δεν κλείνει ποτέ.",
+    "A customer's chat with no message, from them or an operator, and not taken or transferred, for this many minutes is closed, whether it waits or was taken; the customer is told the chat ended. Internal notes do not count. 0 never closes one.": "Ένα chat πελάτη χωρίς μήνυμα, από τον ίδιο ή από operator, και χωρίς ανάληψη ή μεταφορά, για τόσα λεπτά κλείνει, είτε περιμένει είτε το έχει αναλάβει κάποιος· ο πελάτης βλέπει ότι η συζήτηση έκλεισε. Οι εσωτερικές σημειώσεις δεν μετράνε. Με 0 δεν κλείνει ποτέ.",
     "Closed after :minutes minutes without a message.": "Έκλεισε μετά από :minutes λεπτά χωρίς μήνυμα.",
     "The chat has ended.": "Η συζήτηση έκλεισε.",
     "Start a new chat": "Νέα συζήτηση"

@@ -551,7 +551,7 @@ class Settings
                     'required' => true,
                     'min_value' => 0,
                     'validation' => 'integer|min:0|max:1440',
-                    'description' => 'A customer\'s chat with no message, from them or an operator, for this many minutes is closed, whether it waits or was taken; the customer is told the chat ended. Internal notes do not count. 0 never closes one.',
+                    'description' => 'A customer\'s chat with no message, from them or an operator, and not taken or transferred, for this many minutes is closed, whether it waits or was taken; the customer is told the chat ended. Internal notes do not count. 0 never closes one.',
                 ],
             ],
 
