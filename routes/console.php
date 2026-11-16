@@ -24,6 +24,7 @@ use App\Console\Commands\SyncRedfishMachines;
 use App\Console\Commands\SyncServiceUsage;
 use App\Console\Commands\SyncSslOrders;
 use App\Console\Commands\VatRecheck;
+use App\Console\ScheduleFailureOutput;
 use App\Helpers\NotificationHelper;
 use Illuminate\Support\Facades\Schedule;
 
@@ -80,3 +81,6 @@ Schedule::command(OwedCreatesCommand::class)->description('Tells staff of paid s
 Schedule::command(VatRecheck::class)->description('Checks EU VAT numbers with VIES')->hourlyAt(17)->withoutOverlapping(60)->onOneServer();
 // The EU standard VAT rates against TEDB (docs/eu-vat.md): staff told of a difference, nothing changed. Off by default.
 Schedule::command(EuVatRatesCheck::class)->description('Compares Tax Rates with the EU standard VAT rates in TEDB (changes nothing)')->weeklyOn(1, '05:45')->withoutOverlapping(30)->onOneServer();
+
+// Last: every command above logs its last lines of output when it fails (nixpal 2026-11-16).
+ScheduleFailureOutput::apply(app(Illuminate\Console\Scheduling\Schedule::class));
