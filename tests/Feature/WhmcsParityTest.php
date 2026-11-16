@@ -130,13 +130,14 @@ class WhmcsParityTest extends TestCase
         $this->whmcs->exec("INSERT INTO tblinvoices (id, status, subtotal, credit, total) VALUES (12, 'Paid', 10, 10, 0)");
         $this->whmcs->exec("INSERT INTO tblinvoices (id, status, subtotal, total) VALUES (13, 'Paid', 10, 10)");
         $this->whmcs->exec("INSERT INTO tblinvoiceitems (invoiceid, type, relid, amount) VALUES (12, 'Hosting', 0, 10), (13, 'Invoice', 12, 10)");
-        $this->whmcs->exec('INSERT INTO tblaccounts (id, invoiceid, amountin) VALUES (501, 13, 10)');
+        // A payment id far above any auto-increment: on MariaDB the counter outlives each test's rollback, so 501 could be taken.
+        $this->whmcs->exec('INSERT INTO tblaccounts (id, invoiceid, amountin) VALUES (990501, 13, 10)');
         $this->whmcs->exec('INSERT INTO tbltickets (id, merged_ticket_id) VALUES (1, 0), (2, 1)');
         $child = Invoice::factory()->create(['client_id' => Invoice::query()->value('client_id'), 'status' => 'unpaid', 'currency_code' => 'USD']);
         $child->items()->delete();
         $child->items()->create(['description' => 'Hosting', 'price' => 10, 'quantity' => 1]);
         DB::table('invoices')->where('id', $child->id)->update(['status' => 'paid']);
-        DB::table('invoice_transactions')->insert(['id' => 501, 'invoice_id' => $child->id, 'amount' => 10, 'is_credit_transaction' => false, 'status' => 'succeeded',
+        DB::table('invoice_transactions')->insert(['id' => 990501, 'invoice_id' => $child->id, 'amount' => 10, 'is_credit_transaction' => false, 'status' => 'succeeded',
             'created_at' => now(), 'updated_at' => now()]);
         DB::table('tickets')->insert(['client_id' => Invoice::query()->value('client_id'), 'subject' => 'Root', 'status' => 'closed', 'created_at' => now(), 'updated_at' => now()]);
 
