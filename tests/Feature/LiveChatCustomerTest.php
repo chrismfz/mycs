@@ -437,7 +437,8 @@ class LiveChatCustomerTest extends TestCase
         $this->asStaff($operator);
         $html = Livewire::test(StaffChatNotifier::class)->html();
         $this->assertStringContainsString('data-waiting="1"', $html);
-        $this->assertStringContainsString('data-chat-latest="' . $chat->id . '"', $html);
+        // By message id since step 3β, so a chat transferred in from another department rings too.
+        $this->assertStringContainsString('data-chat-latest="' . $chat->messages()->value('id') . '"', $html);
         $this->assertStringContainsString(e(__('New chat: :department', ['department' => 'Support'])), $html);
         $this->assertStringNotContainsString('my secret problem', $html);
         $this->assertStringNotContainsString(e($client->name), $html);

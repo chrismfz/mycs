@@ -260,8 +260,8 @@ class LiveChats
 
     /**
      * What the alert on every admin page may say of customers' chats (F21: never a customer's name or words): how many
-     * wait in the member's departments, the newest one's id and department, and the newest customer message in the
-     * member's own chats.
+     * wait in the member's departments, the newest message that brought one to the queue and its department, and the
+     * newest customer message (or transfer to them) in the member's own chats.
      *
      * @return array{waiting: int, chat_latest: int, chat_title: string, message_latest: int, message_title: string, message_url: string}
      */
@@ -273,19 +273,31 @@ class LiveChats
         // Light, every 10 seconds on every admin tab (review of #479): counts and ids, never the customers' rows. A chat
         // whose operator left counts in the title (waiting()) but rings no new alert: it is not a new chat.
         $departments = self::departmentsOf($staff);
-        $newest = LiveChat::query()->where('status', LiveChat::WAITING)->whereIn('department_id', $departments)
-            ->with('department:id,name')->orderByDesc('id')->first(['id', 'department_id']);
+        // By message id, not chat id (step 3β): the newest message of a waiting chat, its first, a later one or the note of
+        // a transfer from another department, so an old chat moved here rings too. Notes ring no one.
+        $newest = LiveChatMessage::query()->join('live_chats', 'live_chats.id', '=', 'live_chat_messages.chat_id')
+            ->where('live_chats.status', LiveChat::WAITING)->whereIn('live_chats.department_id', $departments)
+            ->where('live_chat_messages.author_type', '!=', LiveChatMessage::NOTE)
+            ->orderByDesc('live_chat_messages.id')->first(['live_chat_messages.id', 'live_chats.department_id']);
+        $department = $newest === null ? null : TicketDepartment::query()->find($newest->getAttribute('department_id'), ['id', 'name']);
         $mine = LiveChat::query()->where('status', LiveChat::ACTIVE)->where('assigned_to', $staff->id)
             ->whereIn('department_id', $departments)->pluck('id');
+        // The customer's messages in the member's chats, and a colleague's transfer of a chat to them (step 3β).
         $message = $mine->isEmpty() ? null : LiveChatMessage::query()->whereIn('chat_id', $mine)
-            ->where('author_type', LiveChatMessage::CLIENT)->orderByDesc('id')->first(['id', 'chat_id']);
+            ->where(fn ($query) => $query->where('author_type', LiveChatMessage::CLIENT)
+                ->orWhere(fn ($query) => $query->where('author_type', LiveChatMessage::SYSTEM)->where('staff_id', '!=', $staff->id)))
+            ->orderByDesc('id')->first(['id', 'chat_id', 'author_type']);
 
         return [
             'waiting' => self::waiting($staff),
             'chat_latest' => (int) $newest?->id,
-            'chat_title' => $newest === null ? '' : __('New chat: :department', ['department' => (string) $newest->department?->name]),
+            'chat_title' => $newest === null ? '' : __('New chat: :department', ['department' => (string) $department?->name]),
             'message_latest' => (int) $message?->id,
-            'message_title' => $message === null ? '' : __('New message in a customer chat'),
+            'message_title' => match ($message?->author_type) {
+                null => '',
+                LiveChatMessage::SYSTEM => __('A chat was transferred to you'),
+                default => __('New message in a customer chat'),
+            },
             'message_url' => $message === null ? '' : \App\Admin\Pages\LiveChat::getUrl(['chat' => $message->chat_id]),
         ];
     }
@@ -323,8 +335,9 @@ class LiveChats
             return false;
         }
         if ($chat->status === LiveChat::WAITING) {
+            // Still in the department it was read in: a transfer in between moves it out of the member's reach (step 3β).
             $taken = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::WAITING)->whereNull('assigned_to')
-                ->update(['status' => LiveChat::ACTIVE, 'assigned_to' => $staff->id, 'updated_at' => now()]);
+                ->where('department_id', $chat->department_id)->update(['status' => LiveChat::ACTIVE, 'assigned_to' => $staff->id, 'updated_at' => now()]);
 
             return $taken === 1;
         }
@@ -334,7 +347,7 @@ class LiveChats
 
         // The take-over and its note for the staff (F20) together, or neither (re-review of #475).
         return DB::transaction(function () use ($staff, $chat) {
-            $query = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::ACTIVE);
+            $query = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::ACTIVE)->where('department_id', $chat->department_id);
             $chat->assigned_to === null ? $query->whereNull('assigned_to') : $query->where('assigned_to', $chat->assigned_to);
             if ($query->update(['assigned_to' => $staff->id, 'updated_at' => now()]) !== 1) {
                 return false;
@@ -357,9 +370,7 @@ class LiveChats
         if ($body === null) {
             return __('The message is empty.');
         }
-        $key = 'live-chat-staff:' . $staff->id;
-        RateLimiter::hit($key, 60);
-        if (RateLimiter::attempts($key) > self::PER_MINUTE * 2) {
+        if (self::staffOver($staff)) {
             return __('Too many messages, wait a moment.');
         }
 
@@ -374,7 +385,98 @@ class LiveChats
             return false;
         }
 
-        return self::close($chat);
+        // Only as it was read: a transfer or take-over in between is not closed from under its new operator (step 3β).
+        return self::close($chat, asRead: true);
+    }
+
+    /**
+     * An operator's internal note in a chat of their department, open (step 3β): the staff see it in the console and in
+     * the client's «Chats» tab, the customer never (F20, CUSTOMER_VISIBLE). Null when written; else what to tell them.
+     */
+    public static function note(Staff $staff, LiveChat $chat, string $text): ?string
+    {
+        $chat->refresh();
+        if (!self::canReply($staff, $chat)) {
+            return __('You may not write here.');
+        }
+        $body = ChatText::clean($text);
+        if ($body === null) {
+            return __('The message is empty.');
+        }
+        if (self::staffOver($staff)) {
+            return __('Too many messages, wait a moment.');
+        }
+
+        return self::write($chat, ['author_type' => LiveChatMessage::NOTE, 'staff_id' => $staff->id, 'body' => $body], participant: false);
+    }
+
+    /**
+     * Where the member may pass their active chat (step 3β): a colleague of its department who is connected and may
+     * answer it (F3), or another department that takes chats.
+     *
+     * @return array{operators: list<Staff>, departments: Collection<int, TicketDepartment>}
+     */
+    public static function transferTargets(Staff $staff, LiveChat $chat): array
+    {
+        if (!self::canReply($staff, $chat) || $chat->assigned_to !== $staff->id || $chat->status !== LiveChat::ACTIVE) {
+            return ['operators' => [], 'departments' => new Collection];
+        }
+        $operators = [];
+        foreach (StaffPresence::online() as $member) {
+            if ($member['staff']->id !== $staff->id && self::canReply($member['staff'], $chat)) {
+                $operators[] = $member['staff'];
+            }
+        }
+
+        return ['operators' => $operators, 'departments' => self::departments()->where('id', '!=', $chat->department_id)->values()];
+    }
+
+    /**
+     * The operator passes the chat they hold to a colleague of its department (it stays active, now theirs) or to another
+     * department (it waits there in the queue, for anyone of it). One of the two targets. A note for the staff says so
+     * (F20). Two at once, or a transfer and a take-over, one wins (F16): the update holds only while the chat is still as
+     * it was read. Null when done; else what to tell them.
+     */
+    public static function transfer(Staff $staff, LiveChat $chat, ?int $toStaffId = null, ?int $toDepartmentId = null): ?string
+    {
+        $chat->refresh();
+        if (!self::canReply($staff, $chat) || $chat->assigned_to !== $staff->id || $chat->status !== LiveChat::ACTIVE) {
+            return __('You may not transfer this chat.');
+        }
+        if (($toStaffId === null) === ($toDepartmentId === null)) {
+            return __('Choose an operator or a department.');
+        }
+        $targets = self::transferTargets($staff, $chat);
+        if ($toStaffId !== null) {
+            $target = collect($targets['operators'])->first(fn (Staff $member) => $member->id === $toStaffId);
+            if (!$target instanceof Staff) {
+                return __('This operator cannot take the chat.');
+            }
+            $changes = ['assigned_to' => $target->id];
+            $to = $target->name;
+        } else {
+            $department = $targets['departments']->firstWhere('id', $toDepartmentId);
+            if (!$department instanceof TicketDepartment) {
+                return __('This department does not take chats.');
+            }
+            $changes = ['status' => LiveChat::WAITING, 'assigned_to' => null, 'department_id' => $department->id];
+            $to = $department->name;
+        }
+        if (self::staffOver($staff)) {
+            return __('Too many messages, wait a moment.');
+        }
+
+        return DB::transaction(function () use ($staff, $chat, $changes, $to) {
+            $moved = LiveChat::query()->whereKey($chat->id)->where('status', LiveChat::ACTIVE)->where('assigned_to', $staff->id)
+                ->where('department_id', $chat->department_id)->update($changes + ['updated_at' => now()]);
+            if ($moved !== 1) {
+                return __('This chat changed in the meantime.');
+            }
+            $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM, 'staff_id' => $staff->id,
+                'body' => __('Transferred from :from to :to.', ['from' => $staff->name, 'to' => $to])]);
+
+            return null;
+        });
     }
 
     // ---- shared
@@ -396,14 +498,15 @@ class LiveChats
     }
 
     /**
-     * The messages a customer may see, oldest first: never the staff's notes (F20), filtered in the query so a later
-     * reader on the customer's side (the history of step 3γ) cannot forget it, and notes take no room in the window.
+     * The messages a customer may see, oldest first: only the customer's and the operators' messages, never the system's
+     * or the internal notes (F20). An allowlist in the query (LiveChatMessage::CUSTOMER_VISIBLE), so a later reader on the
+     * customer's side (the history of step 3γ) cannot forget it, and notes take no room in the window.
      *
      * @return \Illuminate\Support\Collection<int, LiveChatMessage>
      */
     public static function customerMessages(LiveChat $chat): \Illuminate\Support\Collection
     {
-        return $chat->messages()->with(['staff:id,first_name', 'user:id,first_name'])->where('author_type', '!=', LiveChatMessage::SYSTEM)
+        return $chat->messages()->with(['staff:id,first_name', 'user:id,first_name'])->whereIn('author_type', LiveChatMessage::CUSTOMER_VISIBLE)
             ->orderByDesc('id')->limit(self::WINDOW)->get()->reverse()->values();
     }
 
@@ -453,9 +556,21 @@ class LiveChats
         return RateLimiter::attempts($key) > $limit;
     }
 
-    private static function close(LiveChat $chat): bool
+    /** An operator's messages, notes and transfers, counted together (F13). */
+    private static function staffOver(Staff $staff): bool
     {
-        return LiveChat::query()->whereKey($chat->id)->where('status', '!=', LiveChat::CLOSED)
-            ->update(['status' => LiveChat::CLOSED, 'closed_at' => now(), 'updated_at' => now()]) === 1;
+        return self::over('live-chat-staff:' . $staff->id, 60, self::PER_MINUTE * 2);
+    }
+
+    /** Closes the chat; with $asRead only while its operator and department are still as read. */
+    private static function close(LiveChat $chat, bool $asRead = false): bool
+    {
+        $query = LiveChat::query()->whereKey($chat->id)->where('status', '!=', LiveChat::CLOSED);
+        if ($asRead) {
+            $query->where('department_id', $chat->department_id);
+            $chat->assigned_to === null ? $query->whereNull('assigned_to') : $query->where('assigned_to', $chat->assigned_to);
+        }
+
+        return $query->update(['status' => LiveChat::CLOSED, 'closed_at' => now(), 'updated_at' => now()]) === 1;
     }
 }
