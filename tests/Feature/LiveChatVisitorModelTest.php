@@ -227,4 +227,36 @@ class LiveChatVisitorModelTest extends TestCase
         $this->storeSettings(['livechat_enabled' => true, 'livechat_guest_enabled' => true]);
         $this->assertTrue(ChatVisitor::guestEnabled());
     }
+
+    public function test_a_closed_chat_leaves_only_the_notice_that_it_ended(): void
+    {
+        $session = $this->store();
+        $chat = $this->chat();
+        ChatVisitor::issue($chat, $session);
+        $chat->forceFill(['status' => LiveChat::CLOSED])->save();
+
+        $this->assertNull(ChatVisitor::chat($session));
+        $this->assertTrue(ChatVisitor::ended($session));
+        $this->assertFalse(ChatVisitor::holds($session));
+        ChatVisitor::forget($session);
+        $this->assertFalse(ChatVisitor::ended($session));
+    }
+
+    public function test_the_visitor_reads_their_words_and_the_operators_only(): void
+    {
+        $chat = $this->chat(['started_anonymously' => true]);
+        foreach ([LiveChatMessage::VISITOR, LiveChatMessage::STAFF, LiveChatMessage::NOTE, LiveChatMessage::SYSTEM, LiveChatMessage::CLIENT] as $type) {
+            $chat->messages()->create(['author_type' => $type, 'body' => $type]);
+        }
+
+        $this->assertSame([LiveChatMessage::VISITOR, LiveChatMessage::STAFF], ChatVisitor::messages($chat)->pluck('author_type')->all());
+    }
+
+    public function test_a_chat_with_a_client_is_never_given_a_token(): void
+    {
+        $chat = $this->chat(['client_id' => User::factory()->create()->client()->id]);
+
+        $this->expectException(\LogicException::class);
+        ChatVisitor::issue($chat, $this->store());
+    }
 }

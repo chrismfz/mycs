@@ -86,10 +86,10 @@ Route::get('/captcha/altcha', fn (Altcha $altcha) => Contact::captchaKind() === 
 // auth()->logout();
 // Authorization routes
 Route::group(['middleware' => ['web', 'guest']], function () {
-    // The popup's login too (docs/livechat.md §4, G10): no frame, no opener, no Referer beyond our origin.
+    // The popup's login too, and its 2FA and sign-up (docs/livechat.md §4, G10): no frame, no opener, no Referer beyond our origin.
     Route::get('/login', Auth\Login::class)->name('login')->middleware(ChatPopupHeaders::class);
-    Route::get('/2fa', Auth\Tfa::class)->name('2fa');
-    Route::get('/register', Auth\Register::class)->name('register');
+    Route::get('/2fa', Auth\Tfa::class)->name('2fa')->middleware(ChatPopupHeaders::class);
+    Route::get('/register', Auth\Register::class)->name('register')->middleware(ChatPopupHeaders::class);
     // Todo
     Route::get('/password/request', Auth\Password\Request::class)->name('password.request');
     Route::get('/password/reset/{token}', Auth\Password\Reset::class)->name('password.reset')->middleware(PrivateLinkHeaders::class);

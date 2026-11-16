@@ -3,7 +3,10 @@
 namespace App\Support;
 
 use App\Models\LiveChat;
+use App\Models\LiveChatMessage;
 use Illuminate\Contracts\Session\Session;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * An anonymous visitor's hold on their chat (docs/livechat.md §3 Γ, step 4): a random 256-bit token that lives only in
@@ -19,6 +22,9 @@ use Illuminate\Contracts\Session\Session;
 class ChatVisitor
 {
     public const SESSION_KEY = 'live_chat_visitor';
+
+    /** Set when the session's chat was found closed: the popup says it ended, and shows nothing of it (§3 Γ, F22). */
+    public const ENDED_KEY = 'live_chat_visitor_ended';
 
     /** The longest page path kept (§4). */
     public const PAGE_MAX = 255;
@@ -40,22 +46,32 @@ class ChatVisitor
      */
     public static function issue(LiveChat $chat, ?Session $session = null): void
     {
+        if ($chat->client_id !== null) {
+            throw new \LogicException('A chat with a client is never a visitor\'s.');
+        }
         $session ??= session()->driver();
         $session->regenerate(true);
         $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
         $chat->forceFill(['visitor_token_hash' => self::hash($token), 'started_anonymously' => true])->save();
         $session->put(self::SESSION_KEY, $token);
+        $session->forget(self::ENDED_KEY);
     }
 
     /**
-     * The visitor's chat of this session, open or closed (the popup says when it ended), while its token holds; else null,
-     * and an expired or revoked token leaves the session. Never a chat with a client (linked by staff: §6α).
+     * The visitor's open chat of this session, while its token holds; else null. Never with a customer signed in or
+     * staff in «Login as client» in the same session (§3 Δ, G2, F9): the token stays there, unused, for the move to a
+     * customer's chat to find (holds()). A closed chat takes its token with it (§3 Γ, F22): the next one at the same
+     * browser reads nothing of it, only that it ended (ended()). An expired or revoked token leaves the session. Never
+     * a chat with a client (linked by staff: §6α).
      */
     public static function chat(?Session $session = null): ?LiveChat
     {
         $session ??= session()->driver();
         $token = $session->get(self::SESSION_KEY);
         if (!is_string($token) || $token === '') {
+            return null;
+        }
+        if (Auth::guard('web')->check() || $session->has('impersonating')) {
             return null;
         }
         $chat = LiveChat::query()->where('visitor_token_hash', self::hash($token))->whereNull('client_id')->first();
@@ -65,8 +81,32 @@ class ChatVisitor
 
             return null;
         }
+        if (!$chat->isOpen()) {
+            $session->forget(self::SESSION_KEY);
+            $session->put(self::ENDED_KEY, true);
+
+            return null;
+        }
 
         return $chat;
+    }
+
+    /** The session's chat closed since it was last seen: what the popup says instead of showing it. */
+    public static function ended(?Session $session = null): bool
+    {
+        return (bool) ($session ?? session()->driver())->get(self::ENDED_KEY, false);
+    }
+
+    /**
+     * What the visitor may read of their chat, oldest first: their own and the operators' messages, never the system's
+     * or the staff's notes (F20); an allowlist in the query (LiveChatMessage::VISITOR_VISIBLE).
+     *
+     * @return Collection<int, LiveChatMessage>
+     */
+    public static function messages(LiveChat $chat): Collection
+    {
+        return $chat->messages()->with('staff:id,first_name')->whereIn('author_type', LiveChatMessage::VISITOR_VISIBLE)
+            ->orderByDesc('id')->limit(LiveChats::WINDOW)->get()->reverse()->values();
     }
 
     /** This session holds a visitor's token, whether or not it still opens a chat. */
@@ -78,7 +118,7 @@ class ChatVisitor
     /** The session lets go of its token (the chat stays; another visit starts afresh). */
     public static function forget(?Session $session = null): void
     {
-        ($session ?? session()->driver())->forget(self::SESSION_KEY);
+        ($session ?? session()->driver())->forget([self::SESSION_KEY, self::ENDED_KEY]);
     }
 
     /** The chat's token stops working, wherever it is held (§6α, F2); `started_anonymously` stays. */
@@ -109,14 +149,14 @@ class ChatVisitor
 
     /**
      * The page the chat was opened from (§4): a path only, without query or fragment, at most PAGE_MAX characters, with
-     * no control, format (bidi, zero-width) or space characters. Null when that is not what came.
+     * no control, format (bidi, zero-width), private, unassigned, blank-letter (Hangul fillers) or space characters. Null when that is not what came.
      */
     public static function page(?string $page): ?string
     {
         $page = (string) $page;
         $page = substr($page, 0, (int) strcspn($page, '?#'));
         if (!str_starts_with($page, '/') || str_starts_with($page, '//') || !mb_check_encoding($page, 'UTF-8')
-            || preg_match('/[\x00-\x20\x7F\p{Cc}\p{Cf}\p{Z}\\\\]/u', $page) === 1) {
+            || preg_match('/[\x00-\x20\x7F\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Z}\x{115F}\x{1160}\x{3164}\x{FFA0}\\\\]/u', $page) === 1) {
             return null;
         }
 

@@ -659,11 +659,14 @@ adversarial review (§10).
    του launcher στο admin.
    **PR 1 (μοντέλο και ασφάλεια):** στο `live_chats` τα `visitor_token_hash` (SHA-256, unique, `$hidden` στο μοντέλο),
    `started_anonymously`, `visitor_name`, `visitor_email`, `ip`, `src`, `page`· νέο `author_type = visitor`, που
-   μετρά στο κλείσιμο λόγω αδράνειας και το βλέπει ο επισκέπτης (`CUSTOMER_VISIBLE`). Το `App\Support\ChatVisitor`:
+   μετρά στο κλείσιμο λόγω αδράνειας (`PARTICIPANTS`). Ο επισκέπτης διαβάζει μόνο `VISITOR_VISIBLE` (visitor, staff), ο
+   πελάτης μόνο `CUSTOMER_VISIBLE` (client, staff): ένα ανώνυμο chat που συνδέθηκε με πελάτη δεν του δείχνει τα λόγια του
+   επισκέπτη (ADV-887-3). Το `App\Support\ChatVisitor`:
    token 256 bit μόνο στο session, `regenerate(true)` πριν δοθεί, λήξη `livechat_visitor_hours` από το τελευταίο μήνυμα,
-   revoke, και ποτέ chat με πελάτη. Το `src` μόνο από το `livechat_sites`, το `page` μόνο path (χωρίς query, fragment,
+   revoke, και ποτέ chat με πελάτη. Κλειστό chat παίρνει μαζί και το token: μένει μόνο η ένδειξη «έκλεισε» (`ended()`,
+   ADV-887-1). Με πελάτη ή «Login as client» στο session το token δεν ανοίγει τίποτα (G2, ADV-887-2). Το `src` μόνο από το `livechat_sites`, το `page` μόνο path (χωρίς query, fragment,
    κενά, χαρακτήρες ελέγχου ή `\p{Cf}`, ≤ 255). Το `ChatPopupHeaders` (`frame-ancestors 'none'`, `X-Frame-Options:
-   DENY`, COOP και `Referrer-Policy: same-origin`) μπαίνει στο `/login` τώρα και στο `/chat` στο PR 2. Το «Login as
+   DENY`, COOP και `Referrer-Policy: same-origin`) μπαίνει στα `/login`, `/2fa`, `/register` τώρα και στο `/chat` στο PR 2. Το «Login as
    client» σβήνει το token από το session (F9).
 5. **Κλείσιμο του LHC.**
    - Ticket από chat (F4), διατήρηση της IP και διαγραφή από admin;

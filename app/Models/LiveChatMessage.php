@@ -33,11 +33,17 @@ class LiveChatMessage extends Model
     /** An operator's internal note (step 3β): the staff see it, the customer never does (F20). */
     public const NOTE = 'note';
 
+    /** What the customer may ever read: an allowlist, so a new kind of message stays the staff's until it is added here. */
+    public const CUSTOMER_VISIBLE = [self::CLIENT, self::STAFF];
+
     /**
-     * What the customer or visitor may ever read in their own chat: an allowlist, so a new kind of message stays the
-     * staff's until it is added here. A chat holds a client's messages or a visitor's, never both.
+     * What a visitor may ever read in their own chat. Never the customer's list: a visitor's chat that staff link to a
+     * client (§6α) does not show the visitor's words to the customer (G1, F2).
      */
-    public const CUSTOMER_VISIBLE = [self::CLIENT, self::VISITOR, self::STAFF];
+    public const VISITOR_VISIBLE = [self::VISITOR, self::STAFF];
+
+    /** Who keeps a chat alive by writing (the idle close): the customer, the visitor, the operator; not notes or the system. */
+    public const PARTICIPANTS = [self::CLIENT, self::VISITOR, self::STAFF];
 
     public const UPDATED_AT = null;
 
