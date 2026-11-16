@@ -1877,5 +1877,12 @@
     "A cancellation was asked for one of them meanwhile: nothing moved.": "Στο μεταξύ ζητήθηκε ακύρωση για μία από αυτές: δεν μεταφέρθηκε καμία.",
     "Its license joined a bulk license and its key still answers as that one: keep this service.": "Η άδειά της μπήκε σε bulk άδεια και το κλειδί της απαντά ακόμα ως εκείνη: κράτησε αυτή την υπηρεσία.",
     "Tickets to answer": "Tickets προς απάντηση",
-    ":count new (:period)|:count new (:period)": ":count νέο (:period)|:count νέα (:period)"
+    ":count new (:period)|:count new (:period)": ":count νέο (:period)|:count νέα (:period)",
+    "Owes": "Χρωστάει",
+    "Nothing unpaid": "Τίποτα απλήρωτο",
+    "Saved payment method": "Αποθηκευμένος τρόπος πληρωμής",
+    "Special settings": "Ειδικές ρυθμίσεις",
+    "No automatic charge": "Χωρίς αυτόματη χρέωση",
+    "Signed up from": "Εγγραφή από",
+    "Signed up until": "Εγγραφή έως"
 }

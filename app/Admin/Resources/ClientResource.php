@@ -25,11 +25,14 @@ use App\Admin\Resources\Common\RelationManagers\PropertiesRelationManager;
 use App\Admin\Schemas\ContactForm;
 use App\Models\Client;
 use App\Models\ClientGroup;
+use App\Models\Contact;
 use App\Models\Credit;
+use App\Models\Invoice;
 use App\Services\Admin\ClientSummary;
 use App\Support\Locales;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -42,6 +45,7 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\FiltersLayout;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
@@ -318,6 +322,78 @@ class ClientResource extends Resource
                         true: fn (Builder $query) => $query->whereHas('services', fn (Builder $query) => $query->where('status', 'active')),
                         false: fn (Builder $query) => $query->whereDoesntHave('services', fn (Builder $query) => $query->where('status', 'active')),
                     ),
+                // Owner 2026-11-16, the useful ones of WHMCS's «Advanced» search. What it owes: an unpaid invoice (an Add
+                // Funds one is no debt), an overdue one (the reminders' rule), or nothing unpaid.
+                SelectFilter::make('owes')->label(__('Owes'))
+                    ->visible(fn () => InvoiceResource::canViewAny())
+                    ->options(['unpaid' => __('Unpaid invoices'), 'overdue' => __('Overdue invoices'), 'none' => __('Nothing unpaid')])
+                    ->query(function (Builder $query, array $data): Builder {
+                        $unpaid = fn ($invoices) => $invoices->where('status', Invoice::STATUS_UNPAID)->whereNot(fn ($addFunds) => Invoice::whereAddFunds($addFunds));
+
+                        return match ($data['value'] ?? null) {
+                            'unpaid' => $query->whereHas('invoices', $unpaid),
+                            'overdue' => $query->whereHas('invoices', fn ($invoices) => Invoice::whereOverdue($invoices)),
+                            'none' => $query->whereDoesntHave('invoices', $unpaid),
+                            default => $query,
+                        };
+                    }),
+                // A saved card or PayPal of its own as its default (whether «Auto-charge» is on or the card stopped: the
+                // client's page says that).
+                TernaryFilter::make('payment_method')->label(__('Saved payment method'))
+                    ->queries(
+                        true: fn (Builder $query) => $query->whereHas('defaultBillingAgreement', fn (Builder $agreement) => $agreement->whereColumn('billing_agreements.client_id', 'clients.id')),
+                        false: fn (Builder $query) => $query->whereDoesntHave('defaultBillingAgreement', fn (Builder $agreement) => $agreement->whereColumn('billing_agreements.client_id', 'clients.id')),
+                    ),
+                // Its main contact's country: only those the clients have.
+                SelectFilter::make('country')->label(__('Country'))
+                    ->options(function (): array {
+                        $names = (array) config('app.countries');
+                        $codes = Contact::query()->whereNotNull('primary_of_client_id')->whereNotNull('country')->where('country', '!=', '')
+                            ->distinct()->pluck('country')->all();
+                        $options = [];
+                        foreach ($codes as $code) {
+                            $options[$code] = (string) ($names[$code] ?? $code);
+                        }
+                        asort($options);
+
+                        return $options;
+                    })
+                    ->query(fn (Builder $query, array $data) => filled($data['value'] ?? null)
+                        ? $query->whereHas('primaryContact', fn (Builder $contact) => $contact->where('country', $data['value']))
+                        : $query),
+                // Its special settings, any of those picked: to find an exemption left on, its own or its group's.
+                SelectFilter::make('settings')->label(__('Special settings'))->multiple()
+                    ->options([
+                        'tax_exempt' => __('Tax exempt'),
+                        'dunning_exempt' => __('No automatic suspension or termination'),
+                        'no_overdue_reminders' => __('No overdue reminders'),
+                        'ignore_invoicing' => __('Ignore invoicing'),
+                        'separate_invoices' => __('Separate invoices'),
+                        'immediate_invoicing' => __('Immediate invoicing'),
+                        'no_auto_charge' => __('No automatic charge'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => ($data['values'] ?? []) === [] ? $query : $query->where(function (Builder $query) use ($data) {
+                        foreach ($data['values'] as $setting) {
+                            match ($setting) {
+                                'no_auto_charge' => $query->orWhere('auto_charge', false),
+                                // Its own setting or its group's, as the cron reads them (Client::dunningExempt and the rest).
+                                'dunning_exempt', 'no_overdue_reminders', 'separate_invoices' => $query->orWhere($setting, true)
+                                    ->orWhereHas('group', fn (Builder $group) => $group->where($setting, true)),
+                                'tax_exempt', 'ignore_invoicing', 'immediate_invoicing' => $query->orWhere($setting, true),
+                                default => null,
+                            };
+                        }
+                    })),
+                // New clients of a period.
+                Filter::make('created_at')
+                    ->schema([
+                        DatePicker::make('created_from')->label(__('Signed up from')),
+                        DatePicker::make('created_until')->label(__('Signed up until')),
+                    ])
+                    ->columns(2)->columnSpanFull()
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['created_from'] ?? null, fn (Builder $query, $date) => $query->whereDate('created_at', '>=', $date))
+                        ->when($data['created_until'] ?? null, fn (Builder $query, $date) => $query->whereDate('created_at', '<=', $date))),
             ], layout: FiltersLayout::AboveContentCollapsible)
             // On the page, folded, as the tickets' (owner 2026-11-16), not in a popup.
             ->filtersFormColumns(2)
