@@ -4,10 +4,10 @@ namespace App\Admin\Components;
 
 use App\Admin\Resources\ClientResource;
 use App\Models\Client;
+use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\HtmlString;
 
 /**
  * The customer account of an order, service, invoice or ticket (docs/accounts.md, PR 2a), found by its id or by the
@@ -29,7 +29,12 @@ class ClientComponent extends Select
                 ->get()
                 ->mapWithKeys(fn (Client $client) => [$client->id => self::optionLabel($client)])
                 ->toArray())
-            ->hint(fn ($get) => $get($name ?? 'client_id') ? new HtmlString('<a href="' . ClientResource::getUrl('view', ['record' => $get($name ?? 'client_id')]) . '" target="_blank">' . e(__('Go to Client')) . '</a>') : null)
+            // A small button, not gray text staff miss (owner 2026-11-16): the client's Summary, in a new tab.
+            ->hintAction(fn (Select $component) => Action::make('goToClient')->label(__('Go to Client'))
+                ->icon('heroicon-m-arrow-top-right-on-square')->button()->outlined()->size('xs')
+                ->url(filled($component->getState()) ? ClientResource::getUrl('view', ['record' => $component->getState()]) : null)
+                ->openUrlInNewTab()
+                ->visible(filled($component->getState())))
             ->live()
             // «Create Invoice», «Add New Order», «Open New Ticket» from a client's Summary come with ?client_id=.
             ->default(fn () => request()->integer('client_id') ?: null)
