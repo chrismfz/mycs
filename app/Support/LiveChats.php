@@ -273,19 +273,25 @@ class LiveChats
         // Light, every 10 seconds on every admin tab (review of #479): counts and ids, never the customers' rows. A chat
         // whose operator left counts in the title (waiting()) but rings no new alert: it is not a new chat.
         $departments = self::departmentsOf($staff);
-        // By message id, not chat id (step 3β): the newest message of a waiting chat, its first, a later one or the note of
-        // a transfer from another department, so an old chat moved here rings too. Notes ring no one.
+        // By message id, not chat id (step 3β): a waiting chat's first message, or the system's line of a transfer from
+        // another department, so an old chat moved here rings too. Not the customer's later messages: one chat rings
+        // once, the reminder does the rest (ADV-884-3). Notes ring no one.
         $newest = LiveChatMessage::query()->join('live_chats', 'live_chats.id', '=', 'live_chat_messages.chat_id')
             ->where('live_chats.status', LiveChat::WAITING)->whereIn('live_chats.department_id', $departments)
-            ->where('live_chat_messages.author_type', '!=', LiveChatMessage::NOTE)
+            ->where(fn ($query) => $query->where('live_chat_messages.author_type', LiveChatMessage::SYSTEM)
+                ->orWhereRaw('live_chat_messages.id = (select min(opening.id) from live_chat_messages opening where opening.chat_id = live_chat_messages.chat_id)'))
             ->orderByDesc('live_chat_messages.id')->first(['live_chat_messages.id', 'live_chats.department_id']);
         $department = $newest === null ? null : TicketDepartment::query()->find($newest->getAttribute('department_id'), ['id', 'name']);
         $mine = LiveChat::query()->where('status', LiveChat::ACTIVE)->where('assigned_to', $staff->id)
             ->whereIn('department_id', $departments)->pluck('id');
-        // The customer's messages in the member's chats, and a colleague's transfer of a chat to them (step 3β).
+        // The customer's messages in the member's chats, and a colleague's transfer of a chat to them (step 3β): a system
+        // line by someone else that is the chat's latest system line. A take-over writes its own line, newer than an old
+        // transfer between two others, so it is not announced as a transfer (ADV-884-4).
         $message = $mine->isEmpty() ? null : LiveChatMessage::query()->whereIn('chat_id', $mine)
             ->where(fn ($query) => $query->where('author_type', LiveChatMessage::CLIENT)
-                ->orWhere(fn ($query) => $query->where('author_type', LiveChatMessage::SYSTEM)->where('staff_id', '!=', $staff->id)))
+                ->orWhere(fn ($query) => $query->where('author_type', LiveChatMessage::SYSTEM)->where('staff_id', '!=', $staff->id)
+                    ->whereNotExists(fn ($later) => $later->from('live_chat_messages as later')->whereColumn('later.chat_id', 'live_chat_messages.chat_id')
+                        ->where('later.author_type', LiveChatMessage::SYSTEM)->whereColumn('later.id', '>', 'live_chat_messages.id'))))
             ->orderByDesc('id')->first(['id', 'chat_id', 'author_type']);
 
         return [
@@ -407,12 +413,12 @@ class LiveChats
             return __('Too many messages, wait a moment.');
         }
 
-        return self::write($chat, ['author_type' => LiveChatMessage::NOTE, 'staff_id' => $staff->id, 'body' => $body], participant: false);
+        return self::write($chat, ['author_type' => LiveChatMessage::NOTE, 'staff_id' => $staff->id, 'body' => $body], participant: false, department: $chat->department_id);
     }
 
     /**
      * Where the member may pass their active chat (step 3β): a colleague of its department who is connected and may
-     * answer it (F3), or another department that takes chats.
+     * answer it (F3), or another department that takes chats and has someone available.
      *
      * @return array{operators: list<Staff>, departments: Collection<int, TicketDepartment>}
      */
@@ -428,7 +434,10 @@ class LiveChats
             }
         }
 
-        return ['operators' => $operators, 'departments' => self::departments()->where('id', '!=', $chat->department_id)->values()];
+        // Only where someone can answer now, as start() asks (ADV-884-1): never a queue no one reads.
+        $departments = self::departments()->filter(fn (TicketDepartment $department) => $department->id !== $chat->department_id && self::availableIn($department->id));
+
+        return ['operators' => $operators, 'departments' => $departments->values()];
     }
 
     /**
@@ -528,15 +537,19 @@ class LiveChats
      *
      * @param  array<string, mixed>  $message
      */
-    private static function write(LiveChat $chat, array $message, bool $participant, ?int $operator = null): ?string
+    private static function write(LiveChat $chat, array $message, bool $participant, ?int $operator = null, ?int $department = null): ?string
     {
-        return DB::transaction(function () use ($chat, $message, $participant, $operator) {
+        return DB::transaction(function () use ($chat, $message, $participant, $operator, $department) {
             $locked = LiveChat::query()->whereKey($chat->id)->lockForUpdate()->first();
             if ($locked === null || !$locked->isOpen()) {
                 return __('This chat is closed.');
             }
             // Still theirs under the lock: a take-over in between wins (re-review of #475).
             if ($operator !== null && $locked->assigned_to !== $operator) {
+                return __('You may not write here.');
+            }
+            // Still in the department the writer was checked for: a transfer in between moves it out of reach (ADV-884-2).
+            if ($department !== null && $locked->department_id !== $department) {
                 return __('You may not write here.');
             }
             $locked->messages()->create($message);
