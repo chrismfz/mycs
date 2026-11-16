@@ -306,6 +306,29 @@ class Cart
         }
     }
 
+    /**
+     * One more of a product sold one service each («Separated», owner 2026-11-16: «I must press Order one by one»): a copy
+     * of the item, its plan and options, as its own line, through add() (its limits, the cart's size and the coupon).
+     * Not when the item carries per-service details (its checkout fields): those are typed for each one.
+     */
+    public static function addAnother(int $index): void
+    {
+        $item = self::get()->items()->with(['product', 'plan'])->whereKey($index)->first();
+        if ($item === null || !self::canAddAnother($item)) {
+            return;
+        }
+        // Not the add limit: a copy of a line already in the cart, and the cart holds at most DEFAULT_MAX_ITEMS (15 Agents
+        // at once hit the limit at 10).
+        self::add($item->product, $item->plan, $item->config_options ?? [], $item->checkout_config ?? [], 1, limited: false);
+    }
+
+    /** An item of a «Separated» product with no per-service details: one more is the same again. */
+    public static function canAddAnother(CartItem $item): bool
+    {
+        return !$item->isDomain() && $item->product !== null && $item->plan !== null
+            && $item->product->allow_quantity === 'separated' && empty($item->checkout_config);
+    }
+
     public static function updateQuantity($index, $quantity)
     {
         $cart = self::get();
