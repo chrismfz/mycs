@@ -89,6 +89,12 @@
                             </x-button.secondary>
                         </div>
                         @endif
+                        {{-- One more of a product sold one service each (owner 2026-11-16): a line of its own. --}}
+                        @if (\App\Classes\Cart::canAddAnother($item))
+                        <x-button.secondary wire:click="addAnother({{ $item->id }})" wire:loading.attr="disabled" wire:target="addAnother({{ $item->id }})" class="h-fit !w-fit">
+                            + {{ __('product.add_another') }}
+                        </x-button.secondary>
+                        @endif
                         @if (!$item->isDomain() && ($item->product->availablePlans()->count() > 1 || $item->product->configOptions->isNotEmpty() || !empty($item->checkout_config)))
                         <a href="{{ route('products.checkout', [$item->product->category, $item->product, 'edit' => $item->id]) }}"
                             wire:navigate>

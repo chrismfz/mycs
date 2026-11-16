@@ -106,6 +106,16 @@ class Cart extends Component
         $this->updateTotal();
     }
 
+    public function addAnother(int $index): void
+    {
+        try {
+            ClassesCart::addAnother($index);
+        } catch (DisplayException $e) {
+            $this->notify($e->getMessage(), 'error');
+        }
+        $this->updateTotal();
+    }
+
     public function updateQuantity($index, $quantity)
     {
         ClassesCart::updateQuantity($index, $quantity);
