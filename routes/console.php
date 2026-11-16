@@ -8,6 +8,7 @@ use App\Console\Commands\Domains\SyncDomains;
 use App\Console\Commands\EuVatRatesCheck;
 use App\Console\Commands\FetchTicketMail;
 use App\Console\Commands\GatewayLogPrune;
+use App\Console\Commands\LiveChatCloseIdle;
 use App\Console\Commands\MailSweep;
 use App\Console\Commands\MoneyCheckCommand;
 use App\Console\Commands\OwedCreatesCommand;
@@ -72,6 +73,7 @@ Schedule::command(SyncSslOrders::class)->description('Reads every Openprovider S
 Schedule::command(ReadBalances::class)->description('Reads what is left with each registrar (the dashboard\'s «Registrar credit»; staff mailed when low)')->hourlyAt(7)->withoutOverlapping(30)->onOneServer();
 Schedule::command(SyncCosts::class)->description('Reads the registrars\' costs for the TLDs (never a price)')->weeklyOn(1, '05:30')->withoutOverlapping(60)->onOneServer();
 Schedule::command(GatewayLogPrune::class)->description('Deletes refused gateway requests that moved no money, after 90 days')->dailyAt('06:15')->withoutOverlapping(30)->onOneServer();
+Schedule::command(LiveChatCloseIdle::class)->description('Closes live chats where no one wrote for the minutes set (Settings → Tickets)')->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command(RegistrarDebugLogPrune::class)->description('Deletes registrar debug log files (contacts\' details) after 14 days')->dailyAt('06:20')->withoutOverlapping(30)->onOneServer();
 // The mail audit (docs/mail.md): mails stuck in sending or pending are marked failed, for staff to resend.
 Schedule::command(MailSweep::class)->description('Marks mails stuck on their way out as failed')->everyFifteenMinutes()->withoutOverlapping(30)->onOneServer();

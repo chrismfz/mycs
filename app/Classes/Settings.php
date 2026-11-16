@@ -541,6 +541,18 @@ class Settings
                     'default' => false,
                     'description' => 'A «Chat» bubble in the client area, for logins with the «chat» permission. Who answers is set per department (Configuration → Ticket Departments → Live chat); a department with no one listed takes no chats.',
                 ],
+                [
+                    // Step 3β: a chat with no message from the customer or an operator for this long closes by itself,
+                    // waiting or active alike (docs/livechat.md §7, step 6).
+                    'name' => 'livechat_idle_minutes',
+                    'label' => 'Close idle chats after (minutes)',
+                    'type' => 'number',
+                    'default' => 30,
+                    'required' => true,
+                    'min_value' => 0,
+                    'validation' => 'integer|min:0|max:1440',
+                    'description' => 'A customer\'s chat with no message, from them or an operator, and not taken or transferred, for this many minutes is closed, whether it waits or was taken; the customer is told the chat ended. Internal notes do not count. 0 never closes one.',
+                ],
             ],
 
             // The Automation tab: WHMCS's Automation Settings, its sections and wording (docs/settings-map.md). The

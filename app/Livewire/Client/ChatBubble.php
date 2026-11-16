@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Support\CurrentClient;
 use App\Support\LiveChats;
 use Illuminate\View\View;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
@@ -21,6 +22,13 @@ class ChatBubble extends Component
     public ?int $department = null;
 
     public string $body = '';
+
+    /**
+     * The open chat this panel last showed: once it closes (the operator, the customer, idle), the panel says so instead of
+     * silently offering a new one (step 3β). Locked, and read back only for the current account's own chat.
+     */
+    #[Locked]
+    public ?int $shown = null;
 
     public function toggle(): void
     {
@@ -65,14 +73,23 @@ class ChatBubble extends Component
         }
     }
 
+    /** «Start a new chat» after the notice that the last one ended. */
+    public function newChat(): void
+    {
+        $this->shown = null;
+        $this->resetErrorBag();
+    }
+
     public function render(): View
     {
         $may = LiveChats::customerMay($this->user());
         $chat = $may ? $this->chat() : null;
+        $ended = $may && $chat === null && $this->shown !== null && LiveChats::endedChatOf(CurrentClient::id(), $this->shown) !== null;
+        $this->shown = $chat !== null ? $chat->id : ($ended ? $this->shown : null);
         // Offline, the bubble hides (owner 2026-10-27), but never in the middle of the account's own open chat.
         $available = $may && $chat === null ? LiveChats::availableDepartmentIds() : [];
-        $shown = $may && ($chat !== null || $available !== []);
-        $departments = $shown && $this->open && $chat === null ? LiveChats::departments()->whereIn('id', $available)->values() : collect();
+        $shown = $may && ($chat !== null || $ended || $available !== []);
+        $departments = $shown && $this->open && $chat === null && !$ended ? LiveChats::departments()->whereIn('id', $available)->values() : collect();
         if ($this->department === null || !$departments->contains('id', $this->department)) {
             $this->department = $departments->first()?->id;
         }
@@ -80,6 +97,7 @@ class ChatBubble extends Component
         return view('livewire.client.chat-bubble', [
             'may' => $shown,
             'chat' => $chat,
+            'ended' => $ended,
             // The staff's notes (a take-over) are not the customer's (F20).
             'messages' => $chat ? LiveChats::customerMessages($chat) : collect(),
             'departments' => $departments,
