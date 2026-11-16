@@ -13,6 +13,7 @@ use App\Http\Controllers\ServicePanelLoginController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\SslFileController;
 use App\Http\Controllers\TicketAttachmentController;
+use App\Http\Middleware\ChatPopupHeaders;
 use App\Http\Middleware\LegacyWhmcsRp;
 use App\Http\Middleware\LockSession;
 use App\Http\Middleware\MustVerfiyEmail;
@@ -85,9 +86,10 @@ Route::get('/captcha/altcha', fn (Altcha $altcha) => Contact::captchaKind() === 
 // auth()->logout();
 // Authorization routes
 Route::group(['middleware' => ['web', 'guest']], function () {
-    Route::get('/login', Auth\Login::class)->name('login');
-    Route::get('/2fa', Auth\Tfa::class)->name('2fa');
-    Route::get('/register', Auth\Register::class)->name('register');
+    // The popup's login too, and its 2FA and sign-up (docs/livechat.md §4, G10): no frame, no opener, no Referer beyond our origin.
+    Route::get('/login', Auth\Login::class)->name('login')->middleware(ChatPopupHeaders::class);
+    Route::get('/2fa', Auth\Tfa::class)->name('2fa')->middleware(ChatPopupHeaders::class);
+    Route::get('/register', Auth\Register::class)->name('register')->middleware(ChatPopupHeaders::class);
     // Todo
     Route::get('/password/request', Auth\Password\Request::class)->name('password.request');
     Route::get('/password/reset/{token}', Auth\Password\Reset::class)->name('password.reset')->middleware(PrivateLinkHeaders::class);

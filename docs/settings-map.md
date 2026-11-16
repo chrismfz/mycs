@@ -94,6 +94,9 @@
 |---|---|---|
 | Live chat for customers | off | **P:** `livechat_enabled`: η φούσκα «Chat» στο client area (docs/livechat.md, 3α). Ποιος απαντά, ανά τμήμα |
 | Close idle chats after (minutes) | 30 | **P:** `livechat_idle_minutes` (0–1440· 0 = ποτέ): το `mycs:livechat-close-idle` (κάθε λεπτό) κλείνει chat, waiting ή active, χωρίς μήνυμα πελάτη ή operator τόσα λεπτά· οι σημειώσεις δεν μετράνε. Σημείωση SYSTEM για το staff, «Η συζήτηση έκλεισε» στον πελάτη (3β, 2026-11-16) |
+| Live chat for visitors of our sites | off | **P:** `livechat_guest_enabled`: ανώνυμοι επισκέπτες από το popup `/chat` που ανοίγει ο launcher (docs/livechat.md, βήμα 4). Θέλει και το `livechat_enabled`. Τα τμήματα `clients_only` δεν παίρνουν ποτέ επισκέπτες |
+| Sites with the chat launcher | κενό | **P:** `livechat_sites`: hostnames των sites με launcher. Το `src` του popup κρατιέται μόνο αν είναι στη λίστα, ως ετικέτα για το staff (§4, F17) |
+| A visitor's chat stays reachable for (hours) | 24 | **P:** `livechat_visitor_hours` (1–168): το token του επισκέπτη, μόνο στο session του, φτάνει στο chat του τόσες ώρες μετά το τελευταίο του μήνυμα (§3 Γ) |
 
 ## Αυτοματισμοί (Automation Settings)
 Η καρτέλα **Automation** των ρυθμίσεων (key `cronjob`) ακολουθεί τις ενότητες και τη διατύπωση της σελίδας Automation

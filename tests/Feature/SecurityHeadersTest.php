@@ -17,7 +17,8 @@ class SecurityHeadersTest extends TestCase
 
     public function test_a_page_carries_the_protections(): void
     {
-        $response = $this->get('/login');
+        // Not /login: it carries the chat popup's stricter ones (ChatPopupHeaders, LiveChatVisitorModelTest).
+        $response = $this->get('/contact');
 
         $response->assertOk();
         $this->assertContains(SecurityHeaders::CSP, $response->headers->all('content-security-policy'));

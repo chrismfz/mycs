@@ -288,7 +288,7 @@ class LiveChats
         // line by someone else that is the chat's latest system line. A take-over writes its own line, newer than an old
         // transfer between two others, so it is not announced as a transfer (ADV-884-4).
         $message = $mine->isEmpty() ? null : LiveChatMessage::query()->whereIn('chat_id', $mine)
-            ->where(fn ($query) => $query->where('author_type', LiveChatMessage::CLIENT)
+            ->where(fn ($query) => $query->whereIn('author_type', [LiveChatMessage::CLIENT, LiveChatMessage::VISITOR])
                 ->orWhere(fn ($query) => $query->where('author_type', LiveChatMessage::SYSTEM)->where('staff_id', '!=', $staff->id)
                     ->whereNotExists(fn ($later) => $later->from('live_chat_messages as later')->whereColumn('later.chat_id', 'live_chat_messages.chat_id')
                         ->where('later.author_type', LiveChatMessage::SYSTEM)->whereColumn('later.id', '>', 'live_chat_messages.id'))))
@@ -537,7 +537,7 @@ class LiveChats
         // Since the chat last changed hands too (updated_at: a claim, a take-over, a transfer), so one just taken or moved
         // to another department is not closed a minute later (ADV-885-1/2).
         return $query->where('status', '!=', LiveChat::CLOSED)->where('created_at', '<=', $since)->where('updated_at', '<=', $since)
-            ->whereDoesntHave('messages', fn ($messages) => $messages->whereIn('author_type', LiveChatMessage::CUSTOMER_VISIBLE)->where('created_at', '>', $since));
+            ->whereDoesntHave('messages', fn ($messages) => $messages->whereIn('author_type', LiveChatMessage::PARTICIPANTS)->where('created_at', '>', $since));
     }
 
     /** The account's chat with this id, closed: what the bubble shows as «the chat ended» (never another account's). */
