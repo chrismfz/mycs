@@ -67,6 +67,11 @@
         @foreach (['all' => 'All', 'silent' => 'Silent', 'never' => 'Never checked', 'removed' => 'Removed (' . $counts['removed'] . ')'] as $key => $label)
         <x-filament::button size="xs" :color="$filter === $key ? 'primary' : 'gray'" wire:click="$set('filter', '{{ $key }}')">{{ $label }}</x-filament::button>
         @endforeach
+        @if ($canEdit)
+        {{-- The page's own actions, here by the list (owner 2026-11-16). --}}
+        <x-filament::button size="xs" icon="ri-add-line" wire:click="$parent.mountAction('addLicenseIps')">Add IPs</x-filament::button>
+        <x-filament::button size="xs" color="gray" icon="ri-subtract-line" wire:click="$parent.mountAction('removeLicenseIps')">Remove IPs</x-filament::button>
+        @endif
     </div>
     <div class="overflow-x-auto">
         <table class="w-full">
@@ -77,6 +82,7 @@
                     <th class="py-1 pe-3 font-medium">Since</th>
                     @if ($filter === 'removed')<th class="py-1 pe-3 font-medium">Removed</th>@endif
                     <th class="py-1 font-medium">Last good check</th>
+                    @if ($canEdit && $filter !== 'removed')<th class="py-1"></th>@endif
                 </tr>
             </thead>
             <tbody>
@@ -93,9 +99,14 @@
                             <x-filament::badge size="sm" :color="$row->removed_at === null && $row->last_ok_at->lt($silentSince) ? 'warning' : 'success'" :tooltip="$row->last_ok_at->toDateTimeString()">{{ $row->last_ok_at->diffForHumans() }}</x-filament::badge>
                         @endif
                     </td>
+                    @if ($canEdit && $filter !== 'removed')
+                    <td class="py-1.5 text-end">
+                        <x-filament::link tag="button" size="sm" color="danger" wire:click="$parent.mountAction('removeLicenseIps', { ids: [{{ $row->id }}] })">Remove</x-filament::link>
+                    </td>
+                    @endif
                 </tr>
                 @empty
-                <tr><td colspan="5" class="py-3 text-gray-500">None.</td></tr>
+                <tr><td colspan="6" class="py-3 text-gray-500">None.</td></tr>
                 @endforelse
             </tbody>
         </table>
