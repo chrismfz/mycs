@@ -320,6 +320,8 @@ class Cart
         // Not the add limit: a copy of a line already in the cart, and the cart holds at most DEFAULT_MAX_ITEMS (15 Agents
         // at once hit the limit at 10).
         self::add($item->product, $item->plan, $item->config_options ?? [], $item->checkout_config ?? [], 1, limited: false);
+        // The page's cart, read again: add() worked on its own copy, and the click must show the new line (ADV-879-1).
+        self::get()->load('items.plan', 'items.product', 'items.product.configOptions.children.plans.prices');
     }
 
     /** An item of a «Separated» product with no per-service details: one more is the same again. */
