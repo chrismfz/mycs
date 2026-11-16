@@ -48,6 +48,10 @@
                 <x-button.primary type="submit" class="!w-auto">{{ __('Send') }}</x-button.primary>
             </div>
         </form>
+        @elseif ($ended)
+        {{-- Closed by the operator, by the customer or for want of messages (step 3β): said, not silently replaced. --}}
+        <p class="text-sm">{{ __('The chat has ended.') }}</p>
+        <button type="button" class="self-start text-sm underline" wire:click="newChat">{{ __('Start a new chat') }}</button>
         @elseif ($departments->isEmpty())
         <p class="text-sm opacity-80">{{ __('Live chat is not available right now.') }}</p>
         @if ($ticketsUrl) <a href="{{ $ticketsUrl }}" wire:navigate class="text-sm underline">{{ __('Open a ticket') }}</a> @endif

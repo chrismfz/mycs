@@ -488,6 +488,62 @@ class LiveChats
         });
     }
 
+    // ---- idle close (step 3β)
+
+    /** Minutes without a message after which a chat closes by itself; 0 never. */
+    public static function idleMinutes(): int
+    {
+        return max(0, (int) config('settings.livechat_idle_minutes', 30));
+    }
+
+    /**
+     * Closes the open chats, waiting or active, where neither the customer nor an operator wrote for idleMinutes(); notes
+     * and the system's lines do not count. Each one under the chat's lock, checked again there, so a message written at
+     * that moment either lands first and keeps the chat open, or finds it closed (F16). A note for the staff says why.
+     * Returns how many it closed.
+     */
+    public static function closeIdle(): int
+    {
+        $minutes = self::idleMinutes();
+        if ($minutes === 0) {
+            return 0;
+        }
+        $closed = 0;
+        foreach (self::idle(LiveChat::query(), $minutes)->pluck('id') as $id) {
+            $closed += (int) DB::transaction(function () use ($id, $minutes) {
+                $chat = self::idle(LiveChat::query()->whereKey($id), $minutes)->lockForUpdate()->first();
+                if ($chat === null) {
+                    return false;
+                }
+                $chat->forceFill(['status' => LiveChat::CLOSED, 'closed_at' => now()])->save();
+                $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM,
+                    'body' => __('Closed after :minutes minutes without a message.', ['minutes' => $minutes])]);
+
+                return true;
+            });
+        }
+
+        return $closed;
+    }
+
+    /**
+     * @param  Builder<LiveChat>  $query
+     * @return Builder<LiveChat>
+     */
+    private static function idle(Builder $query, int $minutes): Builder
+    {
+        $since = now()->subMinutes($minutes);
+
+        return $query->where('status', '!=', LiveChat::CLOSED)->where('created_at', '<=', $since)
+            ->whereDoesntHave('messages', fn ($messages) => $messages->whereIn('author_type', LiveChatMessage::CUSTOMER_VISIBLE)->where('created_at', '>', $since));
+    }
+
+    /** The account's chat with this id, closed: what the bubble shows as «the chat ended» (never another account's). */
+    public static function endedChatOf(int $clientId, int $chatId): ?LiveChat
+    {
+        return LiveChat::query()->whereKey($chatId)->where('client_id', $clientId)->where('status', LiveChat::CLOSED)->first();
+    }
+
     // ---- shared
 
     /** @return \Illuminate\Support\Collection<int, LiveChatMessage> the latest messages, oldest first */

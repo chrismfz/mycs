@@ -89,6 +89,12 @@
 | Merge, σημειώσεις staff | 72 / 227 | E |
 | Auto-close | 48 ώρες | E? / P (`cronjob_close_ticket`) |
 
+### Live chat (καρτέλα Tickets· όχι στο WHMCS)
+| Ρύθμιση | Default | MyCS |
+|---|---|---|
+| Live chat for customers | off | **P:** `livechat_enabled`: η φούσκα «Chat» στο client area (docs/livechat.md, 3α). Ποιος απαντά, ανά τμήμα |
+| Close idle chats after (minutes) | 30 | **P:** `livechat_idle_minutes` (0–1440· 0 = ποτέ): το `mycs:livechat-close-idle` (κάθε λεπτό) κλείνει chat, waiting ή active, χωρίς μήνυμα πελάτη ή operator τόσα λεπτά· οι σημειώσεις δεν μετράνε. Σημείωση SYSTEM για το staff, «Η συζήτηση έκλεισε» στον πελάτη (3β, 2026-11-16) |
+
 ## Αυτοματισμοί (Automation Settings)
 Η καρτέλα **Automation** των ρυθμίσεων (key `cronjob`) ακολουθεί τις ενότητες και τη διατύπωση της σελίδας Automation
 Settings του WHMCS. Κάθε εταιρεία έχει τις δικές της τιμές στη βάση του instance της· τα defaults του κώδικα είναι της
