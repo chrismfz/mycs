@@ -7,8 +7,12 @@
             @forelse ($queue as $chat)
             <li class="flex items-center gap-2 text-sm">
                 <span class="min-w-0 flex-1">
-                    <span class="block truncate font-medium text-gray-800 dark:text-gray-100">{{ $chat->isVisitor() ? __('Visitor') : ($chat->client?->name ?? __('Customer')) }}</span>
+                    <span class="block truncate font-medium text-gray-800 dark:text-gray-100">{{ $chat->isVisitor() ? __('Visitor') . ($chat->visitor_name !== null ? ': ' . $chat->visitor_name : '') : ($chat->client?->name ?? __('Customer')) }}</span>
                     <span class="block text-xs text-gray-500 dark:text-gray-400">{{ $chat->department?->name }} · {{ $chat->created_at?->diffForHumans(short: true) }}@if ($chat->status === \App\Models\LiveChat::ACTIVE) · {{ __('no operator') }}@endif</span>
+                    @if ($chat->isVisitor() && ($chat->src !== null || $chat->page !== null))
+                    {{-- A label, escaped text, never a link (§4). --}}
+                    <span class="block truncate text-xs text-gray-500 dark:text-gray-400">{{ ($chat->src ?? '') . ($chat->page ?? '') }}</span>
+                    @endif
                 </span>
                 @if ($reply)
                 <x-filament::button size="xs" wire:click="claim({{ (int) $chat->id }})">{{ $chat->status === \App\Models\LiveChat::ACTIVE ? __('Take over') : __('Take') }}</x-filament::button>

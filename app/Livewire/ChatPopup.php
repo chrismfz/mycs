@@ -9,6 +9,7 @@ use App\Support\Actor;
 use App\Support\ChatVisitor;
 use App\Support\LiveChats;
 use App\Support\VisitorChats;
+use App\Support\VisitorChatTools;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
@@ -127,6 +128,27 @@ class ChatPopup extends Component
         }
     }
 
+    /** After a login in this session: «Continue with the same operator as …» (§3 Δ), a POST. */
+    public function continueAsCustomer(): void
+    {
+        $user = Auth::guard('web')->user();
+        if (!$user instanceof User || Actor::impersonating()) {
+            return;
+        }
+        $refusal = VisitorChatTools::confirm($user);
+        if ($refusal !== null) {
+            $this->addError('handoff', $refusal);
+        }
+    }
+
+    public function declineHandoff(): void
+    {
+        $user = Auth::guard('web')->user();
+        if ($user instanceof User && !Actor::impersonating()) {
+            VisitorChatTools::decline($user);
+        }
+    }
+
     /** «New chat» after the notice that the last one ended: this session lets go of the old one. */
     public function newChat(): void
     {
@@ -142,8 +164,11 @@ class ChatPopup extends Component
         $user = Auth::guard('web')->user();
         $chat = null;
         $departments = collect();
+        $handoff = $user instanceof User && !Actor::impersonating() ? VisitorChatTools::pending($user) : null;
         $mode = match (true) {
             Actor::impersonating() => 'impersonating',
+            // Only the question of the move while it waits (G8): nothing is written as a visitor any more.
+            $handoff !== null => 'handoff',
             $user instanceof User => LiveChats::customerMay($user) ? 'customer' : 'unavailable',
             !ChatVisitor::guestEnabled() => 'unavailable',
             default => null,
@@ -171,7 +196,8 @@ class ChatPopup extends Component
             'mode' => $mode,
             'user' => $user instanceof User ? $user : null,
             'chat' => $chat,
-            'messages' => $chat !== null ? ChatVisitor::messages($chat) : collect(),
+            'messages' => ($chat ?? $handoff) !== null ? ChatVisitor::messages($chat ?? $handoff) : collect(),
+            'handoff' => $handoff,
             'departments' => $departments,
         ])->layout('layouts.popup', ['title' => __('Live chat')]);
     }

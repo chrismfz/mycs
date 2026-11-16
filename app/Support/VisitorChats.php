@@ -65,10 +65,11 @@ class VisitorChats
         return $available->firstWhere('id', $wanted) ?? $available->first();
     }
 
-    /** This session may write as a visitor: the setting on, no customer signed in, no staff in «Login as client». */
+    /** This session may write as a visitor: the setting on, no customer signed in, no staff in «Login as client», its address not blocked. */
     public static function may(): bool
     {
-        return ChatVisitor::guestEnabled() && !Auth::guard('web')->check() && !Actor::impersonating();
+        return ChatVisitor::guestEnabled() && !Auth::guard('web')->check() && !Actor::impersonating()
+            && !VisitorChatTools::blocked(CallerIp::key());
     }
 
     /** A visitor's name as kept: one line, no control or format characters; null when empty or too long (§3 Β). */

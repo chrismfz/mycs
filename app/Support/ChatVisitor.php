@@ -65,7 +65,7 @@ class ChatVisitor
      * staff in «Login as client» in the same session (§3 Δ, G2, F9): the token stays there, unused, for the move to a
      * customer's chat to find (holds()). A closed chat takes its token with it (§3 Γ, F22): the next one at the same
      * browser reads nothing of it, only that it ended (ended()). An expired or revoked token leaves the session. Never
-     * a chat with a client (linked by staff: §6α).
+     * a chat with a client (linked by staff: §6α), nor one frozen by a login for the move to a customer's chat (G2).
      */
     public static function chat(?Session $session = null): ?LiveChat
     {
@@ -77,7 +77,8 @@ class ChatVisitor
         if (Auth::guard('web')->check() || $session->has('impersonating')) {
             return null;
         }
-        $chat = LiveChat::query()->where('visitor_token_hash', self::hash($token))->whereNull('client_id')->first();
+        $chat = LiveChat::query()->where('visitor_token_hash', self::hash($token))->whereNull('client_id')
+            ->whereNull('handoff_user_id')->first();
         $since = $chat === null ? null : ($chat->last_participant_message_at ?? $chat->created_at);
         if ($chat === null || $since === null || $since->copy()->addHours(self::hours())->isPast()) {
             $session->forget(self::SESSION_KEY);
