@@ -69,7 +69,9 @@
         @endforeach
         @if ($canEdit)
         {{-- The page's own actions, here by the list (owner 2026-11-16). --}}
+        @if ($isBulk)
         <x-filament::button size="xs" icon="ri-add-line" wire:click="$parent.mountAction('addLicenseIps')">Add IPs</x-filament::button>
+        @endif
         <x-filament::button size="xs" color="gray" icon="ri-subtract-line" wire:click="$parent.mountAction('removeLicenseIps')">Remove IPs</x-filament::button>
         @endif
     </div>

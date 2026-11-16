@@ -12,6 +12,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Licensing\BulkLicenseIps;
 use App\Services\Licensing\BulkUsage;
+use App\Services\Licensing\Licenses;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -47,7 +48,11 @@ class BulkLicenseStaff extends Component
 
     /** The page changed the list (an action of its own): draw it again (owner 2026-11-16: «2 added» and the old list). */
     #[On('bulk-license-changed')]
-    public function refreshList(): void {}
+    public function refreshList(): void
+    {
+        // Back to the first page: a page emptied by a removal would read «None.» (review of #881).
+        $this->resetPage();
+    }
 
     public function updatedSearch(): void
     {
@@ -109,6 +114,8 @@ class BulkLicenseStaff extends Component
             'silentSince' => $silentSince,
             // The page's Add IPs / Remove IPs, to staff who may change the service.
             'canEdit' => (bool) auth('staff')->user()?->can('update', $this->service),
+            // «Add IPs» only on a bulk license (a license no longer bulk shows its list to be freed: review of #881).
+            'isBulk' => Licenses::isBulk($this->service),
         ]);
     }
 
