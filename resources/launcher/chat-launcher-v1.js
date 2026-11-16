@@ -4,6 +4,11 @@
     'use strict';
     var buttons = document.querySelectorAll('[data-mycs-chat]');
     for (var i = 0; i < buttons.length; i++) {
+        // Once, however many copies of this code a page carries.
+        if (buttons[i].hasAttribute('data-mycs-bound')) {
+            continue;
+        }
+        buttons[i].setAttribute('data-mycs-bound', '');
         buttons[i].addEventListener('click', function (event) {
             var url = new URL(event.currentTarget.getAttribute('data-mycs-chat'));
             url.searchParams.set('page', location.pathname);

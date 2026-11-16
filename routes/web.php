@@ -93,7 +93,7 @@ Route::get('/chat/altcha', fn (Altcha $altcha) => VisitorChats::may()
     : abort(404))->name('chat.altcha')->middleware('throttle:altcha');
 // The launcher's script, for a site whose CSP allows no inline script (docs/livechat.md §4): one file per version, under
 // SRI, so it is never changed in place; readable from any origin, as the SRI check needs.
-Route::get('/chat-launcher-v{version}.js', fn (string $version) => (int) $version === ChatLauncher::VERSION
+Route::get('/chat-launcher-v{version}.js', fn (string $version) => $version === (string) ChatLauncher::VERSION
     ? response(ChatLauncher::script(), 200, ['Content-Type' => 'application/javascript; charset=utf-8', 'Access-Control-Allow-Origin' => '*',
         'Cache-Control' => 'public, max-age=31536000, immutable'])
     : abort(404))->name('chat.launcher')->whereNumber('version')->withoutMiddleware(['web']);

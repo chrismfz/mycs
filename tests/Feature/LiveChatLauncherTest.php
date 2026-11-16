@@ -86,6 +86,8 @@ class LiveChatLauncherTest extends TestCase
         $this->assertSame(ChatLauncher::integrity(), 'sha384-' . base64_encode(hash('sha384', $response->getContent(), true)));
         $this->assertSame([], $response->headers->getCookies(), 'no cookie, no session for every site visitor');
         $this->get('/chat-launcher-v' . (ChatLauncher::VERSION + 1) . '.js')->assertNotFound();
+        $this->get('/chat-launcher-v0' . ChatLauncher::VERSION . '.js')->assertNotFound();
+        $this->assertStringContainsString("hasAttribute('data-mycs-bound')", ChatLauncher::script(), 'each button bound once, whatever copies a page has');
     }
 
     public function test_the_admin_page_makes_the_code_for_who_may_see_settings(): void

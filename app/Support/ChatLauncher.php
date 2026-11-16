@@ -55,8 +55,9 @@ class ChatLauncher
         $position = (string) ($choices['position'] ?? '');
         $colour = strtolower((string) ($choices['colour'] ?? ''));
         if ($site === null || ($department !== null && !VisitorChats::departments()->contains('id', $department))
-            || $text === '' || mb_strlen($text) > self::TEXT_MAX || preg_match('/[\x00-\x1F\x7F\p{Cc}\p{Cf}]/u', $text) === 1
-            || !in_array($position, self::POSITIONS, true) || preg_match('/^#[0-9a-f]{6}$/', $colour) !== 1) {
+            // No braces: Astro, Vue and their kind would run them as code on the site (ADV-890-1); one line, no separators.
+            || $text === '' || mb_strlen($text) > self::TEXT_MAX || preg_match('/[\x00-\x1F\x7F\p{Cc}\p{Cf}\p{Zl}\p{Zp}{}]/u', $text) === 1
+            || !in_array($position, self::POSITIONS, true) || preg_match('/^#[0-9a-f]{6}$/D', $colour) !== 1) {
             return null;
         }
 

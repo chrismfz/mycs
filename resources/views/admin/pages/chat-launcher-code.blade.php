@@ -55,7 +55,7 @@
         </div>
 
         @if ($code === null)
-        <p class="text-sm text-danger-600">{{ __('Choose a listed site, a text of up to :max characters on one line, and a colour.', ['max' => \App\Support\ChatLauncher::TEXT_MAX]) }}</p>
+        <p class="text-sm text-danger-600">{{ __('Choose a listed site, a text of up to :max characters on one line, and a colour.', ['max' => \App\Support\ChatLauncher::TEXT_MAX]) }} {{ __('No braces { }.') }}</p>
         @else
         <x-filament::section>
             <x-slot name="heading">{{ __('Preview') }}</x-slot>
@@ -70,6 +70,7 @@
                 </x-filament::button>
                 @if ($form === 'script')
                 <p class="text-xs text-gray-500">{{ __('Script: :url, integrity :hash. A new version is a new file; the hash of this one never changes.', ['url' => $scriptUrl, 'hash' => $integrity]) }}</p>
+                <p class="text-xs text-gray-500">{{ __('The button\'s look is an inline style: the site\'s CSP needs style-src \'unsafe-inline\', or the site styles [data-mycs-chat] itself.') }}</p>
                 @endif
                 <p class="text-xs text-gray-500">{{ __('No secrets in it, and it passes no identity: customers prove who they are only by signing in to MyCS. To change a button already on a site, make the code again and paste it again.') }}</p>
             </div>

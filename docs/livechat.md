@@ -697,6 +697,11 @@ adversarial review (§10).
    `window.open(url, 'mycs-chat', 'noopener,popup,width=420,height=640')` με `page = location.pathname`, και
    `chat_opened` στο `window.gtag` αν υπάρχει· κανένα fetch, cookie ή storage. Τίποτα δεν αποθηκεύεται: για αλλαγή,
    ξαναβγαίνει ο κώδικας.
+   Μετά τα reviews του #890: το κείμενο δεν δέχεται `{ }` (Astro, Vue κ.λπ. θα τα έτρεχαν ως κώδικα στο build του site,
+   ADV-890-1), ούτε U+2028/2029· το χρώμα ελέγχεται ως ακριβώς `#rrggbb`· το script δένει κάθε κουμπί μία φορά, όσα
+   αντίγραφα κι αν έχει η σελίδα· μόνο το ακριβές `/chat-launcher-v1.js` σερβίρεται. Λόγω `noopener` η σελίδα δεν έχει
+   λαβή στο popup, άρα κάθε κλικ ανοίγει νέο παράθυρο (δεν εστιάζει το παλιό): επιλογή, όχι σφάλμα. Η μορφή με `<script
+   src>` θέλει από το CSP του site `style-src 'unsafe-inline'` για το inline style του κουμπιού, αλλιώς στυλ από το site.
 5. **Κλείσιμο του LHC.**
    - Ticket από chat (F4), διατήρηση της IP και διαγραφή από admin;
    - import των παλιών chats (F19);
