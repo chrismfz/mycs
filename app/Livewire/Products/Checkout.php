@@ -259,10 +259,17 @@ class Checkout extends Component
         return $this->cartProductKey === null && $this->product->allow_quantity === 'separated' && $this->getCheckoutConfig() === [];
     }
 
-    /** At most what the cart has room for (its 15 lines). */
+    /** At most what the cart has room for (its 15 lines), the stock and the per-client limit (review of #880). */
     public function maxQuantity(): int
     {
-        return max(1, Cart::DEFAULT_MAX_ITEMS - Cart::get()->items()->count());
+        $max = Cart::DEFAULT_MAX_ITEMS - Cart::get()->items()->count();
+        foreach ([$this->product->stock, $this->product->per_user_limit] as $limit) {
+            if ($limit !== null && (int) $limit > 0) {
+                $max = min($max, (int) $limit);
+            }
+        }
+
+        return max(1, $max);
     }
 
     /** The bulk product's order page and cart line say how its IPs are added (owner 2026-11-16). */
@@ -352,6 +359,11 @@ class Checkout extends Component
     public function checkout()
     {
         // Do the checkout
+        // Not offered (an edit, or the product no longer sold one service each): one, never an error on a hidden field
+        // (ADV-880-1).
+        if (!$this->choosesQuantity()) {
+            $this->quantity = 1;
+        }
         // First we validate the plans
         $this->validate(attributes: $this->attributes());
 
