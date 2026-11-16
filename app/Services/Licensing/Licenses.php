@@ -6,6 +6,7 @@ use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
 use App\Models\License;
 use App\Models\LicenseAccessLog;
+use App\Models\Product;
 use App\Models\Service;
 use Illuminate\Support\Facades\DB;
 
@@ -116,7 +117,13 @@ class Licenses
      */
     public static function isBulk(?Service $service): bool
     {
-        return filter_var(ExtensionHelper::settingsToArray($service?->product->settings ?? collect())['bulk'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        return self::isBulkProduct($service?->product);
+    }
+
+    /** A bulk product (its «bulk» setting): the order page and the cart say how its IPs are added (owner 2026-11-16). */
+    public static function isBulkProduct(?Product $product): bool
+    {
+        return filter_var(ExtensionHelper::settingsToArray($product->settings ?? collect())['bulk'] ?? false, FILTER_VALIDATE_BOOLEAN);
     }
 
     /** Whether the customer may reissue it now (WHMCS: Active, the product allows it, under the limit; never a bulk one). */

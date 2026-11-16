@@ -15,6 +15,7 @@ use App\Models\Plan;
 use App\Services\Domains\DomainSearch;
 use App\Services\Domains\Lookup\VisitorKey;
 use App\Services\Domains\Ordering\DomainOffer;
+use App\Services\Licensing\Licenses;
 use App\Services\Order\OrderPricing;
 use App\Support\CurrentClient;
 use Brick\Math\BigDecimal;
@@ -57,6 +58,9 @@ class Checkout extends Component
 
     #[Url(as: 'edit'), Locked]
     public $cartProductKey = null;
+
+    /** How many of a product sold one service each (owner 2026-11-16): that many lines in the cart. */
+    public int $quantity = 1;
 
     /**
      * The hosting's domain, checked (owner 2026-10-22, as WHMCS asks before the cart): free → register it with the
@@ -134,7 +138,8 @@ class Checkout extends Component
         // As there is only one plan, config options and checkout config, we can directly call the checkout method to avoid confusion
         // This is only done when the user is not editing the cart item
         // The plans it can be ordered on: one without prices (a cycle no longer sold, an imported one: #628) is no choice.
-        if ($this->product->availablePlans()->count() === 1 && empty($this->configOptions) && empty($this->checkoutConfig)) {
+        // Not one sold one service each: its page asks how many (owner 2026-11-16).
+        if ($this->product->availablePlans()->count() === 1 && empty($this->configOptions) && empty($this->checkoutConfig) && !$this->choosesQuantity()) {
             $this->checkout();
         }
     }
@@ -245,6 +250,34 @@ class Checkout extends Component
         $this->domainAction = $this->domainOffer['status'] === DomainSearch::FREE && $this->domainOffer['register'] !== null ? 'register' : '';
     }
 
+    /**
+     * A new line of a product sold one service each, with nothing typed per service: its page asks how many, as WHMCS's
+     * «Qty» (owner 2026-11-16: «I must press Order one by one»). Never when editing a line (that line alone).
+     */
+    public function choosesQuantity(): bool
+    {
+        return $this->cartProductKey === null && $this->product->allow_quantity === 'separated' && $this->getCheckoutConfig() === [];
+    }
+
+    /** At most what the cart has room for (its 15 lines), the stock and the per-client limit (review of #880). */
+    public function maxQuantity(): int
+    {
+        $max = Cart::DEFAULT_MAX_ITEMS - Cart::get()->items()->count();
+        foreach ([$this->product->stock, $this->product->per_user_limit] as $limit) {
+            if ($limit !== null && (int) $limit > 0) {
+                $max = min($max, (int) $limit);
+            }
+        }
+
+        return max(1, $max);
+    }
+
+    /** The bulk product's order page and cart line say how its IPs are added (owner 2026-11-16). */
+    public function isBulk(): bool
+    {
+        return Licenses::isBulkProduct($this->product);
+    }
+
     public function getCheckoutConfig()
     {
         return once(fn () => ExtensionHelper::getCheckoutConfig($this->product, $this->checkoutConfig));
@@ -259,6 +292,7 @@ class Checkout extends Component
                 'required',
                 Rule::in($availablePlanIds),
             ],
+            'quantity' => ['required', 'integer', 'min:1', 'max:' . ($this->choosesQuantity() ? $this->maxQuantity() : 1)],
         ];
         foreach ($this->product->configOptions as $option) {
             if (in_array($option->type, ['text', 'number'])) {
@@ -325,6 +359,11 @@ class Checkout extends Component
     public function checkout()
     {
         // Do the checkout
+        // Not offered (an edit, or the product no longer sold one service each): one, never an error on a hidden field
+        // (ADV-880-1).
+        if (!$this->choosesQuantity()) {
+            $this->quantity = 1;
+        }
         // First we validate the plans
         $this->validate(attributes: $this->attributes());
 
@@ -393,6 +432,10 @@ class Checkout extends Component
         try {
             DB::transaction(function () use ($configOptions, $checkoutConfig, $typed, $domain) {
                 $hostingId = Cart::add($this->product, $this->plan, $configOptions, $checkoutConfig, key: $this->cartProductKey);
+                // The others of a quantity: each its own line (one service each), all or none (one hit of the add limit).
+                for ($more = 1; $more < ($this->choosesQuantity() ? $this->quantity : 1); $more++) {
+                    Cart::add($this->product, $this->plan, $configOptions, $checkoutConfig, 1, limited: false);
+                }
                 $cart = Cart::createCart();
                 // A domain ordered with this hosting before, for a name it is no longer for (an edit): out with it.
                 $keep = $domain ?? self::plainName($typed);
