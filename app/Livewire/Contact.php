@@ -55,11 +55,18 @@ class Contact extends Component
     #[Locked]
     public bool $sent = false;
 
-    public function mount()
+    /** Inside the chat popup (docs/livechat.md §7, step 4): without the page's frame and heading. */
+    #[Locked]
+    public bool $embedded = false;
+
+    /** $prefill: the chat popup's message, when no one is there to take the chat (§5α). */
+    public function mount(?string $prefill = null, bool $embedded = false)
     {
         if (Auth::guard('web')->check()) {
             return $this->redirect(CurrentClient::allows('tickets') ? route('tickets.create') : route('dashboard'), true);
         }
+        $this->embedded = $embedded;
+        $this->message = mb_substr((string) $prefill, 0, 10000);
         $this->department = $this->departments()->count() === 1 ? $this->departments()->first()?->id : null;
     }
 

@@ -1911,5 +1911,22 @@
     "A customer's chat with no message, from them or an operator, and not taken or transferred, for this many minutes is closed, whether it waits or was taken; the customer is told the chat ended. Internal notes do not count. 0 never closes one.": "Ένα chat πελάτη χωρίς μήνυμα, από τον ίδιο ή από operator, και χωρίς ανάληψη ή μεταφορά, για τόσα λεπτά κλείνει, είτε περιμένει είτε το έχει αναλάβει κάποιος· ο πελάτης βλέπει ότι η συζήτηση έκλεισε. Οι εσωτερικές σημειώσεις δεν μετράνε. Με 0 δεν κλείνει ποτέ.",
     "Closed after :minutes minutes without a message.": "Έκλεισε μετά από :minutes λεπτά χωρίς μήνυμα.",
     "The chat has ended.": "Η συζήτηση έκλεισε.",
-    "Start a new chat": "Νέα συζήτηση"
+    "Start a new chat": "Νέα συζήτηση",
+    "Visitor": "Επισκέπτης",
+    "Your chat is already open.": "Η συζήτησή σας είναι ήδη ανοιχτή.",
+    "The name may have up to :max characters, on one line.": "Το όνομα μπορεί να έχει έως :max χαρακτήρες, σε μία γραμμή.",
+    "This email address is not valid.": "Αυτή η διεύθυνση email δεν είναι έγκυρη.",
+    "Too many chats are open from your network, wait a few minutes.": "Υπάρχουν πολλές ανοιχτές συζητήσεις από το δίκτυό σας, περιμένετε λίγα λεπτά.",
+    "The chat is not available while you are logged in as a client.": "Το chat δεν είναι διαθέσιμο όσο είστε συνδεδεμένοι ως πελάτης.",
+    "Send us a message": "Στείλτε μας μήνυμα",
+    "Signed in as :name, :email (account :account)": "Συνδεδεμένος ως :name, :email (λογαριασμός :account)",
+    "Not you?": "Δεν είστε εσείς;",
+    "Sign in": "Σύνδεση",
+    "For your account: services, invoices, domains.": "Για θέματα του λογαριασμού σας: υπηρεσίες, τιμολόγια, domains.",
+    "Continue as a visitor": "Συνέχεια ως επισκέπτης",
+    "Questions before you buy.": "Ερωτήσεις πριν την αγορά.",
+    "Name (optional)": "Όνομα (προαιρετικό)",
+    "Email (optional)": "Email (προαιρετικό)",
+    "The email is needed only if you want an answer by email later. For your account, sign in instead.": "Το email χρειάζεται μόνο αν θέλετε απάντηση με email αργότερα. Για θέματα λογαριασμού, συνδεθείτε.",
+    "No one is available right now. Leave us a message and we will answer by email.": "Δεν υπάρχει διαθέσιμος συνεργάτης αυτή τη στιγμή. Αφήστε μας μήνυμα και θα σας απαντήσουμε με email."
 }

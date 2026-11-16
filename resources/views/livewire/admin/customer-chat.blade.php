@@ -7,7 +7,7 @@
             @if ($clientUrl)
             <a href="{{ $clientUrl }}" wire:navigate class="hover:underline">{{ $chat->client?->name ?? __('Customer') }}</a>
             @else
-            {{ $chat->client?->name ?? __('Customer') }}
+            {{ $chat->isVisitor() ? __('Visitor') : ($chat->client?->name ?? __('Customer')) }}
             @endif
         </h3>
         <x-filament::badge size="sm" :color="match ($chat->status) { 'waiting' => 'warning', 'active' => 'success', default => 'gray' }">{{ __(ucfirst($chat->status)) }}</x-filament::badge>
@@ -19,7 +19,10 @@
     <div class="flex max-h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
         x-data x-init="$el.scrollTop = $el.scrollHeight">
         @foreach ($messages as $message)
-        @php $client = $message->author_type === \App\Models\LiveChatMessage::CLIENT; @endphp
+        @php
+            $visitor = $message->author_type === \App\Models\LiveChatMessage::VISITOR;
+            $client = $visitor || $message->author_type === \App\Models\LiveChatMessage::CLIENT;
+        @endphp
         @if ($message->author_type === \App\Models\LiveChatMessage::SYSTEM)
         <p class="text-center text-xs text-gray-500 dark:text-gray-400">{{ $message->body }} · {{ $message->created_at?->format('d/m H:i') }}</p>
         @continue
@@ -35,7 +38,8 @@
         <div @class(['flex flex-col', 'items-start' => $client, 'items-end' => !$client])>
             <div class="text-xs text-gray-500 dark:text-gray-400">
                 {{-- Which login of the account writes (G11), not only the account. --}}
-                {{ $client ? ($message->user?->name ?? __('Customer')) : ($message->staff?->name ?? __('System')) }} · {{ $message->created_at?->format('d/m H:i') }}
+                {{-- A visitor's role from author_type, never from the name they typed (F24). --}}
+                {{ $visitor ? __('Visitor') : ($client ? ($message->user?->name ?? __('Customer')) : ($message->staff?->name ?? __('System'))) }} · {{ $message->created_at?->format('d/m H:i') }}
             </div>
             <div @class([
                 'mt-0.5 max-w-[85%] rounded-lg px-3 py-2 text-sm break-words',

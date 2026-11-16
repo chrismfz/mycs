@@ -19,6 +19,10 @@ class ChatBubble extends Component
 {
     public bool $open = false;
 
+    /** In the popup /chat (step 4): always open, a page of its own rather than a bubble on one. */
+    #[Locked]
+    public bool $popup = false;
+
     public ?int $department = null;
 
     public string $body = '';
@@ -32,7 +36,7 @@ class ChatBubble extends Component
 
     public function toggle(): void
     {
-        $this->open = !$this->open;
+        $this->open = $this->popup || !$this->open;
         $this->resetErrorBag();
     }
 
@@ -82,6 +86,9 @@ class ChatBubble extends Component
 
     public function render(): View
     {
+        if ($this->popup) {
+            $this->open = true;
+        }
         $may = LiveChats::customerMay($this->user());
         $chat = $may ? $this->chat() : null;
         $ended = $may && $chat === null && $this->shown !== null && LiveChats::endedChatOf(CurrentClient::id(), $this->shown) !== null;
@@ -95,7 +102,8 @@ class ChatBubble extends Component
         }
 
         return view('livewire.client.chat-bubble', [
-            'may' => $shown,
+            // The popup says when no one is available, rather than showing nothing.
+            'may' => $shown || ($this->popup && $may),
             'chat' => $chat,
             'ended' => $ended,
             // The staff's notes (a take-over) are not the customer's (F20).
