@@ -26,10 +26,18 @@ class ScheduleFailureOutput
                 continue; // a closure has no output; its exception is logged as ever
             }
             $event->onFailureWithOutput(function (Stringable $output) use ($event) {
-                Log::warning('Scheduled command failed: ' . ($event->description ?: $event->command), [
+                Log::error('Scheduled command failed: ' . ($event->description ?: $event->command), [
                     'exit_code' => $event->exitCode,
                     'output' => self::tail((string) $output),
                 ]);
+            });
+            // The last run's file out first (review of #883): one left by another user (a `schedule:run` as root) would
+            // fail the shell's redirect, so the command would never run; and a failure never shows an older run's output.
+            // The app owns storage/logs, so it may remove a file it cannot write.
+            $event->before(function () use ($event) {
+                if (is_file($event->output)) {
+                    @unlink($event->output);
+                }
             });
         }
     }

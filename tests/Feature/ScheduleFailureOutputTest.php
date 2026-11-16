@@ -25,10 +25,25 @@ class ScheduleFailureOutputTest extends TestCase
         $failing->run($this->app);
         $good->run($this->app);
 
-        Log::shouldHaveReceived('warning')->once()->withArgs(fn (string $message, array $context) => $message === 'Scheduled command failed: Syncs the domains'
+        Log::shouldHaveReceived('error')->once()->withArgs(fn (string $message, array $context) => $message === 'Scheduled command failed: Syncs the domains'
             && $context['exit_code'] === 3 && $context['output'] === "started\nthe registrar timed out");
         @unlink($failing->output);
         @unlink($good->output);
+    }
+
+    /** Review of #883: the last run's file goes first, so a failure never shows an older run's output (nor one root left). */
+    public function test_a_run_starts_without_the_last_runs_output(): void
+    {
+        Log::spy();
+        $schedule = new Schedule;
+        $event = $schedule->exec('sh -c \'exit 1\'')->description('Quiet failure');
+        ScheduleFailureOutput::apply($schedule);
+        file_put_contents($event->output, "an older run's reason\n");
+
+        $event->run($this->app);
+
+        Log::shouldHaveReceived('error')->once()->withArgs(fn (string $message, array $context) => $context['output'] === '');
+        @unlink($event->output);
     }
 
     public function test_every_command_of_the_real_schedule_keeps_its_output_and_closures_are_left_alone(): void
