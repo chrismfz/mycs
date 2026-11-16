@@ -4,12 +4,16 @@ namespace App\Admin\Resources;
 
 use App\Admin\Clusters\Services;
 use App\Admin\Resources\LicenseResource\Pages\ListLicenses;
+use App\Models\Client;
+use App\Models\Contact;
 use App\Models\License;
 use App\Models\LicenseInstall;
+use App\Models\Product;
 use App\Services\Licensing\LicenseTelemetry;
 use App\Services\Ops\Scrub;
 use Filament\Resources\Resource;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -62,15 +66,25 @@ class LicenseResource extends Resource
                     ->formatStateUsing(fn ($state) => auth()->user()?->hasPermission('admin.services.update') ? $state : Scrub::licenseKey($state))
                     ->copyable(fn (): bool => (bool) auth()->user()?->hasPermission('admin.services.update')),
                 // Narrow, the whole name on hover: room for the API column.
-                TextColumn::make('service.client.name')->label('Client')->limit(18)->tooltip(fn (License $record) => $record->service?->client?->name),
-                TextColumn::make('service.product.name')->label('Product')->limit(16)->tooltip(fn (License $record) => $record->service?->product?->name),
+                // Sortable (owner 2026-11-16): by the main contact's company or name, as the list shows it, and by product.
+                TextColumn::make('service.client.name')->label('Client')->limit(18)->tooltip(fn (License $record) => $record->service?->client?->name)
+                    // As Contact::displayName: a business's company, else first then last name (review of #877); ties by id.
+                    ->sortable(query: fn (Builder $query, string $direction) => $query
+                        ->orderBy(self::primaryContact("CASE WHEN contacts.type = 'business' AND contacts.company_name <> '' THEN contacts.company_name ELSE contacts.first_name END"), $direction)
+                        ->orderBy(self::primaryContact('contacts.last_name'), $direction)
+                        ->orderBy('licenses.id', $direction)),
+                TextColumn::make('service.product.name')->label('Product')->limit(16)->tooltip(fn (License $record) => $record->service?->product?->name)
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy(Product::query()->select('products.name')
+                        ->join('services', 'services.product_id', '=', 'products.id')
+                        ->whereColumn('services.id', 'licenses.service_id')->limit(1), $direction)
+                        ->orderBy('licenses.id', $direction)),
                 // The endpoint of its last check: v0 zlic.php, v1 /licensing/v1/check (the new releases).
                 TextColumn::make('last_endpoint')->label('API')->badge()->placeholder('—')
                     ->color(fn (?string $state) => $state === 'v1' ? 'success' : 'gray')
                     ->tooltip(fn (License $record) => match ($record->last_endpoint) {
                         'v1' => '/licensing/v1/check', 'v0' => 'zlic.php', default => null,
-                    })->toggleable(),
-                TextColumn::make('status')->badge()->color(fn (string $state) => match ($state) {
+                    })->sortable()->toggleable(),
+                TextColumn::make('status')->sortable()->badge()->color(fn (string $state) => match ($state) {
                     License::STATUS_ACTIVE => 'success', License::STATUS_EXPIRED => 'danger', default => 'warning',
                 }),
                 TextColumn::make('valid_ip')->label('Bound to')->placeholder('—')->searchable(),
@@ -94,12 +108,40 @@ class LicenseResource extends Resource
             ])
             ->filters([
                 SelectFilter::make('status')->options(array_combine($s = [License::STATUS_ACTIVE, License::STATUS_REISSUED, License::STATUS_SUSPENDED, License::STATUS_EXPIRED], $s)),
+                // One product, one client, one endpoint (owner 2026-11-16): the products and clients that have licenses.
+                SelectFilter::make('product')->label('Product')->multiple()
+                    ->options(fn () => Product::query()->whereHas('services', fn (Builder $services) => $services->whereHas('license'))
+                        ->orderBy('name')->pluck('name', 'id')->all())
+                    ->query(fn (Builder $query, array $data) => ($data['values'] ?? []) === [] ? $query
+                        : $query->whereHas('service', fn (Builder $service) => $service->whereIn('product_id', $data['values']))),
+                SelectFilter::make('client')->label('Client')->searchable()
+                    ->options(fn () => Client::query()->whereHas('services', fn (Builder $services) => $services->whereHas('license'))
+                        ->with(['primaryContact', 'ownerGrant.user'])->get()->mapWithKeys(fn (Client $client) => [$client->id => $client->name])->sort()->all())
+                    ->query(fn (Builder $query, array $data) => filled($data['value'] ?? null)
+                        ? $query->whereHas('service', fn (Builder $service) => $service->where('client_id', (int) $data['value'])) : $query),
+                SelectFilter::make('last_endpoint')->label('API')
+                    ->options(['v1' => 'v1 (/licensing/v1/check)', 'v0' => 'v0 (zlic.php)', 'none' => 'Never called'])
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        'v1', 'v0' => $query->where('last_endpoint', $data['value']),
+                        'none' => $query->whereNull('last_endpoint'),
+                        default => $query,
+                    }),
                 Filter::make('bulk')->label('Bulk only')->query(fn (Builder $query) => $query->whereHas('ips')), // ever had a list
                 Filter::make('silent_ips')->label('Has silent IPs')->query(fn (Builder $query) => $query->whereHas('ips', fn (Builder $ips) => $ips->whereNull('removed_at')
                     ->whereNotNull('last_ok_at')->where('last_ok_at', '<', now()->subDays(self::SILENT_DAYS)))),
                 Filter::make('moving')->label('Moving into bulk')->query(fn (Builder $query) => $query->whereNotNull('bulk_license_id')->whereNull('merged_at')),
-            ])
+            ], layout: FiltersLayout::AboveContentCollapsible)
+            // On the page, folded, as the other lists (owner 2026-11-16).
+            ->filtersFormColumns(2)
             ->recordUrl(fn (License $record) => ServiceResource::getUrl('edit', ['record' => $record->service_id]));
+    }
+
+    /** One column of the license's client's main contact, for a sort. */
+    private static function primaryContact(string $expression): Builder
+    {
+        return Contact::query()->selectRaw($expression)
+            ->join('services', 'services.client_id', '=', 'contacts.primary_of_client_id')
+            ->whereColumn('services.id', 'licenses.service_id')->limit(1);
     }
 
     public static function getPages(): array
