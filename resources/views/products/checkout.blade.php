@@ -26,6 +26,16 @@
             </x-form.select>
         @endif
 
+        {{-- How many, each its own service (owner 2026-11-16, WHMCS's «Qty»). --}}
+        @if ($this->choosesQuantity())
+            <x-form.input type="number" name="quantity" wire:model.live.debounce.300ms="quantity" min="1" :max="$this->maxQuantity()"
+                :label="__('product.quantity')" divClass="!w-40" />
+            <p class="text-sm text-base/70 -mt-2">{{ __('product.quantity_hint', ['max' => $this->maxQuantity()]) }}</p>
+        @endif
+        @if ($this->isBulk())
+            <div class="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">{{ __('product.bulk_how') }}</div>
+        @endif
+
         @foreach ($product->configOptions as $configOption)
             @php
                 $values = $configOption->orderableChildren();
@@ -150,6 +160,11 @@
         <div class="text-lg font-semibold flex justify-between">
             <h4>{{ __('product.total_today') }}:</h4> {{ $total }}
         </div>
+        @if ($this->choosesQuantity() && (int) $quantity > 1 && is_numeric($total->total))
+            <div class="text-lg font-semibold flex justify-between">
+                <h4>× {{ (int) $quantity }}:</h4> {{ $total->format(\Brick\Math\BigDecimal::of((string) $total->total)->multipliedBy((int) $quantity)->toScale(2)->toFloat()) }}
+            </div>
+        @endif
         @if ($prorataUntil !== null)
             <p class="text-sm text-base/70 mt-1">
                 {{ __('product.prorata_first_invoice', ['amount' => $total->format($prorataFirst), 'date' => $prorataUntil]) }}

@@ -86,7 +86,7 @@ class Cart
         return $cart;
     }
 
-    protected const DEFAULT_MAX_ITEMS = 15;
+    public const DEFAULT_MAX_ITEMS = 15;
 
     protected const DEFAULT_RATE_LIMIT_MAX_ATTEMPTS = 10;
 
