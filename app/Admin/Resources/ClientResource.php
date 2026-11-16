@@ -98,9 +98,12 @@ class ClientResource extends Resource
     public static function searchContacts(Builder $query, string $search): Builder
     {
         $search = trim($search);
-        $bare = preg_replace('/^[A-Za-z]{2}(?=\d)|[\s.\-]/', '', $search);
+        $bare = preg_replace('/^[A-Za-z]{2}(?=[\s.\-]*\d)|[\s.\-]/', '', $search);
 
         return $query->whereHas('contacts', fn (Builder $contacts) => $contacts->where(function (Builder $contacts) use ($search, $bare) {
+            // Filament searches word by word («el 099 887 766» is four words, each to be found), so a short number is
+            // searched in the phones and ΑΦΜ too: a few more rows for an id, known (review of #873). Archived contacts
+            // count: an old ΑΦΜ still finds its client.
             foreach (['first_name', 'last_name', 'company_name', 'email', 'phone', 'tax_id', 'vat_number'] as $column) {
                 $contacts->orWhere($column, 'like', "%{$search}%");
             }

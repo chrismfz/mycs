@@ -33,7 +33,7 @@ class ClientSearchVatTest extends TestCase
         $other->primaryContact->update(['company_name' => 'Other', 'tax_id' => '011223344']);
         Contact::factory()->create(['client_id' => $other->id, 'email' => 'billing@other-co.test']);
 
-        foreach (['099887766', 'EL099887766', 'el 099 887 766', '5550123', '2105550123', '210-555-0123'] as $search) {
+        foreach (['099887766', 'EL099887766', 'el 099 887 766', 'GR099887766', '5550123', '2105550123', '210-555-0123', '210 555 0123'] as $search) {
             Livewire::test(ListClients::class)->searchTable($search)
                 ->assertCanSeeTableRecords([$acme])->assertCanNotSeeTableRecords([$other]);
         }
