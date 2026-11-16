@@ -73,7 +73,7 @@ class ClientTransactionsTabTest extends TestCase
         $stats = collect((fn () => $this->getStats())->call(Livewire::test(ClientTransactionTotals::class, ['record' => $this->client])->instance()))
             ->mapWithKeys(fn (Stat $stat) => [(string) $stat->getLabel() => (string) $stat->getValue()]);
 
-        $this->assertSame(['Received', 'Fees', 'Refunded', 'Balance'], $stats->keys()->all());
+        $this->assertSame(['Received', 'Fees', 'Refunded', 'Balance', 'To credit'], $stats->keys()->all());
         $this->assertStringContainsString('81,84', $stats['Received']);
         $this->assertStringContainsString('1,50', $stats['Fees']);
         $this->assertStringContainsString('10,00', $stats['Refunded']);

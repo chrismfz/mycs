@@ -11,8 +11,10 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
 
 /**
  * The client's money in, as WHMCS's «Transactions» tab (owner 2026-11-16): received, fees, refunded and what is left,
- * per currency. Received is the Revenue chart's rule (succeeded, not paid from credit: a payment spread over several
- * invoices counts once).
+ * per currency, and how much of it became the client's credit (an overpayment's excess or a refund to credit: one
+ * column, owner 2026-11-16 after ADV-875-1). Received is the Revenue chart's rule (succeeded, not paid from credit: a
+ * payment spread over several invoices counts once). Balance is the cash kept; «To credit» says how much of it the
+ * client holds as credit.
  */
 class ClientTransactionTotals extends StatsOverviewWidget
 {
@@ -20,7 +22,10 @@ class ClientTransactionTotals extends StatsOverviewWidget
 
     public ?Client $record = null;
 
-    protected int|array|null $columns = 4;
+    protected int|array|null $columns = 5;
+
+    // Read when the page opens, not every 5 seconds (review of #875).
+    protected ?string $pollingInterval = null;
 
     protected function getStats(): array
     {
@@ -33,7 +38,7 @@ class ClientTransactionTotals extends StatsOverviewWidget
             ->where('invoice_transactions.status', InvoiceTransactionStatus::Succeeded)
             ->where('invoice_transactions.is_credit_transaction', false)
             ->groupBy('invoices.currency_code')
-            ->selectRaw('invoices.currency_code as currency, SUM(invoice_transactions.amount) as received, SUM(COALESCE(invoice_transactions.fee, 0)) as fees, SUM(invoice_transactions.refunded_amount) as refunded')
+            ->selectRaw('invoices.currency_code as currency, SUM(invoice_transactions.amount) as received, SUM(COALESCE(invoice_transactions.fee, 0)) as fees, SUM(invoice_transactions.refunded_amount) as refunded, SUM(invoice_transactions.credited_amount) as credited')
             ->orderBy('invoices.currency_code')
             ->toBase()->get();
 
@@ -49,6 +54,8 @@ class ClientTransactionTotals extends StatsOverviewWidget
             $stats[] = Stat::make(__('Fees') . $suffix, ClientSummary::money($fees, $currency));
             $stats[] = Stat::make(__('Refunded') . $suffix, ClientSummary::money($refunded, $currency));
             $stats[] = Stat::make(__('Balance') . $suffix, ClientSummary::money($received - $fees - $refunded, $currency));
+            $stats[] = Stat::make(__('To credit') . $suffix, ClientSummary::money($cents($row->credited), $currency))
+                ->description(__('Of the balance, held as the client\'s credit'));
         }
 
         return $stats;

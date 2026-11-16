@@ -1890,5 +1890,7 @@
     "Transactions": "Συναλλαγές",
     "Succeeded": "Επιτυχής",
     "Processing": "Σε επεξεργασία",
-    "Fee": "Fee"
+    "Fee": "Fee",
+    "To credit": "Σε πίστωση",
+    "Of the balance, held as the client's credit": "Από το υπόλοιπο, ως πίστωση του πελάτη"
 }

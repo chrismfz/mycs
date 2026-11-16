@@ -6,6 +6,7 @@ use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\ClientResource\Widgets\ClientTransactionTotals;
 use App\Admin\Resources\InvoiceResource;
+use App\Classes\Price;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\Gateway;
 use App\Models\InvoiceTransaction;
@@ -66,6 +67,10 @@ class ShowTransactions extends ManageRelatedRecords
                 TextColumn::make('formattedFee')->label(__('Fee')),
                 TextColumn::make('formattedRefundedAmount')->label(__('Refunded'))
                     ->formatStateUsing(fn ($state, InvoiceTransaction $record) => (float) $record->refunded_amount > 0 ? $state : '—'),
+                // What of it became the client's credit: an overpayment's excess or a refund to credit (ADV-875-1).
+                TextColumn::make('credited_amount')->label(__('To credit'))
+                    ->formatStateUsing(fn ($state, InvoiceTransaction $record) => (float) $record->credited_amount > 0
+                        ? (string) new Price(['price' => $record->credited_amount, 'currency' => $record->invoice->currency]) : '—'),
                 TextColumn::make('status')->label(__('Status'))->badge()
                     ->color(fn (InvoiceTransaction $record) => match ($record->status) {
                         InvoiceTransactionStatus::Succeeded => 'success',
