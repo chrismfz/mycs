@@ -36,6 +36,7 @@ use App\Livewire\Tickets;
 use App\Models\SslVersion;
 use App\Providers\Filament\AdminPanelProvider;
 use App\Services\Captcha\Altcha;
+use App\Support\ChatLauncher;
 use App\Support\VisitorChats;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -90,6 +91,12 @@ Route::get('/chat', ChatPopup::class)->name('chat')->middleware(ChatPopupHeaders
 Route::get('/chat/altcha', fn (Altcha $altcha) => VisitorChats::may()
     ? response()->json($altcha->challenge())->header('Cache-Control', 'no-store')
     : abort(404))->name('chat.altcha')->middleware('throttle:altcha');
+// The launcher's script, for a site whose CSP allows no inline script (docs/livechat.md §4): one file per version, under
+// SRI, so it is never changed in place; readable from any origin, as the SRI check needs.
+Route::get('/chat-launcher-v{version}.js', fn (string $version) => (int) $version === ChatLauncher::VERSION
+    ? response(ChatLauncher::script(), 200, ['Content-Type' => 'application/javascript; charset=utf-8', 'Access-Control-Allow-Origin' => '*',
+        'Cache-Control' => 'public, max-age=31536000, immutable'])
+    : abort(404))->name('chat.launcher')->whereNumber('version')->withoutMiddleware(['web']);
 
 // Destroy the session and log out the user.
 // auth()->logout();
