@@ -337,7 +337,8 @@ class ClientResource extends Resource
                             default => $query,
                         };
                     }),
-                // A saved card or PayPal of its own as its default: the renewals can be charged.
+                // A saved card or PayPal of its own as its default (whether «Auto-charge» is on or the card stopped: the
+                // client's page says that).
                 TernaryFilter::make('payment_method')->label(__('Saved payment method'))
                     ->queries(
                         true: fn (Builder $query) => $query->whereHas('defaultBillingAgreement', fn (Builder $agreement) => $agreement->whereColumn('billing_agreements.client_id', 'clients.id')),
@@ -360,7 +361,7 @@ class ClientResource extends Resource
                     ->query(fn (Builder $query, array $data) => filled($data['value'] ?? null)
                         ? $query->whereHas('primaryContact', fn (Builder $contact) => $contact->where('country', $data['value']))
                         : $query),
-                // Its special settings, any of those picked: to find an exemption left on.
+                // Its special settings, any of those picked: to find an exemption left on, its own or its group's.
                 SelectFilter::make('settings')->label(__('Special settings'))->multiple()
                     ->options([
                         'tax_exempt' => __('Tax exempt'),
@@ -375,7 +376,10 @@ class ClientResource extends Resource
                         foreach ($data['values'] as $setting) {
                             match ($setting) {
                                 'no_auto_charge' => $query->orWhere('auto_charge', false),
-                                'tax_exempt', 'dunning_exempt', 'no_overdue_reminders', 'ignore_invoicing', 'separate_invoices', 'immediate_invoicing' => $query->orWhere($setting, true),
+                                // Its own setting or its group's, as the cron reads them (Client::dunningExempt and the rest).
+                                'dunning_exempt', 'no_overdue_reminders', 'separate_invoices' => $query->orWhere($setting, true)
+                                    ->orWhereHas('group', fn (Builder $group) => $group->where($setting, true)),
+                                'tax_exempt', 'ignore_invoicing', 'immediate_invoicing' => $query->orWhere($setting, true),
                                 default => null,
                             };
                         }
