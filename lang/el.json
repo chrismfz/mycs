@@ -1884,5 +1884,11 @@
     "Special settings": "Ειδικές ρυθμίσεις",
     "No automatic charge": "Χωρίς αυτόματη χρέωση",
     "Signed up from": "Εγγραφή από",
-    "Signed up until": "Εγγραφή έως"
+    "Signed up until": "Εγγραφή έως",
+    "Fees": "Fees",
+    "Refunded": "Επιστροφές",
+    "Transactions": "Συναλλαγές",
+    "Succeeded": "Επιτυχής",
+    "Processing": "Σε επεξεργασία",
+    "Fee": "Fee"
 }

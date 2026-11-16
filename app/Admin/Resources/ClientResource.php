@@ -17,6 +17,7 @@ use App\Admin\Resources\ClientResource\Pages\ShowInvoices;
 use App\Admin\Resources\ClientResource\Pages\ShowNotes;
 use App\Admin\Resources\ClientResource\Pages\ShowServices;
 use App\Admin\Resources\ClientResource\Pages\ShowTickets;
+use App\Admin\Resources\ClientResource\Pages\ShowTransactions;
 use App\Admin\Resources\ClientResource\Pages\ViewChat;
 use App\Admin\Resources\ClientResource\RelationManagers\ContactsRelationManager;
 use App\Admin\Resources\ClientResource\RelationManagers\InvitesRelationManager;
@@ -426,6 +427,7 @@ class ClientResource extends Resource
             'services' => ShowServices::route('/{record}/services'),
             'domains' => ShowDomains::route('/{record}/domains'),
             'invoices' => ShowInvoices::route('/{record}/invoices'),
+            'transactions' => ShowTransactions::route('/{record}/transactions'),
             'credits' => ShowCredits::route('/{record}/credits'),
             'credit-history' => ShowCreditHistory::route('/{record}/credit-history'),
             'tickets' => ShowTickets::route('/{record}/tickets'),
@@ -445,6 +447,7 @@ class ClientResource extends Resource
             ShowServices::class,
             ShowDomains::class,
             ShowInvoices::class,
+            ShowTransactions::class,
             ShowCredits::class,
             ShowCreditHistory::class,
             ShowTickets::class,
