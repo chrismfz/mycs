@@ -58,7 +58,7 @@
         <button type="button" class="self-start text-sm underline" wire:click="newChat">{{ __('Start a new chat') }}</button>
         @elseif ($departments->isEmpty())
         <p class="text-sm opacity-80">{{ __('Live chat is not available right now.') }}</p>
-        @if ($ticketsUrl) <a href="{{ $ticketsUrl }}" wire:navigate class="text-sm underline">{{ __('Open a ticket') }}</a> @endif
+        @if ($ticketsUrl) <a href="{{ $ticketsUrl }}" @if ($popup) target="_blank" rel="noopener" @else wire:navigate @endif class="text-sm underline">{{ __('Open a ticket') }}</a> @endif
         @else
         <form wire:submit="start" class="flex flex-col gap-2">
             @if ($departments->count() > 1)
@@ -75,7 +75,7 @@
             <x-button.primary type="submit">{{ __('Start chat') }}</x-button.primary>
             @else
             <p class="text-sm opacity-80">{{ __('No one is available in this department right now.') }}</p>
-            @if ($ticketsUrl) <a href="{{ $ticketsUrl }}" wire:navigate class="text-sm underline">{{ __('Open a ticket') }}</a> @endif
+            @if ($ticketsUrl) <a href="{{ $ticketsUrl }}" @if ($popup) target="_blank" rel="noopener" @else wire:navigate @endif class="text-sm underline">{{ __('Open a ticket') }}</a> @endif
             @endif
         </form>
         @endif

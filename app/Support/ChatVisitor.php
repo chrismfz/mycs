@@ -26,6 +26,9 @@ class ChatVisitor
     /** Set when the session's chat was found closed: the popup says it ended, and shows nothing of it (§3 Γ, F22). */
     public const ENDED_KEY = 'live_chat_visitor_ended';
 
+    /** Set by the popup's «Sign in», taken by the login: a login begun there never remembers the browser (G5). */
+    public const LOGIN_KEY = 'live_chat_login';
+
     /** The longest page path kept (§4). */
     public const PAGE_MAX = 255;
 

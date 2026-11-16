@@ -6,6 +6,7 @@ use App\Livewire\Contact;
 use App\Models\LiveChat;
 use App\Models\LiveChatMessage;
 use App\Models\TicketDepartment;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -84,12 +85,12 @@ class VisitorChats
         return (string) preg_replace('/\s+/u', ' ', $name);
     }
 
-    /** A visitor's email as kept: one we could mail (F6), lower case; null when empty or not one (§3 Β). */
+    /** A visitor's email as kept: one we could mail (F6) and not one of ours, lower case; null when empty or not one (§3 Β). */
     public static function email(?string $email): ?string
     {
         $email = trim((string) $email);
         if ($email === '' || strlen($email) > self::EMAIL_MAX || preg_match('/[\x00-\x20\x7F\p{Cc}\p{Cf}"\'<>`\\\\]/u', $email) === 1
-            || !Contact::mailable($email)) {
+            || !Contact::mailable($email) || Contact::ours($email)) {
             return null;
         }
 
@@ -133,28 +134,32 @@ class VisitorChats
         }
 
         // Open chats per address, even when two start at once (F13).
-        $chat = Cache::lock('live-chat-visitor-open:' . $ip, 10)->block(5, function () use ($ip, $department, $name, $email, $body, $input) {
-            if (LiveChat::query()->where('ip', $ip)->whereNull('client_id')->where('status', '!=', LiveChat::CLOSED)->count() >= self::OPEN_PER_IP) {
-                return null;
-            }
+        try {
+            $chat = Cache::lock('live-chat-visitor-open:' . $ip, 10)->block(5, function () use ($ip, $department, $name, $email, $body, $input) {
+                if (LiveChat::query()->where('ip', $ip)->whereNull('client_id')->where('status', '!=', LiveChat::CLOSED)->count() >= self::OPEN_PER_IP) {
+                    return null;
+                }
 
-            return DB::transaction(function () use ($ip, $department, $name, $email, $body, $input) {
-                $chat = LiveChat::query()->create([
-                    'department_id' => $department->id,
-                    'status' => LiveChat::WAITING,
-                    'started_anonymously' => true,
-                    'visitor_name' => $name,
-                    'visitor_email' => $email,
-                    'ip' => $ip,
-                    'src' => ChatVisitor::site($input['src'] ?? null),
-                    'page' => ChatVisitor::page($input['page'] ?? null),
-                    'last_participant_message_at' => now(),
-                ]);
-                $chat->messages()->create(['author_type' => LiveChatMessage::VISITOR, 'body' => $body]);
+                return DB::transaction(function () use ($ip, $department, $name, $email, $body, $input) {
+                    $chat = LiveChat::query()->create([
+                        'department_id' => $department->id,
+                        'status' => LiveChat::WAITING,
+                        'started_anonymously' => true,
+                        'visitor_name' => $name,
+                        'visitor_email' => $email,
+                        'ip' => $ip,
+                        'src' => ChatVisitor::site($input['src'] ?? null),
+                        'page' => ChatVisitor::page($input['page'] ?? null),
+                        'last_participant_message_at' => now(),
+                    ]);
+                    $chat->messages()->create(['author_type' => LiveChatMessage::VISITOR, 'body' => $body]);
 
-                return $chat;
+                    return $chat;
+                });
             });
-        });
+        } catch (LockTimeoutException) {
+            $chat = null; // the address is busy starting another: as over its limit
+        }
         if (!$chat instanceof LiveChat) {
             return __('Too many chats are open from your network, wait a few minutes.');
         }

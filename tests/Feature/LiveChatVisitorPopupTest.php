@@ -7,6 +7,7 @@ use AltchaOrg\Altcha\Altcha as AltchaLibrary;
 use AltchaOrg\Altcha\Challenge;
 use AltchaOrg\Altcha\Payload;
 use AltchaOrg\Altcha\SolveChallengeOptions;
+use App\Actions\Auth\Login;
 use App\Enums\StaffPresenceStatus;
 use App\Livewire\Admin\ChatQueue;
 use App\Livewire\Admin\CustomerChat;
@@ -20,6 +21,7 @@ use App\Models\Staff;
 use App\Models\TicketDepartment;
 use App\Models\User;
 use App\Services\Captcha\Altcha;
+use App\Support\AuthCookies;
 use App\Support\ChatVisitor;
 use App\Support\CurrentClient;
 use App\Support\LiveChats;
@@ -29,8 +31,10 @@ use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -384,5 +388,55 @@ class LiveChatVisitorPopupTest extends TestCase
 
         $this->get(route('chat'))->assertOk()->assertSee(__('Live chat is not available right now.'));
         $this->assertSame(__('Live chat is not available.'), VisitorChats::start(['message' => 'hi']));
+    }
+
+    public function test_the_popup_runs_no_script_of_the_staffs_site_wide_html(): void
+    {
+        $this->storeSettings(['theme_custom_head' => '<script src="https://tracker.example/x.js"></script>',
+            'theme_custom_header' => '<div id="company-menu"></div>', 'theme_custom_footer' => '<script>footer()</script>']);
+
+        $html = $this->get(route('chat'))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('tracker.example', $html);
+        $this->assertStringNotContainsString('company-menu', $html);
+        $this->assertStringNotContainsString('footer()', $html);
+        $this->assertStringContainsString('company-menu', $this->get(route('contact'))->getContent(), 'control: other pages have it');
+    }
+
+    public function test_the_ticket_form_in_the_popup_uses_our_altcha_only(): void
+    {
+        $this->storeSettings(['captcha' => 'turnstile', 'captcha_site_key' => 'k', 'captcha_secret' => 's']);
+        $contact = Livewire::test(Contact::class, ['prefill' => 'Hello', 'embedded' => true]);
+
+        $this->assertStringNotContainsString('cloudflare', $contact->html());
+        $this->assertStringContainsString(route('chat.altcha'), $contact->html());
+        $fill = fn ($form) => $form->set('name', 'Ann')->set('email', 'ann@example.com')->set('subject', 'VPS')->set('department', $this->sales->id);
+        $fill($contact)->set('captcha', 'forged')->call('submit')->assertHasErrors('captcha');
+        $fill($contact)->set('captcha', $this->solved())->call('submit')->assertHasNoErrors()->assertSet('sent', true);
+    }
+
+    public function test_the_popups_login_never_remembers(): void
+    {
+        $this->popup()->call('login');
+        Cookie::flushQueuedCookies();
+
+        app(Login::class)->execute(User::factory()->create(), true);
+
+        $this->assertFalse(Cookie::hasQueued(AuthCookies::remember()), 'G5');
+        $this->assertFalse(session()->has(ChatVisitor::LOGIN_KEY), 'taken by the login');
+        app(Login::class)->execute(User::factory()->create(), true);
+        $this->assertTrue(Cookie::hasQueued(AuthCookies::remember()), 'control: a later login remembers as asked');
+    }
+
+    public function test_messages_are_limited_per_address_over_its_chats(): void
+    {
+        $this->start()->assertHasNoErrors();
+        $chat = LiveChat::query()->sole();
+        for ($i = 0; $i < VisitorChats::PER_MINUTE_PER_IP; $i++) {
+            RateLimiter::clear('live-chat-visitor:' . $chat->id); // as if spread over several chats
+            $this->assertNull(VisitorChats::post($chat, "m$i"));
+        }
+        RateLimiter::clear('live-chat-visitor:' . $chat->id);
+        $this->assertSame(__('Too many messages, wait a moment.'), VisitorChats::post($chat, 'one more'));
     }
 }

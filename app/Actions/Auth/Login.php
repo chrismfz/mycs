@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\UserSession;
 use App\Providers\Filament\AdminPanelProvider;
 use App\Support\AuthCookies;
+use App\Support\ChatVisitor;
 use App\Support\Locales;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -18,6 +19,10 @@ class Login
 {
     public function execute(User $user, bool $remember = false): void
     {
+        // A login begun from the chat's popup never remembers the browser, whichever way it goes: password, 2FA, OAuth (G5).
+        if (Session::pull(ChatVisitor::LOGIN_KEY, false)) {
+            $remember = false;
+        }
         // A new id, the old one's record gone (what was in it, an intended URL, comes along).
         Session::regenerate(true);
 

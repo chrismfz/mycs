@@ -6,6 +6,7 @@ use App\Attributes\DisabledIf;
 use App\Models\Ticket;
 use App\Models\TicketBlockedSender;
 use App\Models\TicketDepartment;
+use App\Services\Captcha\Altcha;
 use App\Support\CallerIp;
 use App\Support\CurrentClient;
 use App\Support\Tickets\TicketMailer;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Symfony\Component\Mime\Address;
 
@@ -28,7 +30,9 @@ use Symfony\Component\Mime\Address;
 #[DisabledIf('tickets_disabled')]
 class Contact extends Component
 {
-    use Captchable;
+    use Captchable {
+        updated as captchableUpdated;
+    }
 
     /** Tickets from one network address in an hour. */
     public const PER_IP = 5;
@@ -76,6 +80,18 @@ class Contact extends Component
         return TicketDepartment::query()->offered(guest: true)->get();
     }
 
+    /** In the chat popup the captcha is ours, checked when the form is sent: never a provider's on the field's update. */
+    public function updated($name = null)
+    {
+        if ($this->embedded && $name === 'captcha') {
+            $this->resetErrorBag('captcha');
+
+            return;
+        }
+
+        return $this->captchableUpdated($name);
+    }
+
     public function submit(): void
     {
         if ($this->sent) {
@@ -103,7 +119,15 @@ class Contact extends Component
             'department' => ['required', 'integer', Rule::in($departments->pluck('id')->all())],
             'message' => 'required|string|max:10000',
         ]);
-        $this->requireCaptchaOrAltcha();
+        // In the chat popup always our ALTCHA, from the chat's own route: no third party's script there (docs/livechat.md §4).
+        if ($this->embedded) {
+            if (!app(Altcha::class)->verify($this->captcha)) {
+                $this->captcha = '';
+                throw ValidationException::withMessages(['captcha' => __('auth.captcha_invalid')]);
+            }
+        } else {
+            $this->requireCaptchaOrAltcha();
+        }
 
         $email = strtolower(trim($this->email));
         // Counted as they are taken (increment, not check-then-hit): two at once never both slip under a limit. In this

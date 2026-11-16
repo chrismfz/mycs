@@ -10,9 +10,12 @@
 
     @elseif ($mode === 'unavailable')
     <p class="text-sm opacity-80">{{ __('Live chat is not available right now.') }}</p>
-    @if (! $user)
-    <a href="{{ route('contact') }}" class="text-sm underline">{{ __('Send us a message') }}</a>
+    @if (! $user && ! config('settings.tickets_disabled'))
+    <a href="{{ route('contact') }}" target="_blank" rel="noopener" class="text-sm underline">{{ __('Send us a message') }}</a>
     @endif
+
+    @elseif ($mode === 'nobody')
+    <p class="text-sm opacity-80">{{ __('Live chat is not available right now.') }}</p>
 
     @elseif ($mode === 'customer')
     {{-- Who the chat will be from, plainly (G4): the login's own name and email, and the account. --}}

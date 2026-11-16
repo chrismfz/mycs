@@ -13,7 +13,9 @@
         @elseif (count($departments) === 0)
             <p class="py-6">{!! __('ticket.contact_unavailable', ['login' => '<a class="underline" href="' . e(route('login')) . '">' . e(__('auth.sign_in')) . '</a>']) !!}</p>
         @else
+            @unless ($embedded)
             <p class="mb-4 text-sm text-base/80">{!! __('ticket.contact_intro', ['login' => '<a class="underline" href="' . e(route('login')) . '">' . e(__('auth.sign_in')) . '</a>']) !!}</p>
+            @endunless
             <form wire:submit="submit" id="contact" class="flex flex-col gap-4">
                 <div @class(['grid gap-4', 'md:grid-cols-2' => ! $embedded])>
                     <x-form.input wire:model="name" name="name" :label="__('ticket.contact_name')" autocomplete="name" maxlength="100" required />
@@ -35,7 +37,15 @@
                     <input type="text" id="website" name="website" wire:model="website" tabindex="-1" autocomplete="off" />
                 </div>
                 {{-- The chosen captcha, or ours when none is (Captchable::requireCaptchaOrAltcha). --}}
-                @if (\App\Livewire\Contact::captchaKind() === 'altcha' && config('settings.captcha') !== 'altcha')
+                @if ($embedded)
+                    {{-- In the chat popup: always ours, never a third party's script (docs/livechat.md §4). --}}
+                    <div class="flex flex-col justify-center mt-2">
+                        <div wire:ignore><x-captcha.altcha :challenge="route('chat.altcha')" /></div>
+                        @error('captcha')
+                            <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                        @enderror
+                    </div>
+                @elseif (\App\Livewire\Contact::captchaKind() === 'altcha' && config('settings.captcha') !== 'altcha')
                     <div class="flex flex-col justify-center mt-2">
                         <div wire:ignore><x-captcha.altcha /></div>
                         @error('captcha')

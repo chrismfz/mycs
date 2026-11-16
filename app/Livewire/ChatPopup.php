@@ -75,6 +75,8 @@ class ChatPopup extends Component
     public function login(): void
     {
         session()->put('url.intended', route('chat'));
+        // Never «remember me» for a login begun here (G5).
+        session()->put(ChatVisitor::LOGIN_KEY, true);
         $this->redirect(route('login'));
     }
 
@@ -157,7 +159,8 @@ class ChatPopup extends Component
                 $mode = 'choose';
             } else {
                 $departments = VisitorChats::availableDepartments();
-                $mode = $departments->isEmpty() ? 'ticket' : 'form';
+                // δ: the guest ticket form, unless tickets are off (then only that no one is there).
+                $mode = $departments->isNotEmpty() ? 'form' : (config('settings.tickets_disabled') ? 'nobody' : 'ticket');
                 if (!$departments->contains('id', $this->department)) {
                     $this->department = VisitorChats::departmentFor($this->wanted)?->id;
                 }
