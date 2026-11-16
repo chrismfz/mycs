@@ -34,7 +34,7 @@ class ClientComponent extends Select
                 ->icon('heroicon-m-arrow-top-right-on-square')->button()->outlined()->size('xs')
                 ->url(filled($component->getState()) ? ClientResource::getUrl('view', ['record' => $component->getState()]) : null)
                 ->openUrlInNewTab()
-                ->visible(filled($component->getState())))
+                ->visible(filled($component->getState()) && ClientResource::canViewAny()))
             ->live()
             // «Create Invoice», «Add New Order», «Open New Ticket» from a client's Summary come with ?client_id=.
             ->default(fn () => request()->integer('client_id') ?: null)
