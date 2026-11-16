@@ -595,7 +595,7 @@ class LiveChats
      *
      * @param  array<string, mixed>  $message
      */
-    private static function write(LiveChat $chat, array $message, bool $participant, ?int $operator = null, ?int $department = null): ?string
+    public static function write(LiveChat $chat, array $message, bool $participant, ?int $operator = null, ?int $department = null): ?string
     {
         return DB::transaction(function () use ($chat, $message, $participant, $operator, $department) {
             $locked = LiveChat::query()->whereKey($chat->id)->lockForUpdate()->first();

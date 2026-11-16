@@ -21,6 +21,7 @@ use App\Http\Middleware\PrivateLinkHeaders;
 use App\Http\Middleware\UseStaffGuard;
 use App\Livewire\Auth;
 use App\Livewire\Cart;
+use App\Livewire\ChatPopup;
 use App\Livewire\Client;
 use App\Livewire\Contact;
 use App\Livewire\Dashboard;
@@ -35,6 +36,7 @@ use App\Livewire\Tickets;
 use App\Models\SslVersion;
 use App\Providers\Filament\AdminPanelProvider;
 use App\Services\Captcha\Altcha;
+use App\Support\VisitorChats;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
@@ -81,6 +83,13 @@ foreach (['cart.php', 'clientarea.php', 'viewinvoice.php', 'submitticket.php', '
 Route::get('/captcha/altcha', fn (Altcha $altcha) => Contact::captchaKind() === 'altcha'
     ? response()->json($altcha->challenge())->header('Cache-Control', 'no-store')
     : abort(404))->name('captcha.altcha')->middleware('throttle:altcha');
+
+// The live chat's popup, which the launcher on our sites opens (docs/livechat.md §4, step 4): never framed, no opener,
+// no Referer beyond our origin. Its own ALTCHA challenges, whatever captcha the other forms use (F14).
+Route::get('/chat', ChatPopup::class)->name('chat')->middleware(ChatPopupHeaders::class);
+Route::get('/chat/altcha', fn (Altcha $altcha) => VisitorChats::may()
+    ? response()->json($altcha->challenge())->header('Cache-Control', 'no-store')
+    : abort(404))->name('chat.altcha')->middleware('throttle:altcha');
 
 // Destroy the session and log out the user.
 // auth()->logout();

@@ -3,19 +3,23 @@
     account's chat is open. It remembers in this browser whether its panel was open, so the conversation stays in front
     across pages; it polls only while open.
 --}}
-<div class="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2"
+<div @class(['flex flex-col gap-2', 'fixed bottom-4 right-4 z-40 items-end' => ! $popup, 'w-full' => $popup])
+    @if (! $popup)
     x-data="{
         init() { try { if (localStorage.getItem('mycs-chat-open') === '1' && !$wire.open) $wire.toggle() } catch (e) {} },
         remember(open) { try { localStorage.setItem('mycs-chat-open', open ? '1' : '0') } catch (e) {} },
-    }">
+    }"
+    @endif>
     @if ($may)
     @if ($open)
     <div @if ($chat) wire:poll.4s.visible @endif
-        class="flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-xl border border-neutral bg-background p-4 shadow-xl">
+        @class(['flex flex-col gap-3', 'w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-neutral bg-background p-4 shadow-xl' => ! $popup, 'w-full' => $popup])>
+        @unless ($popup)
         <div class="flex items-center justify-between">
             <h2 class="text-sm font-semibold">{{ __('Live chat') }}</h2>
             <button type="button" class="text-xs opacity-70 hover:opacity-100" wire:click="toggle" x-on:click="remember(false)">{{ __('Close') }}</button>
         </div>
+        @endunless
 
         @if ($chat)
         <div class="flex max-h-80 min-h-40 flex-col gap-2 overflow-y-auto text-sm"
@@ -54,7 +58,7 @@
         <button type="button" class="self-start text-sm underline" wire:click="newChat">{{ __('Start a new chat') }}</button>
         @elseif ($departments->isEmpty())
         <p class="text-sm opacity-80">{{ __('Live chat is not available right now.') }}</p>
-        @if ($ticketsUrl) <a href="{{ $ticketsUrl }}" wire:navigate class="text-sm underline">{{ __('Open a ticket') }}</a> @endif
+        @if ($ticketsUrl) <a href="{{ $ticketsUrl }}" @if ($popup) target="_blank" rel="noopener" @else wire:navigate @endif class="text-sm underline">{{ __('Open a ticket') }}</a> @endif
         @else
         <form wire:submit="start" class="flex flex-col gap-2">
             @if ($departments->count() > 1)
@@ -71,15 +75,17 @@
             <x-button.primary type="submit">{{ __('Start chat') }}</x-button.primary>
             @else
             <p class="text-sm opacity-80">{{ __('No one is available in this department right now.') }}</p>
-            @if ($ticketsUrl) <a href="{{ $ticketsUrl }}" wire:navigate class="text-sm underline">{{ __('Open a ticket') }}</a> @endif
+            @if ($ticketsUrl) <a href="{{ $ticketsUrl }}" @if ($popup) target="_blank" rel="noopener" @else wire:navigate @endif class="text-sm underline">{{ __('Open a ticket') }}</a> @endif
             @endif
         </form>
         @endif
     </div>
     @endif
+    @unless ($popup)
     <button type="button" wire:click="toggle" x-on:click="remember(!$wire.open)"
         class="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg hover:opacity-90">
         {{ __('Chat') }}
     </button>
+    @endunless
     @endif
 </div>

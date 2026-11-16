@@ -668,6 +668,25 @@ adversarial review (§10).
    κενά, χαρακτήρες ελέγχου ή `\p{Cf}`, ≤ 255). Το `ChatPopupHeaders` (`frame-ancestors 'none'`, `X-Frame-Options:
    DENY`, COOP και `Referrer-Policy: same-origin`) μπαίνει στα `/login`, `/2fa`, `/register` τώρα και στο `/chat` στο PR 2. Το «Login as
    client» σβήνει το token από το session (F9).
+   **PR 2 (το popup `/chat`):** `App\Livewire\ChatPopup` σε δικό του layout (`layouts.popup`: χωρίς navigation, χωρίς
+   το HTML του staff και τα hooks, ώστε να μην τρέχει ξένο script εκεί που γράφει ο επισκέπτης), με `ChatPopupHeaders`.
+   Οθόνες της mockup: α «Σύνδεση» (κανονικό login, `url.intended` πάντα `route('chat')`) ή «Συνέχεια ως επισκέπτης»·
+   β φόρμα (τμήμα, όνομα και email προαιρετικά, μήνυμα, ALTCHA από το δικό του `/chat/altcha`, F14)· γ η συζήτηση
+   (poll 3″, μόνο `VISITOR_VISIBLE`)· δ κανείς διαθέσιμος → το `Contact` με το μήνυμα ήδη γραμμένο· στ «Η συζήτηση
+   έκλεισε» με «Νέα συζήτηση». Συνδεδεμένος πελάτης: η φούσκα του client area σε `popup` mode, με «Συνδεδεμένος ως…» και
+   «Δεν είστε εσείς;» (G4). «Login as client»: τίποτα (F9). Το `GET` δεν αλλάζει τίποτα· το chat ξεκινά από Livewire
+   call (CSRF) και μετά γίνεται redirect, γιατί το `regenerate` αλλάζει το CSRF token. Λογική στο `App\Support\VisitorChats`:
+   τμήμα στον server (offered για guests, με κάποιον διαθέσιμο, αλλιώς το πρώτο διαθέσιμο, F17), όνομα ≤ 60 χωρίς
+   χαρακτήρες ελέγχου/`\p{Cf}`, email από `Contact::mailable` ≤ 190 (αλλιώς άρνηση, τίποτα δεν αποθηκεύεται), όρια ανά
+   διεύθυνση (`CallerIp::key`, IPv6 ανά /64) μετρημένα πριν τον έλεγχο: 3 starts/10′, 3 ανοιχτά (με `Cache::lock`),
+   20 μηνύματα/λεπτό ανά chat και 40 ανά διεύθυνση, 1 ανοιχτό ανά session. Η ουρά και η κονσόλα δείχνουν «Επισκέπτης»
+   από το `author_type`, ποτέ από το όνομα (F24)· οι ετικέτες src/page και τα εργαλεία στο PR 3.
+   Μετά τα reviews του #888: το «Σύνδεση» του popup δεν βάζει ποτέ remember, ούτε μέσω 2FA ή OAuth (G5,
+   `ChatVisitor::LOGIN_KEY`, το παίρνει το `Login::execute`)· η φόρμα ticket μέσα στο popup έχει πάντα το δικό μας
+   ALTCHA, ποτέ captcha τρίτου· με `tickets_disabled` και κανέναν διαθέσιμο, μόνο «δεν είναι διαθέσιμο»· email του
+   επισκέπτη που είναι δικό μας (`Contact::ours`) απορρίπτεται. Το `ip` κρατά τη διεύθυνση όπως τη μετρούν τα όρια
+   (`CallerIp::key`: IPv4 ολόκληρη, IPv6 το /64). Αποδεκτό (KISS): δύο ταυτόχρονα starts από το ίδιο session μπορεί να
+   αφήσουν δεύτερο chat σε αναμονή (ADV-888-3)· το όριο των 3 ανά διεύθυνση και το κλείσιμο λόγω αδράνειας το καλύπτουν.
 5. **Κλείσιμο του LHC.**
    - Ticket από chat (F4), διατήρηση της IP και διαγραφή από admin;
    - import των παλιών chats (F19);

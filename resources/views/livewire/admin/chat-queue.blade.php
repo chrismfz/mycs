@@ -7,7 +7,7 @@
             @forelse ($queue as $chat)
             <li class="flex items-center gap-2 text-sm">
                 <span class="min-w-0 flex-1">
-                    <span class="block truncate font-medium text-gray-800 dark:text-gray-100">{{ $chat->client?->name ?? __('Customer') }}</span>
+                    <span class="block truncate font-medium text-gray-800 dark:text-gray-100">{{ $chat->isVisitor() ? __('Visitor') : ($chat->client?->name ?? __('Customer')) }}</span>
                     <span class="block text-xs text-gray-500 dark:text-gray-400">{{ $chat->department?->name }} · {{ $chat->created_at?->diffForHumans(short: true) }}@if ($chat->status === \App\Models\LiveChat::ACTIVE) · {{ __('no operator') }}@endif</span>
                 </span>
                 @if ($reply)
@@ -29,7 +29,7 @@
             <li>
                 <button type="button" wire:click="$dispatch('customer-chat-open', { chat: {{ (int) $chat->id }} })"
                     class="flex w-full flex-col rounded-lg px-1 py-1 text-start text-sm hover:bg-gray-50 dark:hover:bg-white/5">
-                    <span class="truncate font-medium text-gray-800 dark:text-gray-100">{{ $chat->client?->name ?? __('Customer') }}</span>
+                    <span class="truncate font-medium text-gray-800 dark:text-gray-100">{{ $chat->isVisitor() ? __('Visitor') : ($chat->client?->name ?? __('Customer')) }}</span>
                     <span class="text-xs text-gray-500 dark:text-gray-400">{{ $chat->department?->name }}</span>
                 </button>
             </li>

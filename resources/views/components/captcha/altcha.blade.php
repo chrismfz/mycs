@@ -1,10 +1,12 @@
-{{-- Our captcha (docs/captcha.md): the browser does a little work, we check it; nothing goes to anyone else. --}}
+{{-- Our captcha (docs/captcha.md): the browser does a little work, we check it; nothing goes to anyone else. A form
+     that always uses ours, whatever the others use (the chat popup, F14), names its own challenge route. --}}
+@props(['challenge' => null])
 @assets
 @vite('resources/js/altcha-entry.js')
 @endassets
 
 <altcha-widget
-    challenge="{{ route('captcha.altcha') }}"
+    challenge="{{ $challenge ?? route('captcha.altcha') }}"
     language="{{ app()->getLocale() === 'el' ? 'el' : 'en' }}"
     configuration='{"hideFooter": true}'
 ></altcha-widget>
