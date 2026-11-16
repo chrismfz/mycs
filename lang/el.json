@@ -1884,5 +1884,13 @@
     "Special settings": "Ειδικές ρυθμίσεις",
     "No automatic charge": "Χωρίς αυτόματη χρέωση",
     "Signed up from": "Εγγραφή από",
-    "Signed up until": "Εγγραφή έως"
+    "Signed up until": "Εγγραφή έως",
+    "Fees": "Fees",
+    "Refunded": "Επιστροφές",
+    "Transactions": "Συναλλαγές",
+    "Succeeded": "Επιτυχής",
+    "Processing": "Σε επεξεργασία",
+    "Fee": "Fee",
+    "To credit": "Σε πίστωση",
+    "Of the balance, held as the client's credit": "Από το υπόλοιπο, ως πίστωση του πελάτη"
 }
