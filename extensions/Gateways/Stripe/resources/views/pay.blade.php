@@ -38,8 +38,8 @@
                 },
                 defaultValues: {
                     billingDetails: {
-                        name: "{{ auth()->user()->name }}",
-                        email: "{{ auth()->user()->email }}",
+                        name: @js(auth()->user()->name),
+                        email: @js(auth()->user()->email),
                     }
                 }
             }

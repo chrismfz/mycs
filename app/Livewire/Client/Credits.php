@@ -8,14 +8,12 @@ use App\Helpers\ExtensionHelper;
 use App\Livewire\Component;
 use App\Models\Client;
 use App\Models\Credit;
-use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Services\Money\MoneyHistory;
 use App\Support\Actor;
 use App\Support\CurrentClient;
 use Exception;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Session;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Validate;
 use Livewire\WithPagination;
@@ -139,17 +137,10 @@ class Credits extends Component
 
             DB::commit();
 
-            Session::put(['gateway' => $this->gateway]);
-
-            // Redirect to the invoices page and pay the invoice
-            if ($this->gateway) {
-                $pay = ExtensionHelper::pay(Gateway::where('id', $this->gateway)->first(), $invoice->fresh());
-                if (is_string($pay)) {
-                    return $this->redirect($pay);
-                }
-            }
-
-            return $this->redirect(route('invoices.show', $invoice) . '?gateway=' . $this->gateway . '&pay', true);
+            // To the invoice, its ways to pay in view and the chosen gateway picked (preferred_gateway_id): the customer
+            // presses «Pay» there. No gateway is called from here: a window gateway's (Cardlink's order, Stripe's intent)
+            // was thrown away and made again on the invoice (owner 2026-11-17, KISS: one click more for a redirect one).
+            return $this->redirect(route('invoices.show', $invoice) . '?pay=1', true);
         } catch (Exception $e) {
             // Rollback the transaction
             DB::rollBack();
