@@ -153,6 +153,9 @@ class LegacyWhmcsRedirectTest extends TestCase
         $this->assertGoes("/clients/viewinvoice.php?id={$invoice->id}", route('invoices.show', $invoice->id));
         $this->assertGoes("/viewticket.php?tid={$ticket->reference}&c=abc", route('tickets.show', $ticket->id));
         $this->assertGoes('/clients/viewticket.php?tid=nope', route('tickets'));
+        // Another account's number goes to the list, as one that does not exist: no telling which numbers are taken (audit 2026-11-17).
+        $theirs = Ticket::factory()->create(['client_id' => User::factory()->create()->client()->id]);
+        $this->assertGoes("/viewticket.php?tid={$theirs->reference}", route('tickets'));
         $this->assertGoes('/clients/submitticket.php?step=2&deptid=4', route('tickets.create'));
         $this->assertGoes('/clients/index.php?rp=/login', route('login'));
         $this->assertGoes('/clients/pwreset.php', route('password.request'));

@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\Ticket;
+use App\Support\CurrentClient;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -168,10 +169,14 @@ class LegacyWhmcsController
         return $record !== null && Gate::allows('view', $record);
     }
 
-    /** viewticket.php?tid=…: the ticket of that number (its own page checks who may see it), else the list. */
+    /**
+     * viewticket.php?tid=…: the account's ticket of that number (its own page checks who may see it), else the list.
+     * Never another account's: the redirect told any login that a number exists, and its id (audit 2026-11-17).
+     */
     private function ticket(string $tid): string
     {
-        $ticket = auth()->check() && $tid !== '' ? Ticket::query()->where('reference', $tid)->value('id') : null;
+        $ticket = auth()->check() && $tid !== '' && CurrentClient::id() > 0
+            ? Ticket::query()->where('reference', $tid)->where('client_id', CurrentClient::id())->value('id') : null;
 
         return $ticket !== null ? route('tickets.show', $ticket) : route('tickets');
     }

@@ -308,6 +308,18 @@ class TicketListTest extends TestCase
         $this->assertContains('promo@spam.example', $audit->new_values['blocked']);
     }
 
+    /** Audit 2026-11-17: a notification's title is HTML to Filament, and this one names the senders. */
+    public function test_the_blocked_senders_are_named_as_text_never_as_markup(): void
+    {
+        $spam = $this->ticket(['guest_email' => '"<a href=//evil.example>click</a>"@spam.example']);
+
+        $page = $this->list()->selectTableRecords([$spam->id])->callAction(TestAction::make('blockAndDelete')->table()->bulk())->assertHasNoActionErrors();
+
+        $senders = implode(', ', TicketBlockedSender::query()->pluck('value')->all());
+        $this->assertStringContainsString('<a href=//evil.example>', $senders, 'the address is kept as it was written');
+        $page->assertNotified(e(__(':count deleted; blocked: :senders.', ['count' => 1, 'senders' => $senders])));
+    }
+
     public function test_block_the_whole_domain(): void
     {
         $spam = $this->ticket(['guest_email' => 'a@spam.example']);
