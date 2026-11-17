@@ -117,6 +117,7 @@ class Service extends Model implements Auditable
         'price',
         'price_locked',
         'expires_at',
+        'ended_at',
         'subscription_id',
         'status',
         'coupon_id',
@@ -156,6 +157,7 @@ class Service extends Model implements Auditable
         'no_auto_charge' => 'boolean',
         'expires_at' => 'date',
         'activated_at' => 'datetime',
+        'ended_at' => 'datetime', // when its status turned Terminated or Cancelled (ServiceObserver::markEnd); null while it runs
         'suspend_hold_until' => 'date',
         'suspend_hold_notice_for' => 'date',
         'started_unpaid_at' => 'datetime',

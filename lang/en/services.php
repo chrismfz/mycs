@@ -584,6 +584,7 @@ return [
         ],
     ],
     'registration_date' => 'Registration Date',
+    'ended_on' => 'Ended On',
     'bulk_license' => [
         'listed' => 'On the list',
         'checked_day' => 'Checked in 24 hours',

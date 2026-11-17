@@ -8,6 +8,7 @@ use App\Admin\Clusters\Services;
 use App\Admin\Pages\ChatLauncherCode;
 use App\Admin\Pages\Dashboard;
 use App\Admin\Pages\Extension;
+use App\Admin\Pages\GrowthAndChurn;
 use App\Admin\Pages\GrRegistry;
 use App\Admin\Pages\IncomeByClient;
 use App\Admin\Pages\IncomeByProduct;
@@ -129,6 +130,7 @@ class TopMenu
         ],
         'Reports' => [
             [RevenueForecast::class],
+            [GrowthAndChurn::class],
             [IncomeByClient::class],
             [IncomeByProduct::class],
             [IncomeReport::class],

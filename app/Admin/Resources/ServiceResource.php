@@ -277,6 +277,21 @@ class ServiceResource extends Resource
                             ->label('Expires At')
                             ->required(fn (Get $get) => $get('plan')?->type != 'one-time' && $get('plan')?->type != 'free' && $get('status') !== 'pending')
                             ->placeholder('Select the expiration date'),
+                        // Its first start: shown, never edited here (the billing counts its first period from it, Σ1-b1).
+                        DatePicker::make('activated_at')
+                            ->label('Activated On')
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->visible(fn (?Service $record) => $record?->activated_at !== null),
+                        // When it ended (docs/growth-churn.md): set by itself when it turns Terminated or Cancelled; staff may
+                        // correct it, or give the date of one that ended in WHMCS with none (the report leaves those out).
+                        DatePicker::make('ended_at')
+                            ->label('Ended On')
+                            ->visible(fn (Get $get) => in_array($get('status'), Service::ENDED_STATUSES, true))
+                            ->hintIcon(...$hint('When it was terminated or cancelled: set by itself. Empty: it ended in WHMCS, which kept no date; Growth and churn leaves it out until one is given.'))
+                            ->maxDate(now())
+                            ->nullable()
+                            ->placeholder('dd/mm/yyyy'),
                         DatePicker::make('suspend_hold_until')
                             ->label('Do Not Suspend Until')
                             ->hintIcon(...$hint('While set to a future date, the cronjob neither suspends nor terminates this service, even if it is overdue (through that day). This does not affect manual suspension or termination.'))

@@ -61,6 +61,7 @@ class ServiceObserver
         if ($service->status === Service::STATUS_ACTIVE && $service->activated_at === null) {
             $service->activated_at = now(); // its first start (Σ1-b1): the only one that moves its dates
         }
+        self::markEnd($service);
         self::keepContactInAccount($service);
         self::keepAddonWithParent($service);
         // A price saved holds its account's group discount as it is now (reviews of #272): a recalculation, an order, an
@@ -327,6 +328,23 @@ class ServiceObserver
                 report($e);
             }
         });
+    }
+
+    /**
+     * When it ended (docs/growth-churn.md): the moment its status turns Terminated or Cancelled, whichever path does it;
+     * kept from one ended status to the other; cleared when it runs again (staff bring it back). A time set with the
+     * change itself is kept.
+     */
+    private static function markEnd(Service $service): void
+    {
+        if (!$service->isDirty('status') || $service->isDirty('ended_at')) {
+            return;
+        }
+        if (!$service->isEnded()) {
+            $service->ended_at = null;
+        } elseif ($service->ended_at === null) {
+            $service->ended_at = now();
+        }
     }
 
     /**
