@@ -6,6 +6,7 @@ use App\Admin\Auth\EditProfile;
 use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Helpers\ExtensionHelper;
+use App\Http\Resources\TicketAttachmentResource;
 use App\Livewire\Auth\Tfa;
 use App\Models\ApiKey;
 use App\Models\Gateway;
@@ -274,7 +275,7 @@ class StaffSplitTest extends TestCase
         $listed = collect($this->getJson('/api/v1/admin/ticket-messages?filter[ticket_id]=' . $ticket->id, $headers)->assertOk()->json('data'));
         $this->assertSame([false, true], $listed->pluck('attributes.is_internal')->all());
         $this->getJson('/api/v1/admin/ticket-messages?filter[currency_code]=x', $headers)->assertStatus(400);
-        $this->assertNotContains('path', (new \App\Http\Resources\TicketAttachmentResource(null))->attributes);
+        $this->assertNotContains('path', (new TicketAttachmentResource(null))->attributes);
     }
 
     public function test_a_password_set_by_staff_ends_the_customers_sessions(): void

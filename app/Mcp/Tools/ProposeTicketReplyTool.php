@@ -34,6 +34,7 @@ class ProposeTicketReplyTool extends ProposeTool
         if (!$staff instanceof Staff || !$staff->hasPermission('admin.tickets.viewAny')) {
             throw new \InvalidArgumentException('Your role may not write on tickets.');
         }
+
         // Not «approve it in the admin»: a draft is used from its ticket, and never sent by approving (review of #423).
         return ['note' => 'Nothing was sent. The draft waits on the ticket\'s page; a member of staff uses it (changes and sends it) or discards it. `proposal` shows done once they took it into the reply box, which is not «sent».']
             + array_diff_key(parent::run($request), ['note' => 0, 'approve_at' => 0]);
