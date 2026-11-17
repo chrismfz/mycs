@@ -8,7 +8,8 @@ use Illuminate\Console\Command;
 
 /**
  * Closes the chats where no one wrote for the minutes set in Settings (docs/livechat.md, step 3β), and visitors' chats a
- * login froze and never continued (step 4, §3 Δ).
+ * login froze and never continued (step 4, §3 Δ). It also clears a visitor's network address 30 days after their chat
+ * closed (§6α).
  */
 class LiveChatCloseIdle extends Command
 {

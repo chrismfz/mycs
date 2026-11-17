@@ -24,6 +24,7 @@ use App\Support\StaffPresence;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Sleep;
 use Livewire\Livewire;
 use OwenIt\Auditing\Models\Audit;
 use Tests\TestCase;
@@ -213,9 +214,10 @@ class LiveChatCustomerTest extends TestCase
         [$user, $client] = $this->customer();
         $held = Cache::lock('live-chat-open:' . $client->id, 30);
         $this->assertTrue($held->get());
+        Sleep::fake(syncWithCarbon: true); // the five seconds of the wait, not lived through
 
         try {
-            $this->assertSame(__('Too many chats started, wait a few minutes.'), LiveChats::start($user, $support->id, 'hi'));
+            $this->assertSame(__('The account is busy with another chat right now. Press again in a moment.'), LiveChats::start($user, $support->id, 'hi'));
         } finally {
             $held->release();
         }

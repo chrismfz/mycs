@@ -131,7 +131,7 @@ class LiveChats
                 return null;
             });
         } catch (LockTimeoutException) {
-            return __('Too many chats started, wait a few minutes.');
+            return __('The account is busy with another chat right now. Press again in a moment.');
         }
     }
 

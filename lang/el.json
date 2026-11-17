@@ -1917,6 +1917,7 @@
     "The name may have up to :max characters, on one line.": "Το όνομα μπορεί να έχει έως :max χαρακτήρες, σε μία γραμμή.",
     "This email address is not valid.": "Αυτή η διεύθυνση email δεν είναι έγκυρη.",
     "This chat has become too long. Please open a ticket to go on.": "Η συζήτηση έγινε πολύ μεγάλη. Ανοίξτε ένα αίτημα υποστήριξης για να συνεχίσουμε.",
+    "The account is busy with another chat right now. Press again in a moment.": "Ο λογαριασμός είναι απασχολημένος με άλλη συζήτηση αυτή τη στιγμή. Πατήστε ξανά σε λίγο.",
     "Too many chats are open from your network, wait a few minutes.": "Υπάρχουν πολλές ανοιχτές συζητήσεις από το δίκτυό σας, περιμένετε λίγα λεπτά.",
     "The chat is not available while you are logged in as a client.": "Το chat δεν είναι διαθέσιμο όσο είστε συνδεδεμένοι ως πελάτης.",
     "Send us a message": "Στείλτε μας μήνυμα",

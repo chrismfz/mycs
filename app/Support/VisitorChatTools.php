@@ -180,7 +180,7 @@ class VisitorChatTools
                 return null;
             }));
         } catch (LockTimeoutException) {
-            return __('Too many chats started, wait a few minutes.');
+            return __('The account is busy with another chat right now. Press again in a moment.');
         }
         ChatVisitor::forget();
 
@@ -203,7 +203,8 @@ class VisitorChatTools
      */
     public static function forgetOldAddresses(): int
     {
-        return LiveChat::query()->whereNotNull('ip')->where('status', LiveChat::CLOSED)
+        // The rows' updated_at stays: clearing an address is no change to the chat.
+        return LiveChat::query()->toBase()->whereNotNull('ip')->where('status', LiveChat::CLOSED)
             ->where('closed_at', '<', now()->subDays(self::ADDRESS_DAYS))->update(['ip' => null]);
     }
 
