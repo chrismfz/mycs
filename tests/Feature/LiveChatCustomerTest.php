@@ -475,7 +475,7 @@ class LiveChatCustomerTest extends TestCase
         $view = (string) file_get_contents(resource_path('views/livewire/client/chat-bubble.blade.php'));
 
         $this->assertDoesNotMatchRegularExpression('/primary-\d{2,3}/', $view);
-        $this->assertStringContainsString('bg-primary', $view);
+        $this->assertStringContainsString('bg-primary text-sm', $view);
     }
 
     /** Review of #479: the alert re-checks whenever a poll changes any of its counts or ids, not only the staff chat's. */

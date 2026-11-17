@@ -1984,5 +1984,13 @@
     "No braces { }.": "Χωρίς άγκιστρα { }.",
     "Style": "Στυλ",
     "Icon and text": "Εικονίδιο και κείμενο",
-    "Round, icon only": "Στρογγυλό, μόνο εικονίδιο"
+    "Round, icon only": "Στρογγυλό, μόνο εικονίδιο",
+    "Live chat for visitors of our sites": "Live chat για επισκέπτες των sites μας",
+    "Visitors who are not logged in may chat from the popup /chat, which the launcher on our sites opens. Departments for clients only never take visitors.": "Οι επισκέπτες χωρίς login μπορούν να κάνουν chat από το popup /chat, που ανοίγει ο launcher στα sites μας. Τα τμήματα μόνο για πελάτες δεν παίρνουν ποτέ επισκέπτες.",
+    "Sites with the chat launcher": "Sites με τον launcher του chat",
+    "The host names of the sites whose launcher opens the chat. The staff see which one a visitor came from; a site not listed shows none.": "Τα hostnames των sites που ο launcher τους ανοίγει το chat. Το staff βλέπει από ποιο ήρθε ο επισκέπτης· site εκτός λίστας δεν φαίνεται.",
+    "A visitor's chat stays reachable for (hours)": "Το chat του επισκέπτη μένει προσβάσιμο για (ώρες)",
+    "After their last message, a visitor sees their chat in the same browser session for this long; never longer than the session itself.": "Μετά το τελευταίο του μήνυμα, ο επισκέπτης βλέπει το chat του στο ίδιο session του browser για τόσο· ποτέ περισσότερο από το ίδιο το session.",
+    "Chat button style": "Στυλ του κουμπιού chat",
+    "How the «Chat» button looks on MyCS's own pages, for customers and visitors alike, in the theme's colour. The code for other sites has its own choice (Setup → Chat launcher code).": "Πώς φαίνεται το κουμπί «Chat» στις σελίδες του ίδιου του MyCS, για πελάτες και επισκέπτες, στο χρώμα του θέματος. Ο κώδικας για άλλα sites έχει δική του επιλογή (Setup → Κώδικας για το site)."
 }

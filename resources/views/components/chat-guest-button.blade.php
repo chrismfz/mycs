@@ -7,6 +7,6 @@
     x-data x-on:click="const url = new URL($el.dataset.mycsGuestChat); url.searchParams.set('page', location.pathname); window.open(url.toString(), 'mycs-chat', 'noopener,popup,width=420,height=640')"
     @class(['fixed bottom-4 right-4 z-40 inline-flex items-center justify-center gap-2 rounded-full bg-primary text-sm font-semibold text-white shadow-lg hover:opacity-90',
         'h-12 w-12' => \App\Support\ChatLauncher::ownStyle() === 'icon', 'px-4 py-2' => \App\Support\ChatLauncher::ownStyle() !== 'icon'])
-    title="{{ __('Chat') }}">
+    @if (\App\Support\ChatLauncher::ownStyle() === 'icon') title="{{ __('Chat') }}" @endif>
     <x-chat-button-face />
 </button>

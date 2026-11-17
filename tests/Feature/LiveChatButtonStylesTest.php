@@ -3,12 +3,16 @@
 namespace Tests\Feature;
 
 use App\Enums\StaffPresenceStatus;
+use App\Livewire\Client\ChatBubble;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\TicketDepartment;
+use App\Models\User;
 use App\Support\ChatLauncher;
+use App\Support\CurrentClient;
 use App\Support\StaffPresence;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /** The chat button's three looks (owner 2026-11-17): in the launcher's code and on MyCS's own pages. */
@@ -74,6 +78,18 @@ class LiveChatButtonStylesTest extends TestCase
 
         $this->storeSettings(['livechat_button_style' => 'something-else']);
         $this->assertStringNotContainsString('<svg', $this->visitorButton(), 'an unknown value is the text');
+    }
+
+    public function test_the_customers_bubble_follows_the_setting(): void
+    {
+        $this->storeSettings(['livechat_button_style' => 'icon']);
+        $user = User::factory()->create();
+        $this->actingAs($user, 'web');
+        app(CurrentClient::class)->switchTo($user->client()->id);
+
+        Livewire::test(ChatBubble::class)
+            ->assertSeeHtml(ChatLauncher::icon())->assertSeeHtml('sr-only')->assertSeeHtml('h-12 w-12')
+            ->call('toggle')->assertSet('open', true);
     }
 
     private function visitorButton(): string
