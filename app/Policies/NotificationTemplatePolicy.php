@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Helpers\NotificationHelper;
 use App\Models\NotificationTemplate;
 use App\Models\Staff;
 use App\Models\User;
@@ -37,7 +38,16 @@ class NotificationTemplatePolicy
      */
     public function update(User|Staff $user, NotificationTemplate $notificationTemplate): bool
     {
-        return $user->hasPermission('admin.notification_templates.update');
+        return $user->hasPermission(self::private($notificationTemplate) ? '*' : 'admin.notification_templates.update');
+    }
+
+    /**
+     * A mail that carries a login link or a password (NotificationHelper::PRIVATE_TEMPLATES): its text is a full admin's
+     * only, else an image or a link in it would send the reset link or the new server's password elsewhere (audit 2026-11-18).
+     */
+    private static function private(NotificationTemplate $template): bool
+    {
+        return in_array($template->key, NotificationHelper::PRIVATE_TEMPLATES, true);
     }
 
     /**
@@ -45,7 +55,7 @@ class NotificationTemplatePolicy
      */
     public function delete(User|Staff $user, NotificationTemplate $notificationTemplate): bool
     {
-        return $user->hasPermission('admin.notification_templates.delete');
+        return $user->hasPermission(self::private($notificationTemplate) ? '*' : 'admin.notification_templates.delete');
     }
 
     /**
