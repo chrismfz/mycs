@@ -140,6 +140,9 @@
             </li>
             @endforeach
         </ul>
+        @if ($hosts->hasPages())
+        <div class="mt-3">{{ $hosts->links() }}</div>
+        @endif
         @endif
     </x-filament::section>
 

@@ -103,4 +103,44 @@ class GrRegistryPageTest extends TestCase
         $this->get(GrRegistry::getUrl())->assertOk()->assertDontSee(__('domains.gr_registry.read_now'));
         Livewire::test(GrRegistry::class)->call('readBalance', $this->gr->id)->assertForbidden();
     }
+
+    /** Owner 2026-11-17: a name transferred away and back is two rows; only the one still ours lists its hosts. */
+    public function test_glue_hosts_of_a_domain_no_longer_ours_are_not_listed_twice(): void
+    {
+        $this->staff();
+        $client = User::factory()->create()->clients()->firstOrFail();
+        $hosts = fn (string $read) => ['child_hosts' => ['read_at' => $read, 'hosts' => [['name' => 'ns1.cdnet.gr', 'addresses' => ['192.0.2.1']]]]];
+        Domain::factory()->create(['client_id' => $client->id, 'sld' => 'cdnet', 'tld' => 'gr', 'fqdn' => 'cdnet.gr', 'status' => 'transferred_away',
+            'meta' => $hosts('2026-10-18T10:00:00+00:00')]);
+        Domain::factory()->create(['client_id' => $client->id, 'sld' => 'cdnet', 'tld' => 'gr', 'fqdn' => 'cdnet.gr', 'status' => 'active',
+            'meta' => $hosts('2026-10-22T10:00:00+00:00')]);
+
+        $html = $this->get(GrRegistry::getUrl())->assertOk()->getContent();
+
+        $this->assertSame(1, substr_count($html, 'ns1.cdnet.gr'));
+        $this->assertStringContainsString('22/10/2026', $html);
+        $this->assertStringNotContainsString('18/10/2026', $html);
+
+        // An unpaid row beside the held one (not terminal): still one, the held one's (review of #905).
+        Domain::factory()->create(['client_id' => $client->id, 'sld' => 'cdnet', 'tld' => 'gr', 'fqdn' => 'cdnet.gr', 'status' => 'pending_register',
+            'meta' => $hosts('2026-10-30T10:00:00+00:00')]);
+        $html = $this->get(GrRegistry::getUrl())->assertOk()->getContent();
+        $this->assertSame(1, substr_count($html, 'ns1.cdnet.gr'));
+        $this->assertStringContainsString('22/10/2026', $html);
+    }
+
+    public function test_many_glue_hosts_come_a_page_at_a_time(): void
+    {
+        $this->staff();
+        $client = User::factory()->create()->clients()->firstOrFail();
+        $rows = collect(range(1, 30))->map(fn ($i) => ['name' => sprintf('ns%02d.big.gr', $i), 'addresses' => ['192.0.2.' . $i]])->all();
+        Domain::factory()->create(['client_id' => $client->id, 'sld' => 'big', 'tld' => 'gr', 'fqdn' => 'big.gr', 'status' => 'active',
+            'meta' => ['child_hosts' => ['read_at' => now()->toIso8601String(), 'hosts' => $rows]]]);
+
+        Livewire::test(GrRegistry::class)->assertSee('ns25.big.gr')->assertDontSee('ns26.big.gr')
+            ->call('gotoPage', 2, 'hostsPage')->assertSee('ns26.big.gr')->assertSee('ns30.big.gr')->assertDontSee('ns01.big.gr');
+
+        // A page past the end (the list shrank): the last one, never «no hosts» (review of #905).
+        Livewire::test(GrRegistry::class)->call('gotoPage', 9, 'hostsPage')->assertSee('ns26.big.gr')->assertDontSee(__('domains.gr_registry.hosts_none'));
+    }
 }

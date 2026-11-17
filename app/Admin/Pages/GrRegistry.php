@@ -4,6 +4,7 @@ namespace App\Admin\Pages;
 
 use App\Admin\Resources\DomainResource;
 use App\Contracts\EmailsAuthCode;
+use App\Enums\DomainStatus;
 use App\Models\Domain;
 use App\Models\DomainOwnerChange;
 use App\Models\DomainRegistrarConnection;
@@ -17,11 +18,13 @@ use App\Support\Domains\RegistrarTransactions;
 use App\Support\Redact;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use InvalidArgumentException;
 use Livewire\Attributes\Locked;
+use Livewire\WithPagination;
 use MyCS\GrEpp\Command\Rules;
 use Throwable;
 
@@ -33,6 +36,10 @@ use Throwable;
  */
 class GrRegistry extends Page
 {
+    use WithPagination;
+
+    public const HOSTS_PER_PAGE = 25;
+
     /** Names one check takes (the registry takes more; staff check a few at a time). */
     public const CHECK_MAX = 10;
 
@@ -293,18 +300,34 @@ class GrRegistry extends Page
     }
 
     /**
-     * Our glue hosts (ns1.myip.gr …) as the domains' pages last read them (meta.child_hosts): changed there.
+     * Our glue hosts (ns1.myip.gr …) as the domains' pages last read them (meta.child_hosts): changed there. Only of a
+     * domain still ours: a name transferred away and back is two rows, and the old one's hosts showed twice (owner
+     * 2026-11-17). HOSTS_PER_PAGE a page.
      *
-     * @return Collection<int, array{host: non-empty-string, addresses: list<string>, domain: Domain, url: string, read_at: mixed}>
+     * @return LengthAwarePaginator<int, array{host: string, addresses: list<string>, domain: Domain, url: string, read_at: mixed}>
      */
-    private function hosts(): Collection
+    private function hosts(): LengthAwarePaginator
+    {
+        $all = $this->allHosts();
+        // Never past the last page (a bookmarked ?hostsPage=2 after the list shrank read «no hosts»: review of #905).
+        $page = min(max(1, (int) $this->getPage('hostsPage')), max(1, (int) ceil($all->count() / self::HOSTS_PER_PAGE)));
+
+        return new LengthAwarePaginator($all->forPage($page, self::HOSTS_PER_PAGE)->values(), $all->count(), self::HOSTS_PER_PAGE, $page, ['pageName' => 'hostsPage']);
+    }
+
+    /** @return Collection<int, array{host: non-empty-string, addresses: list<string>, domain: Domain, url: string, read_at: mixed}> */
+    private function allHosts(): Collection
     {
         // Read with none (hosts: []) never fill the limit (ADV-3 of #394): sifted here, not by a JSON «like», which
         // MariaDB and SQLite read differently; .gr and .ελ, a few hundred at most.
         return Domain::query()->whereNotNull('meta->child_hosts')
             ->where(fn ($q) => $q->whereIn('tld', ['gr', 'ελ'])->orWhere('tld', 'like', '%.gr'))
+            ->whereNotIn('status', DomainStatus::terminalValues())
             ->orderBy('fqdn')->lazy(200)
-            ->filter(fn (Domain $domain) => ($domain->meta['child_hosts']['hosts'] ?? []) !== [])->take(50)->collect()
+            ->filter(fn (Domain $domain) => ($domain->meta['child_hosts']['hosts'] ?? []) !== [])->collect()
+            // One row a name: the one that holds it, else the newest read (an unpaid or lapsed row beside it: review of #905).
+            ->sortBy(fn (Domain $domain) => [$domain->status->holdsName() ? 0 : 1, -strtotime((string) ($domain->meta['child_hosts']['read_at'] ?? '1970-01-01'))])
+            ->unique('fqdn')->sortBy('fqdn')
             ->flatMap(fn (Domain $domain) => collect($domain->meta['child_hosts']['hosts'] ?? [])->map(fn ($host) => [
                 'host' => (string) ($host['name'] ?? $host['host'] ?? ''),
                 'addresses' => array_values(array_map('strval', (array) ($host['addresses'] ?? []))),
