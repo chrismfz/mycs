@@ -5,6 +5,7 @@ namespace App\Admin;
 use App\Admin\Clusters\Extensions;
 use App\Admin\Clusters\InvoiceCluster;
 use App\Admin\Clusters\Services;
+use App\Admin\Pages\ChatLauncherCode;
 use App\Admin\Pages\Dashboard;
 use App\Admin\Pages\Extension;
 use App\Admin\Pages\GrRegistry;
@@ -168,6 +169,7 @@ class TopMenu
             [ServerGroupResource::class, 'index', 'Server Groups'],
             [NotificationTemplateResource::class, 'index', 'Email Templates'],
             [ChatNotificationRuleResource::class, 'index', 'Chat Notifications'],
+            [ChatLauncherCode::class],
             [TicketDepartmentResource::class, 'index', 'Ticket Departments'],
             [StaffResource::class, 'index', 'Staff'],
             [RoleResource::class, 'index', 'Staff Roles'],

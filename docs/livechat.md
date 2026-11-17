@@ -714,6 +714,21 @@ adversarial review (§10).
    όχι ρυθμίσεις· το block δεν μπαίνει στο audit (μόνο γραμμή SYSTEM) και δεν αίρεται νωρίτερα από το staff· αν ένα block
    συμπέσει με την επιβεβαίωση της ίδιας στιγμής, το νέο chat πελάτη μένει ανοιχτό και το κλείνει ο operator (ADV-889-3).
    Όταν γίνει το ιστορικό του client area (3γ), πρέπει να αφήνει έξω τα `started_anonymously` (συνδεδεμένα με το χέρι).
+   **PR 4 (η γεννήτρια του launcher, `App\Support\ChatLauncher`, σελίδα `ChatLauncherCode` στο Setup):** site από το
+   `livechat_sites`, τμήμα (ή «το πρώτο με κάποιον διαθέσιμο»), κείμενο ≤ 30 σε μία γραμμή, θέση κάτω δεξιά/αριστερά,
+   χρώμα `#rrggbb`· ό,τι δεν περνά τον έλεγχο δεν βγάζει κώδικα, και όλα μπαίνουν με escape. Προεπισκόπηση και
+   «Αντιγραφή». Τρεις μορφές: HTML με inline script (default), Astro component (`<script is:inline>`), ή το κουμπί με
+   `<script src="/chat-launcher-v1.js" integrity="sha384-…" crossorigin="anonymous">`. Το αρχείο σερβίρεται από route χωρίς
+   session ή cookie, με `Access-Control-Allow-Origin: *` (το θέλει το SRI) και `immutable`· νέα έκδοση = νέο αρχείο
+   (`resources/launcher/chat-launcher-v<N>.js`, `ChatLauncher::VERSION`). Το script: κουμπιά με `data-mycs-chat`,
+   `window.open(url, 'mycs-chat', 'noopener,popup,width=420,height=640')` με `page = location.pathname`, και
+   `chat_opened` στο `window.gtag` αν υπάρχει· κανένα fetch, cookie ή storage. Τίποτα δεν αποθηκεύεται: για αλλαγή,
+   ξαναβγαίνει ο κώδικας.
+   Μετά τα reviews του #890: το κείμενο δεν δέχεται `{ }` (Astro, Vue κ.λπ. θα τα έτρεχαν ως κώδικα στο build του site,
+   ADV-890-1), ούτε U+2028/2029· το χρώμα ελέγχεται ως ακριβώς `#rrggbb`· το script δένει κάθε κουμπί μία φορά, όσα
+   αντίγραφα κι αν έχει η σελίδα· μόνο το ακριβές `/chat-launcher-v1.js` σερβίρεται. Λόγω `noopener` η σελίδα δεν έχει
+   λαβή στο popup, άρα κάθε κλικ ανοίγει νέο παράθυρο (δεν εστιάζει το παλιό): επιλογή, όχι σφάλμα. Η μορφή με `<script
+   src>` θέλει από το CSP του site `style-src 'unsafe-inline'` για το inline style του κουμπιού, αλλιώς στυλ από το site.
 5. **Κλείσιμο του LHC.**
    - Ticket από chat (F4), διατήρηση της IP και διαγραφή από admin;
    - import των παλιών chats (F19);
