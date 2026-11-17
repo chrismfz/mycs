@@ -41,6 +41,13 @@ class InboundRouter
     /** New tickets by mail from one sender in an hour (§3 Ε). */
     public const NEW_TICKETS_PER_HOUR = 10;
 
+    /**
+     * New tickets an hour, per department, from mail no one vouched for: each sender has its own hour, so a From that
+     * changes with every mail had none, and every new ticket is told to staff by mail (audit 2026-11-17). The rest wait
+     * in the quarantine, where staff open them.
+     */
+    public const UNVOUCHED_NEW_PER_HOUR = 30;
+
     /** Replies by mail from one sender in an hour. */
     public const REPLIES_PER_HOUR = 30;
 
@@ -127,12 +134,17 @@ class InboundRouter
         }
         // Vouched and unvouched mail count apart: forged mail in a customer's name never uses up their own hour.
         $limit = 'ticket-mail-new:' . ($verdict->authenticated ? 'vouched:' : 'unvouched:') . TicketBlockedSender::base($from);
-        if (RateLimiter::tooManyAttempts($limit, self::NEW_TICKETS_PER_HOUR)) {
+        $unvouched = 'ticket-mail-new-unvouched:' . $department->id;
+        if (RateLimiter::tooManyAttempts($limit, self::NEW_TICKETS_PER_HOUR)
+            || (!$verdict->authenticated && RateLimiter::tooManyAttempts($unvouched, self::UNVOUCHED_NEW_PER_HOUR))) {
             return $this->quarantine($department, $email, $raw, 'rate_limited', $messageId, $verdict);
         }
         $outcome = $this->open($department, $email, $messageId, $mail, $account, $verdict->authenticated);
         if ($outcome->kind === InboundOutcome::OPENED) {
             RateLimiter::hit($limit, 3600);
+            if (!$verdict->authenticated) {
+                RateLimiter::hit($unvouched, 3600);
+            }
             // «We received it», to an address our server vouched for, or to one of our own customers' (a login with a
             // proven address) once a day: never to a stranger's, which a forged From would make us mail (backscatter). A
             // receiving server that vouches for little (cPanel's exim: iprev and DKIM in two headers, the first alone

@@ -43,7 +43,7 @@ final class ImapEngineMailbox implements Mailbox
         }
     }
 
-    public function poll(MailboxSettings $settings, callable $handle, int $limit = 50): PollSummary
+    public function poll(MailboxSettings $settings, callable $handle, int $limit = 50, ?callable $mayRead = null): PollSummary
     {
         $summary = new PollSummary;
         $mailbox = null;
@@ -70,7 +70,7 @@ final class ImapEngineMailbox implements Mailbox
                 }
                 $summary->fetched++;
                 try {
-                    if ($this->handleOne($folder, $head, $handle)) {
+                    if ($this->handleOne($folder, $head, $handle, $mayRead)) {
                         $summary->handled++;
                     }
                 } catch (Throwable $e) {
@@ -96,12 +96,15 @@ final class ImapEngineMailbox implements Mailbox
         return $settings->since === null ? null : DateTimeImmutable::createFromInterface($settings->since)->setTime(0, 0)->modify('-2 days');
     }
 
-    /** @param  callable(?InboundEmail, string): bool  $handle */
-    private function handleOne(FolderInterface $folder, Message $head, callable $handle): bool
+    /**
+     * @param  callable(?InboundEmail, string): bool  $handle
+     * @param  (callable(string): bool)|null  $mayRead
+     */
+    private function handleOne(FolderInterface $folder, Message $head, callable $handle, ?callable $mayRead = null): bool
     {
         $size = $head->size();
-        // A size we could not read is not taken for a small one: headers only.
-        if ($size === null || $size > self::MAX_BYTES) {
+        // A size we could not read is not taken for a small one: headers only. So is one the caller will not read whole.
+        if ($size === null || $size > self::MAX_BYTES || ($mayRead !== null && $mayRead($head->uid() . ':' . $size) !== true)) {
             $raw = rtrim($head->head());
             $email = $this->parsed(fn () => Parser::headersOnly($raw, (int) $size));
         } else {

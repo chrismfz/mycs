@@ -46,6 +46,8 @@ class FetchTicketMail extends Command
             $counts = [InboundOutcome::THREADED => 0, InboundOutcome::OPENED => 0, InboundOutcome::QUARANTINED => 0, 'skipped' => 0];
             $errors = [];
 
+            // The mail being read now: its start is taken back once the run is past it alive.
+            $reading = null;
             $summary = $mailbox->poll($department->mailboxSettings(), function (?InboundEmail $email, string $raw) use ($router, $department, &$counts, &$errors) {
                 try {
                     $outcome = $router->route($department, $email, $raw);
@@ -70,7 +72,23 @@ class FetchTicketMail extends Command
                 $counts[$kind]++;
 
                 return true;
+            }, mayRead: function (string $message) use ($department, &$reading): bool {
+                // Counted before the mail is read: one that kills the run (out of memory is no Throwable) never reaches the
+                // count above, and would be read first on every run, for ever. Past ATTEMPTS starts it comes as its
+                // headers only, and the router keeps it in the quarantine (audit 2026-11-17). Only a run that died
+                // counts: one that went on to the next mail takes the start back, whatever became of the mail (a
+                // connection that dropped, a failure the count above handles: review of #899).
+                if ($reading !== null && (int) Cache::get($reading) > 0) {
+                    Cache::decrement($reading);
+                }
+                $reading = 'ticket-mail-started:' . $department->id . ':' . $message;
+                Cache::add($reading, 0, now()->addDays(2));
+
+                return Cache::increment($reading) <= self::ATTEMPTS;
             });
+            if ($reading !== null && (int) Cache::get($reading) > 0) {
+                Cache::decrement($reading);
+            }
 
             $run->update(['finished_at' => now(), 'connected' => $summary->connected, 'fetched' => $summary->fetched,
                 'threaded' => $counts[InboundOutcome::THREADED], 'opened' => $counts[InboundOutcome::OPENED],

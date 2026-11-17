@@ -88,7 +88,7 @@ final class Retention
             'ticket_mail_imports' => ['table' => 'ticket_mail_imports', 'column' => 'created_at', 'setting' => 'retention_ticket_mail_imports_days', 'default' => 90,
                 'label' => 'Ticket mail import log', 'description' => 'What each read of the ticket mailboxes did with each mail; best kept as long as the mail quarantine.'],
             'ticket_quarantine' => ['table' => 'ticket_quarantine', 'column' => 'handled_at', 'setting' => 'retention_ticket_quarantine_days', 'default' => 90,
-                'label' => 'Mail quarantine', 'description' => 'Mail the ticket mailboxes held back and staff handled, with its raw message file. Mail still waiting for staff is kept.',
+                'label' => 'Mail quarantine', 'description' => 'Mail the ticket mailboxes held back and staff handled, with its raw message file. Mail still waiting for staff is kept, but for automated mail (auto-replies, bounces, lists), which goes as long after it came.',
                 'keep' => fn (Builder $query) => $query->where('status', '!=', 'pending')],
             'failed_jobs' => ['table' => 'failed_jobs', 'column' => 'failed_at', 'setting' => 'retention_failed_jobs_days', 'default' => 30,
                 'label' => 'Failed jobs', 'description' => 'Background jobs that failed (System → Failed jobs).'],
@@ -164,7 +164,15 @@ final class Retention
             default => fn (array $ids) => DB::table($log['table'])->whereIn('id', $ids)->delete(),
         };
 
-        return self::inChunks($query, $delete, $max);
+        $deleted = self::inChunks($query, $delete, $max);
+        // Automated mail no one handles (it is not even counted in the menu) kept its whole raw message for ever
+        // (audit 2026-11-17): it goes by when it came.
+        if ($key === 'ticket_quarantine') {
+            $deleted += self::inChunks(fn (): Builder => DB::table($log['table'])->where('status', TicketQuarantine::PENDING)
+                ->where('reason', 'automated')->where('created_at', '<', $cutoff), $delete, max(0, $max - $deleted));
+        }
+
+        return $deleted;
     }
 
     /**
