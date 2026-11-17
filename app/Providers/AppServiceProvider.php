@@ -30,7 +30,6 @@ use App\Support\CurrentClient;
 use App\Support\Domains\RegistrarTransactions;
 use App\Support\ImpersonationSnapshot;
 use App\Support\StaffSessions;
-use App\Support\Tickets\DkimDns;
 use Closure;
 use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
@@ -62,7 +61,6 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use League\CommonMark\Extension\Table\TableExtension;
 use Livewire\Livewire;
-use MyCS\TicketMail\Dkim;
 use MyCS\TicketMail\Imap\ImapEngineMailbox;
 use MyCS\TicketMail\Imap\Mailbox;
 use MyCS\Vies\CurlTransport;
@@ -232,7 +230,6 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(CurrentClient::class);
         // VIES (PR G): with the instance's own VAT number as requester, VIES gives the consultation number.
         $this->app->bind(Mailbox::class, ImapEngineMailbox::class);
-        $this->app->bind(Dkim::class, fn () => new Dkim(DkimDns::txt(...)));
         // The session never keeps a private link's URL (docs/tickets.md §3 Δ).
         $this->app->bind(StartSession::class, StartSessionWithoutPrivateLinks::class);
         $this->app->bind(Vies::class, fn () => new Vies(new CurlTransport, config('settings.eu_vat_requester')));

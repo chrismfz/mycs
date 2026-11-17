@@ -78,7 +78,7 @@ class FetchTicketMail extends Command
                 // headers only, and the router keeps it in the quarantine (audit 2026-11-17). Only a run that died
                 // counts: one that went on to the next mail takes the start back, whatever became of the mail (a
                 // connection that dropped, a failure the count above handles: review of #899).
-                if ($reading !== null) {
+                if ($reading !== null && (int) Cache::get($reading) > 0) {
                     Cache::decrement($reading);
                 }
                 $reading = 'ticket-mail-started:' . $department->id . ':' . $message;
@@ -86,7 +86,7 @@ class FetchTicketMail extends Command
 
                 return Cache::increment($reading) <= self::ATTEMPTS;
             });
-            if ($reading !== null) {
+            if ($reading !== null && (int) Cache::get($reading) > 0) {
                 Cache::decrement($reading);
             }
 

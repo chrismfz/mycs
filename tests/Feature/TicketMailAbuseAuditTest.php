@@ -7,13 +7,11 @@ use App\Models\Ticket;
 use App\Models\TicketDepartment;
 use App\Models\TicketQuarantine;
 use App\Support\Retention;
-use App\Support\Tickets\DkimDns;
 use App\Support\Tickets\InboundRouter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use MyCS\TicketMail\Dkim;
 use MyCS\TicketMail\Imap\Mailbox;
 use MyCS\TicketMail\Tests\Eml;
 use Tests\Fixtures\FakeTicketMailbox;
@@ -37,12 +35,6 @@ class TicketMailAbuseAuditTest extends TestCase
         $this->support = TicketDepartment::query()->firstOrCreate(['name' => 'Support']);
         $this->support->update(['email' => 'support@myip.test', 'imap_host' => 'imap.myip.test', 'imap_username' => 'support@myip.test',
             'imap_password' => 'secret', 'authserv_id' => 'mymail.myip.test', 'require_dmarc' => true, 'polling' => true]);
-    }
-
-    protected function tearDown(): void
-    {
-        DkimDns::$resolver = null;
-        parent::tearDown();
     }
 
     /** @param  array<int|string, string>  $headers */
@@ -151,47 +143,5 @@ class TicketMailAbuseAuditTest extends TestCase
         $this->assertSame([$recent->id, $waiting->id], TicketQuarantine::query()->orderBy('id')->pluck('id')->all());
         Storage::disk(TicketQuarantine::DISK)->assertMissing((string) $old->raw_path);
         Storage::disk(TicketQuarantine::DISK)->assertExists((string) $waiting->raw_path);
-    }
-
-    /** The name looked up is the sender's choice, and the resolver waits its whole timeout for servers that never answer. */
-    public function test_a_domain_whose_dkim_lookup_failed_is_not_asked_again_for_a_while(): void
-    {
-        $asked = [];
-        DkimDns::$resolver = function (string $name) use (&$asked) {
-            $asked[] = $name;
-
-            return str_ends_with($name, '.good.example') ? ['v=DKIM1; p=abc'] : null;
-        };
-
-        $this->assertSame(['v=DKIM1; p=abc'], DkimDns::txt('s1._domainkey.good.example'));
-        $this->assertNull(DkimDns::txt('s1._domainkey.dead.example'));
-        $this->assertNull(DkimDns::txt('other._domainkey.DEAD.example'), 'the domain, whatever the selector');
-        $this->assertSame(['s1._domainkey.good.example', 's1._domainkey.dead.example'], $asked);
-
-        // Review of #899: failures of other domains never stop the lookups of a good one.
-        for ($i = 0; $i < 20; $i++) {
-            $this->assertNull(DkimDns::txt("s._domainkey.dead{$i}.example"));
-        }
-        $this->assertSame(['v=DKIM1; p=abc'], DkimDns::txt('s2._domainkey.good.example'));
-
-        $this->travel(DkimDns::REMEMBER_MINUTES + 1)->minutes();
-        $this->assertNull(DkimDns::txt('s1._domainkey.dead.example'));
-        $this->assertSame('s1._domainkey.dead.example', end($asked), 'asked again once the while is over');
-    }
-
-    public function test_the_tickets_dkim_check_asks_through_the_bounded_lookup(): void
-    {
-        $asked = 0;
-        DkimDns::$resolver = function () use (&$asked) {
-            $asked++;
-
-            return null;
-        };
-        $raw = "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=example.org; s=sel; h=from:subject; bh=47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=; b=AAAA\r\n"
-            . "From: eve@example.org\r\nSubject: x\r\n\r\n";
-
-        $this->assertSame('dkim_dns_failure', app(Dkim::class)->verdict($raw, 'eve@example.org')->reason);
-        app(Dkim::class)->verdict($raw, 'eve@example.org');
-        $this->assertSame(1, $asked);
     }
 }

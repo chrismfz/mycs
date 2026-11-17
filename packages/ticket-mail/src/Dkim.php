@@ -413,13 +413,8 @@ final class Dkim
         return preg_replace($pattern, $replacement, $subject) ?? throw new RegexFailed;
     }
 
-    /**
-     * The system resolver's answer. It has no timeout of ours and remembers no failure: a caller that reads many mails
-     * wraps it (the app's DkimDns).
-     *
-     * @return list<string>|null
-     */
-    public static function dnsTxt(string $name): ?array
+    /** @return list<string>|null */
+    private static function dnsTxt(string $name): ?array
     {
         $records = @dns_get_record($name, DNS_TXT);
         if (!is_array($records)) {
