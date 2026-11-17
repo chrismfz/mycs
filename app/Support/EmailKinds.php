@@ -85,7 +85,7 @@ final class EmailKinds
      */
     public static function keysNotAllowed(callable $allows): array
     {
-        return array_keys(array_filter(self::KINDS, fn (string $kind) => !$allows(self::PERMISSIONS[$kind] ?? 'emails')));
+        return array_keys(array_filter(self::KINDS, fn (string $kind) => !$allows(self::PERMISSIONS[$kind])));
     }
 
     /** The account's owner gets this template's mail: its primary contact takes the kind, or it is one of ALWAYS. */

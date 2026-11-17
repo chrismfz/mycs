@@ -148,7 +148,7 @@ class Account extends ComponentWithProperties
         $oldPrimary = trim((string) $primaryEmail);
         if ($primaryMoves && $oldPrimary !== '' && Str::lower($oldPrimary) !== Str::lower($oldEmail)) {
             NotificationHelper::sendSystemEmailNotification(__('account.notifications.contact_email_changed_subject'), e(__('account.notifications.contact_email_changed_body', [
-                'site' => config('app.name'), 'old' => $oldPrimary, 'new' => (string) $client?->primaryContact?->fresh()?->email,
+                'site' => config('app.name'), 'old' => $oldPrimary, 'new' => (string) $client->primaryContact?->fresh()?->email,
             ])), [], $oldPrimary);
         }
 
