@@ -58,6 +58,33 @@ class McpTicketReplyDraftTest extends TestCase
         $this->assertSame($before, TicketMessage::query()->count(), 'nothing reaches the ticket by proposing');
     }
 
+    /** Audit 2026-11-17: the answer names the ticket and the start of its subject; the note's tool already asked for View Tickets. */
+    public function test_a_role_that_may_not_see_tickets_drafts_nothing_and_learns_nothing(): void
+    {
+        $ticket = Ticket::factory()->create(['subject' => 'The secret subject']);
+        $staff = $this->staff([McpAuth::PERMISSION, 'admin.tickets.update']);
+
+        $plain = 'mcp-test-' . bin2hex(random_bytes(16));
+        ApiKey::query()->create(['name' => 'MCP', 'token' => hash('sha256', $plain), 'staff_id' => $staff->id, 'type' => 'admin', 'permissions' => [McpAuth::PERMISSION], 'enabled' => true]);
+        $headers = ['Authorization' => "Bearer {$plain}", 'Accept' => 'application/json, text/event-stream'];
+        // The tool is not even offered, and a call by its name is refused.
+        $this->assertNotContains('propose_ticket_reply', collect($this->withHeaders($headers)
+            ->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list', 'params' => (object) []])->json('result.tools'))->pluck('name'));
+        $text = $this->withHeaders($headers)->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call',
+            'params' => ['name' => 'propose_ticket_reply', 'arguments' => ['ticket' => (string) $ticket->id, 'message' => 'Hello']]])->getContent();
+
+        $this->assertStringNotContainsString('secret subject', (string) $text);
+        $this->assertStringNotContainsString('"proposed": true', (string) $text);
+        $this->assertSame(0, McpProposal::query()->count());
+
+        // Nor another's draft through the `proposal` tool's list (reviews of #902).
+        $mine = Proposals::propose(Proposals::TICKET_REPLY, ['ticket_id' => $ticket->id, 'message' => 'Draft'], $this->staff(['*']));
+        $this->assertFalse(Proposals::allows($staff, Proposals::TICKET_REPLY, $mine->payload));
+        $listed = $this->withHeaders($headers)->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 3, 'method' => 'tools/call',
+            'params' => ['name' => 'proposal', 'arguments' => (object) []]])->getContent();
+        $this->assertStringNotContainsString('secret subject', (string) $listed);
+    }
+
     public function test_approving_it_sends_nothing(): void
     {
         $ticket = Ticket::factory()->create();

@@ -225,8 +225,10 @@ final class Proposals
         return match ($type) {
             self::RETRY_MODULE_ACTION, self::RESOLVE_MODULE_ACTION => ($action = ModuleAction::query()->find((int) ($payload['module_action_id'] ?? 0))) === null
                 || Gate::forUser($staff)->allows('update', $action),
-            self::TICKET_REPLY => ($ticket = Ticket::query()->find((int) ($payload['ticket_id'] ?? 0))) === null
-                || Gate::forUser($staff)->allows('update', $ticket),
+            // And View Tickets: a draft's summary names the ticket and the start of its subject, here and in the
+            // `proposal` tool's list (reviews of #902).
+            self::TICKET_REPLY => $staff->hasPermission('admin.tickets.viewAny')
+                && (($ticket = Ticket::query()->find((int) ($payload['ticket_id'] ?? 0))) === null || Gate::forUser($staff)->allows('update', $ticket)),
             // A resend: the admin's Resend is on the mail log, which they must be able to read (code review of #584, F4).
             default => Gate::forUser($staff)->allows('viewAny', EmailLog::class),
         };

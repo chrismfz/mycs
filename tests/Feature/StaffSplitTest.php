@@ -6,8 +6,10 @@ use App\Admin\Auth\EditProfile;
 use App\Admin\Resources\TicketResource\Pages\EditTicket;
 use App\Admin\Resources\UserResource\Pages\EditUser;
 use App\Helpers\ExtensionHelper;
+use App\Http\Resources\TicketAttachmentResource;
 use App\Livewire\Auth\Tfa;
 use App\Models\ApiKey;
+use App\Models\ClientUser;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\MoneyEvent;
@@ -249,6 +251,38 @@ class StaffSplitTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('staff_id');
         $this->postJson('/api/v1/admin/ticket-messages', ['ticket_id' => $ticket->id, 'message' => 'y', 'staff_id' => $owner->id], $headers)
             ->assertSuccessful();
+    }
+
+    /** Audit 2026-11-17: any user id on any ticket put another account's name in a customer's thread. */
+    public function test_an_api_key_replies_as_a_customer_only_as_a_login_of_the_tickets_account(): void
+    {
+        $token = 'PAYM' . bin2hex(random_bytes(8));
+        ApiKey::create(['name' => 'k', 'type' => 'admin', 'enabled' => true, 'token' => hash('sha256', $token),
+            'staff_id' => Staff::factory()->admin()->create()->id, 'permissions' => ['admin.ticket_messages.create', 'admin.ticket_messages.view']]);
+        $headers = ['Authorization' => 'Bearer ' . $token, 'Accept' => 'application/json'];
+        $owner = User::factory()->create();
+        $stranger = User::factory()->create();
+        $ticket = Ticket::factory()->create(['client_id' => $owner->client()->id]);
+        $guest = Ticket::factory()->create(['client_id' => null, 'guest_email' => 'guest@example.com', 'guest_name' => 'Guest']);
+        $post = fn (Ticket $on, User $as) => $this->postJson('/api/v1/admin/ticket-messages', ['ticket_id' => $on->id, 'message' => 'x', 'user_id' => $as->id], $headers);
+
+        $post($ticket, $stranger)->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $post($guest, $owner)->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $this->postJson('/api/v1/admin/ticket-messages', ['ticket_id' => $ticket->id, 'message' => 'x', 'user_id' => [$stranger->id]], $headers)
+            ->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        // A login of the account that may not use its tickets.
+        $member = User::factory()->create();
+        ClientUser::query()->create(['client_id' => $owner->client()->id, 'user_id' => $member->id, 'granted_at' => now(), 'permissions' => ['invoices']]);
+        $post($ticket, $member)->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $post($ticket, $owner)->assertSuccessful();
+        $this->assertSame(1, $ticket->messages()->count());
+
+        // A note is told apart from a reply, and a file's place on the disk is not given out.
+        $ticket->messages()->create(['staff_id' => Staff::factory()->create()->id, 'message' => 'Between us', 'is_internal' => true]);
+        $listed = collect($this->getJson('/api/v1/admin/ticket-messages?filter[ticket_id]=' . $ticket->id, $headers)->assertOk()->json('data'));
+        $this->assertSame([false, true], $listed->pluck('attributes.is_internal')->all());
+        $this->getJson('/api/v1/admin/ticket-messages?filter[currency_code]=x', $headers)->assertStatus(400);
+        $this->assertNotContains('path', (new TicketAttachmentResource(null))->attributes);
     }
 
     public function test_a_password_set_by_staff_ends_the_customers_sessions(): void
