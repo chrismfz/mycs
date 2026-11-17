@@ -45,7 +45,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                A new invoice was issued for your account.
+                A new invoice was issued for your account.{% if suspend_on %} Please pay it by **{{ invoice.due_at|date("d/m/Y") }}**: unpaid, its services are suspended on **{{ suspend_on }}**.{% endif %}
 
                 - Invoice: **#{{ invoice_number }}**
                 {% if tax %}
@@ -66,12 +66,12 @@ class EmailTemplateSeeder extends Seeder
                 | Description | Qty | Price |
                 | :--- | :---: | ---: |
                 {% for item in items %}
-                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                 {% endfor %}
                 </div>
 
                 {% if has_subscription %}
-                It will be paid automatically with {% if auto_charge_method %}{{ auto_charge_method }}{% else %}your saved payment method{% endif %}: there is nothing you need to do.
+                {% if auto_charge_method %}It will be charged automatically{% if charge_on %} on **{{ charge_on }}**{% endif %} with **{{ auto_charge_method }}**{% else %}It will be paid automatically with your saved payment method{% endif %}: there is nothing you need to do.
                 {% else %}
                 <div class="action">
                 	<a class="button button-blue" href="{{ urls.pay }}">
@@ -108,6 +108,14 @@ class EmailTemplateSeeder extends Seeder
 
                 We received your payment for invoice **#{{ invoice_number }}**. Thank you! This email confirms your payment.
 
+                {% if paid_until %}
+                **Paid until:**
+
+                {% for line in paid_until %}
+                - {{ line.name }}: **{{ line.until }}**
+                {% endfor %}
+                {% endif %}
+
                 - Invoice: **#{{ invoice_number }}**
                 {% if tax %}
                 - Subtotal: **{{ subtotal }}**
@@ -126,7 +134,7 @@ class EmailTemplateSeeder extends Seeder
                 | Description | Qty | Price |
                 | :--- | :---: | ---: |
                 {% for item in items %}
-                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                 {% endfor %}
                 </div>
 
@@ -738,7 +746,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                This is a reminder that invoice **#{{ invoice_number }}** is due on **{{ invoice.due_at|date("d/m/Y") }}**. If you have already paid it, please ignore this message.
+                This is a reminder that invoice **#{{ invoice_number }}** is due on **{{ invoice.due_at|date("d/m/Y") }}**.{% if suspend_on %} Unpaid, its services are suspended on **{{ suspend_on }}**.{% endif %} If you have already paid it, please ignore this message.
 
                 - Invoice: **#{{ invoice_number }}**
                 {% if tax %}
@@ -759,7 +767,7 @@ class EmailTemplateSeeder extends Seeder
                 | Description | Qty | Price |
                 | :--- | :---: | ---: |
                 {% for item in items %}
-                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                 {% endfor %}
                 </div>
 
@@ -783,7 +791,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                Invoice **#{{ invoice_number }}** of **{{ total }}** will be charged automatically on **{{ invoice.due_at|date("d/m/Y") }}** with {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}your saved payment method{% endif %}. There is nothing you need to do.
+                Invoice **#{{ invoice_number }}** of **{{ total }}** will be charged automatically on **{% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}** with {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}your saved payment method{% endif %}. There is nothing you need to do.
 
                 If your card has changed or expired, please update it, or pay the invoice with another method, before that date.
 
@@ -792,7 +800,7 @@ class EmailTemplateSeeder extends Seeder
                 | Description | Qty | Price |
                 | :--- | :---: | ---: |
                 {% for item in items %}
-                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                 {% endfor %}
                 </div>
 
@@ -803,7 +811,7 @@ class EmailTemplateSeeder extends Seeder
                 </div>
                 HTML,
             'in_app_title' => 'Upcoming charge: invoice #{{ invoice_number }}',
-            'in_app_body' => 'Invoice #{{ invoice_number }} ({{ total }}) will be charged automatically on {{ invoice.due_at|date("d/m/Y") }}.',
+            'in_app_body' => 'Invoice #{{ invoice_number }} ({{ total }}) will be charged automatically on {% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}.',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Tell me before an automatic payment',
@@ -837,7 +845,7 @@ class EmailTemplateSeeder extends Seeder
                 | Description | Qty | Price |
                 | :--- | :---: | ---: |
                 {% for item in items %}
-                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                 {% endfor %}
                 </div>
 
@@ -888,7 +896,7 @@ class EmailTemplateSeeder extends Seeder
                 | Description | Qty | Price |
                 | :--- | :---: | ---: |
                 {% for item in items %}
-                | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                 {% endfor %}
                 </div>
 
@@ -1238,7 +1246,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Εκδόθηκε νέο προτιμολόγιο για τον λογαριασμό σας.
+                    Εκδόθηκε νέο προτιμολόγιο για τον λογαριασμό σας.{% if suspend_on %} Παρακαλούμε εξοφλήστε το έως **{{ invoice.due_at|date("d/m/Y") }}**: αν μείνει απλήρωτο, οι υπηρεσίες του αναστέλλονται στις **{{ suspend_on }}**.{% endif %}
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     {% if tax %}
@@ -1259,12 +1267,12 @@ class EmailTemplateSeeder extends Seeder
                     | Περιγραφή | Ποσότητα | Τιμή |
                     | :--- | :---: | ---: |
                     {% for item in items %}
-                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                     {% endfor %}
                     </div>
 
                     {% if has_subscription %}
-                    Θα εξοφληθεί αυτόματα με {% if auto_charge_method %}{{ auto_charge_method }}{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}: δεν χρειάζεται να κάνετε κάτι.
+                    {% if auto_charge_method %}Θα χρεωθεί αυτόματα{% if charge_on %} στις **{{ charge_on }}**{% endif %} με **{{ auto_charge_method }}**{% else %}Θα εξοφληθεί αυτόματα με τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}: δεν χρειάζεται να κάνετε κάτι.
                     {% else %}
                     <div class="action">
                     	<a class="button button-blue" href="{{ urls.pay }}">
@@ -1299,6 +1307,14 @@ class EmailTemplateSeeder extends Seeder
 
                     Η πληρωμή σας για το προτιμολόγιο **#{{ invoice_number }}** ελήφθη με επιτυχία. Σας ευχαριστούμε! Αυτό το email επιβεβαιώνει την πληρωμή σας.
 
+                    {% if paid_until %}
+                    **Πληρωμένες έως:**
+
+                    {% for line in paid_until %}
+                    - {{ line.name }}: **{{ line.until }}**
+                    {% endfor %}
+                    {% endif %}
+
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     {% if tax %}
                     - Μερικό σύνολο: **{{ subtotal }}**
@@ -1317,7 +1333,7 @@ class EmailTemplateSeeder extends Seeder
                     | Περιγραφή | Ποσότητα | Τιμή |
                     | :--- | :---: | ---: |
                     {% for item in items %}
-                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                     {% endfor %}
                     </div>
 
@@ -1895,7 +1911,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Σας υπενθυμίζουμε ότι το προτιμολόγιο **#{{ invoice_number }}** λήγει στις **{{ invoice.due_at|date("d/m/Y") }}**. Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα.
+                    Σας υπενθυμίζουμε ότι το προτιμολόγιο **#{{ invoice_number }}** λήγει στις **{{ invoice.due_at|date("d/m/Y") }}**.{% if suspend_on %} Αν μείνει απλήρωτο, οι υπηρεσίες του αναστέλλονται στις **{{ suspend_on }}**.{% endif %} Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα.
 
                     - Προτιμολόγιο: **#{{ invoice_number }}**
                     {% if tax %}
@@ -1916,7 +1932,7 @@ class EmailTemplateSeeder extends Seeder
                     | Περιγραφή | Ποσότητα | Τιμή |
                     | :--- | :---: | ---: |
                     {% for item in items %}
-                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                     {% endfor %}
                     </div>
 
@@ -1938,7 +1954,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Το προτιμολόγιο **#{{ invoice_number }}** ποσού **{{ total }}** θα χρεωθεί αυτόματα στις **{{ invoice.due_at|date("d/m/Y") }}** με {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}. Δεν χρειάζεται να κάνετε κάτι.
+                    Το προτιμολόγιο **#{{ invoice_number }}** ποσού **{{ total }}** θα χρεωθεί αυτόματα στις **{% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}** με {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}. Δεν χρειάζεται να κάνετε κάτι.
 
                     Αν η κάρτα σας έχει αλλάξει ή λήξει, ενημερώστε την ή εξοφλήστε το προτιμολόγιο με άλλο τρόπο πριν από αυτή την ημερομηνία.
 
@@ -1947,7 +1963,7 @@ class EmailTemplateSeeder extends Seeder
                     | Περιγραφή | Ποσότητα | Τιμή |
                     | :--- | :---: | ---: |
                     {% for item in items %}
-                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                     {% endfor %}
                     </div>
 
@@ -1958,7 +1974,7 @@ class EmailTemplateSeeder extends Seeder
                     </div>
                     HTML,
                 'in_app_title' => 'Επερχόμενη χρέωση: #{{ invoice_number }}',
-                'in_app_body' => 'Το προτιμολόγιο #{{ invoice_number }} ({{ total }}) θα χρεωθεί αυτόματα στις {{ invoice.due_at|date("d/m/Y") }}.',
+                'in_app_body' => 'Το προτιμολόγιο #{{ invoice_number }} ({{ total }}) θα χρεωθεί αυτόματα στις {% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}.',
             ],
         ],
         'invoice_overdue' => [
@@ -1990,7 +2006,7 @@ class EmailTemplateSeeder extends Seeder
                     | Περιγραφή | Ποσότητα | Τιμή |
                     | :--- | :---: | ---: |
                     {% for item in items %}
-                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                     {% endfor %}
                     </div>
 
@@ -2039,7 +2055,7 @@ class EmailTemplateSeeder extends Seeder
                     | Περιγραφή | Ποσότητα | Τιμή |
                     | :--- | :---: | ---: |
                     {% for item in items %}
-                    | {{ item.description }} | {{ item.quantity }} | {{ item.formattedPrice }} |
+                    | {% if item.serviceUrl %}[{{ item.description }}]({{ item.serviceUrl }}){% else %}{{ item.description }}{% endif %} | {{ item.quantity }} | {{ item.formattedPrice }} |
                     {% endfor %}
                     </div>
 
