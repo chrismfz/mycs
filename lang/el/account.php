@@ -57,6 +57,8 @@ return [
         'not_while_impersonating' => 'Το staff που έχει συνδεθεί ως πελάτης δεν αλλάζει το email σύνδεσης ούτε το 2FA.',
         'email_changed_subject' => 'Άλλαξε το email της σύνδεσής σας',
         'email_changed_body' => 'Το email με το οποίο συνδέεστε στο :site άλλαξε από :old σε :new. Αν δεν το κάνατε εσείς, επικοινωνήστε μαζί μας αμέσως.',
+        'contact_email_changed_subject' => 'Άλλαξε το email του λογαριασμού σας',
+        'contact_email_changed_body' => 'Τα email του λογαριασμού σας στο :site (τιμολόγια, υπηρεσίες, domains) πηγαίνουν πλέον στο :new αντί για το :old. Αν δεν το κάνατε εσείς, επικοινωνήστε μαζί μας αμέσως.',
         'push_enabled_title' => 'Οι ειδοποιήσεις push ενεργοποιήθηκαν',
         'push_enabled_body' => 'Θα λαμβάνετε πλέον εδώ ειδοποιήσεις από :app.',
         'password_changed' => 'Ο κωδικός άλλαξε.',

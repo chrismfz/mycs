@@ -57,6 +57,8 @@ return [
         'not_while_impersonating' => 'Staff signed in as the customer cannot change the login\'s email or two-factor authentication.',
         'email_changed_subject' => 'The email of your login was changed',
         'email_changed_body' => 'The email you sign in with at :site was changed from :old to :new. If you did not do this, contact us at once.',
+        'contact_email_changed_subject' => 'The email of your account was changed',
+        'contact_email_changed_body' => 'The mails of your account at :site (invoices, services, domains) now go to :new instead of :old. If you did not do this, contact us at once.',
         'push_enabled_title' => 'Push notifications enabled',
         'push_enabled_body' => 'You will now receive notifications from :app here.',
         'password_changed' => 'Password has been changed.',
