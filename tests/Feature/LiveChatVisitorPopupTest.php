@@ -298,15 +298,24 @@ class LiveChatVisitorPopupTest extends TestCase
         }
         // Customers waiting, and visitors already being answered, are not the visitors' queue.
         LiveChat::query()->create(['department_id' => $this->sales->id, 'status' => LiveChat::ACTIVE, 'started_anonymously' => true, 'ip' => '198.51.100.200']);
+        $customer = User::factory()->create();
+        LiveChat::query()->create(['department_id' => $this->sales->id, 'status' => LiveChat::WAITING, 'client_id' => $customer->client()->id, 'user_id' => $customer->id]);
         $this->assertSame([$this->sales->id], VisitorChats::availableDepartments()->pluck('id')->all());
 
         $this->start()->assertHasNoErrors();
-        $this->assertSame(VisitorChats::WAITING_MAX, LiveChat::query()->where('status', LiveChat::WAITING)->count());
+        $visitors = fn () => LiveChat::query()->whereNull('client_id')->where('status', LiveChat::WAITING)->count();
+        $this->assertSame(VisitorChats::WAITING_MAX, $visitors());
         $this->assertSame([], VisitorChats::availableDepartments()->pluck('id')->all());
         $this->assertNull(VisitorChats::departmentFor($this->sales->id));
 
+        // The next visitor, in another browser: the popup offers the ticket form, and a start it is sent anyway opens nothing.
+        $this->flushSession();
+        $this->popup()->call('asGuest')->assertSee(__('No one is available right now. Leave us a message and we will answer by email.'));
+        $this->assertSame(__('No one is available in this department right now.'), VisitorChats::start(['message' => 'the eleventh']));
+        $this->assertSame(VisitorChats::WAITING_MAX, $visitors());
+
         // One is taken: the department takes visitors again.
-        LiveChat::query()->where('status', LiveChat::WAITING)->first()->update(['status' => LiveChat::ACTIVE]);
+        LiveChat::query()->whereNull('client_id')->where('status', LiveChat::WAITING)->first()->update(['status' => LiveChat::ACTIVE]);
         $this->assertSame([$this->sales->id], VisitorChats::availableDepartments()->pluck('id')->all());
     }
 
