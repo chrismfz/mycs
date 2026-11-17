@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\LoginAttemptResource;
 use App\Admin\Widgets\StaffAndSessions;
 use App\Enums\StaffPresenceStatus;
+use App\Models\LoginAttempt;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
@@ -156,5 +158,21 @@ class DashboardStaffAndSessionsTest extends TestCase
         $this->actAs($viewer->fresh());
 
         $component->call('$refresh')->assertDontSee('192.0.2.30')->assertDontSee('customer session');
+    }
+
+    /** Owner 2026-11-17: a small «Login History» by each part, filtered to its area, for whoever may open the log. */
+    public function test_each_part_links_to_the_login_history_of_its_area_by_permission(): void
+    {
+        $this->actAs($this->member([...self::BOTH, 'admin.audit.viewAny']));
+        $html = Livewire::test(StaffAndSessions::class)->assertSee(__('Login History'))->html();
+
+        $staff = strpos($html, e(LoginAttemptResource::getUrl('index', ['filters' => ['area' => ['value' => LoginAttempt::STAFF]]])));
+        $customers = strpos($html, e(LoginAttemptResource::getUrl('index', ['filters' => ['area' => ['value' => LoginAttempt::CLIENT]]])));
+        $this->assertNotFalse($staff);
+        $this->assertNotFalse($customers);
+        $this->assertLessThan($customers, $staff, 'the staff link above, the customers one below');
+
+        $this->actAs($this->member());
+        Livewire::test(StaffAndSessions::class)->assertDontSee(__('Login History'));
     }
 }
