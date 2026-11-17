@@ -81,6 +81,13 @@ MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
 «Protected accounts» του server, για να μην τον αγγίζει ποτέ ένα module action.
 
 ### Redis και cache
+- **Ποτέ Redis που τη φτάνουν άλλοι** (security audit 2026-11-18). Από την ουρά το Laravel κάνει `unserialize` ό,τι
+  βρει: όποιος γράφει στη Redis του MyCS εκτελεί κώδικα ως ο χρήστης του, άρα διαβάζει το `APP_KEY` και όλα τα secrets.
+  Σε κοινό server (cPanel, πολλοί λογαριασμοί) το CageFS χωρίζει τα αρχεία, όχι το `127.0.0.1`: η Redis του συστήματος
+  χωρίς κωδικό είναι ανοιχτή σε κάθε site του server. Εκεί: **ουρά στη βάση** (`QUEUE_CONNECTION=database`, ο πίνακας
+  `jobs` υπάρχει), **sessions σε αρχεία** (`SESSION_DRIVER=file`: η προεπιλογή του κώδικα είναι `redis`) και **cache
+  στη Redis του λογαριασμού**, σε unix socket 0700 (παρακάτω, «Σε server cPanel/CloudLinux»). Η Redis ανά χρήστη του
+  LiteSpeed είναι cache (`allkeys-lru`, χωρίς αποθήκευση, άδεια μετά από κάθε restart): ποτέ για ουρά.
 - **Κάθε instance έχει το δικό του κομμάτι του Redis** (sweep 8, S8-OPS-1). Το `.env.example` δίνει `CACHE_STORE=redis` και
   `QUEUE_CONNECTION=redis` με `APP_NAME=MyCS`: δύο checkouts στον ίδιο host (παραγωγή και δοκιμαστικό, nixpal και myip)
   που αλλάζουν μόνο `DB_*`, `APP_URL`, `MAIL_*` μοιράζονται την ίδια ουρά (`queues:default`), την ίδια cache ρυθμίσεων,
@@ -121,8 +128,13 @@ MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
 - **`deploy/private-files.sh`:** μέσα στο CageFS δεν υπάρχει `/dev/fd`, οπότε δεν γίνεται process substitution. Από τις
   2026-11-13 το script δεν το χρειάζεται.
 - **Βάση και Redis:** η βάση δημιουργείται με `uapi --user=<user> Mysql create_database/create_user/set_privileges_on_database`.
-  Ο κωδικός μπαίνει κατευθείαν στο `.env`, και ακολουθεί `ALTER DATABASE … utf8mb4_unicode_ci`. Το `REDIS_DB` και το
-  `REDIS_CACHE_DB` παίρνουν αριθμούς που δεν χρησιμοποιεί κανείς στον host (`redis-cli INFO keyspace`· στον orion 10/11).
+  Ο κωδικός μπαίνει κατευθείαν στο `.env`, και ακολουθεί `ALTER DATABASE … utf8mb4_unicode_ci`. Η Redis είναι του
+  λογαριασμού (2026-11-18· ως τότε η κοινή του server στο 127.0.0.1:6379, ανοιχτή σε κάθε λογαριασμό):
+  `systemctl enable --now user-redis@<user>` (LiteSpeed, `redis_svc.sh`: `--port 0`, socket 0700 στο
+  `~/.cagefs/tmp/redis.sock`). Στο `.env`: `REDIS_HOST=/home2/<user>/.cagefs/tmp/redis.sock`, `REDIS_PORT=0`,
+  `QUEUE_CONNECTION=database`, `SESSION_DRIVER=file`. Η απόλυτη διαδρομή δουλεύει και μέσα στο CageFS (web, cron) και
+  έξω (το unit του worker)· το `/tmp/redis.sock` μόνο μέσα. Στο unit του worker
+  `After=`/`Wants=user-redis@<user>.service`.
 - **Cron και worker:** το crontab του χρήστη με το πλήρες path:
   `* * * * * cd ~/mycs && /opt/cpanel/ea-php84/root/usr/bin/php artisan schedule:run >> /dev/null 2>&1`. Ο worker
   τρέχει ως unit του systemd (`/etc/systemd/system/<user>-queue.service`) με `User=<user>`, `WorkingDirectory` το `~/mycs`,
