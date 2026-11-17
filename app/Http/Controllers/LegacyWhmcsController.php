@@ -8,7 +8,6 @@ use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\Ticket;
-use App\Support\CurrentClient;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -170,15 +169,15 @@ class LegacyWhmcsController
     }
 
     /**
-     * viewticket.php?tid=…: the account's ticket of that number (its own page checks who may see it), else the list.
-     * Never another account's: the redirect told any login that a number exists, and its id (audit 2026-11-17).
+     * viewticket.php?tid=…: the ticket of that number when this login may see it (as invoices and services: any account
+     * it has, with `tickets`), else the list. Never another account's, nor a guest's: the redirect told any login that
+     * a number exists, and its id (audit 2026-11-17).
      */
     private function ticket(string $tid): string
     {
-        $ticket = auth()->check() && $tid !== '' && CurrentClient::id() > 0
-            ? Ticket::query()->where('reference', $tid)->where('client_id', CurrentClient::id())->value('id') : null;
+        $ticket = auth()->check() && $tid !== '' ? Ticket::query()->where('reference', $tid)->first() : null;
 
-        return $ticket !== null ? route('tickets.show', $ticket) : route('tickets');
+        return $ticket !== null && Gate::allows('view', $ticket) ? route('tickets.show', $ticket->id) : route('tickets');
     }
 
     /** /announcements[/{id}/{slug}.html]: ours by its slug (the import made it from the same title), else the list. */
