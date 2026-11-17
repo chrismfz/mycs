@@ -90,6 +90,10 @@ class LiveChats
         if ($body === null) {
             return __('The message is empty.');
         }
+        // A visitor blocked from this address or this session does not come back as a customer at once (G7, ADV-889-2).
+        if (VisitorChatTools::blocked(CallerIp::key()) || ChatVisitor::blockedHere()) {
+            return __('Live chat is not available.');
+        }
         $clientId = CurrentClient::id();
         // Said before counting, so a second tab does not use up the account's starts; checked again under the lock below.
         if (self::openChatOf($clientId) !== null) {

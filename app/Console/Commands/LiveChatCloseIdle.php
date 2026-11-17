@@ -3,9 +3,13 @@
 namespace App\Console\Commands;
 
 use App\Support\LiveChats;
+use App\Support\VisitorChatTools;
 use Illuminate\Console\Command;
 
-/** Closes the customers' chats where no one wrote for the minutes set in Settings (docs/livechat.md, step 3β). */
+/**
+ * Closes the chats where no one wrote for the minutes set in Settings (docs/livechat.md, step 3β), and visitors' chats a
+ * login froze and never continued (step 4, §3 Δ).
+ */
 class LiveChatCloseIdle extends Command
 {
     protected $signature = 'mycs:livechat-close-idle';
@@ -14,7 +18,7 @@ class LiveChatCloseIdle extends Command
 
     public function handle(): int
     {
-        $closed = LiveChats::closeIdle();
+        $closed = LiveChats::closeIdle() + VisitorChatTools::expireHandoffs();
         $this->info("{$closed} idle chat(s) closed.");
 
         return self::SUCCESS;

@@ -27,6 +27,12 @@ use Illuminate\Support\Carbon;
  * @property string|null $ip
  * @property string|null $src
  * @property string|null $page
+ * @property Carbon|null $login_requested_at
+ * @property int|null $handoff_user_id
+ * @property Carbon|null $handoff_at
+ * @property int|null $continued_from
+ * @property int|null $linked_by
+ * @property Carbon|null $linked_at
  * @property int|null $assigned_to
  * @property Carbon|null $last_participant_message_at
  * @property Carbon|null $closed_at
@@ -48,7 +54,8 @@ class LiveChat extends Model
 
     protected function casts(): array
     {
-        return ['last_participant_message_at' => 'datetime', 'closed_at' => 'datetime', 'started_anonymously' => 'boolean'];
+        return ['last_participant_message_at' => 'datetime', 'closed_at' => 'datetime', 'started_anonymously' => 'boolean',
+            'login_requested_at' => 'datetime', 'handoff_at' => 'datetime', 'linked_at' => 'datetime'];
     }
 
     /** An anonymous visitor's chat, not (or not yet) linked to a client. */

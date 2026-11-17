@@ -10,11 +10,16 @@
             {{ $chat->isVisitor() ? __('Visitor') : ($chat->client?->name ?? __('Customer')) }}
             @endif
         </h3>
+        <span class="text-xs text-gray-500 dark:text-gray-400">#{{ (int) $chat->id }}</span>
         <x-filament::badge size="sm" :color="match ($chat->status) { 'waiting' => 'warning', 'active' => 'success', default => 'gray' }">{{ __(ucfirst($chat->status)) }}</x-filament::badge>
         <span class="text-xs text-gray-500 dark:text-gray-400">{{ $chat->department?->name }}@if ($chat->operator) · {{ $chat->operator->name }}@endif</span>
         <span class="flex-1"></span>
         <x-filament::button size="xs" color="gray" wire:click="$dispatch('customer-chat-open', { chat: null })">{{ __('Back to the staff chat') }}</x-filament::button>
     </div>
+
+    @if ($chat->started_anonymously)
+    @include('livewire.admin.partials.visitor-label', ['chat' => $chat])
+    @endif
 
     <div class="flex max-h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
         x-data x-init="$el.scrollTop = $el.scrollHeight">
@@ -67,7 +72,14 @@
                 class="block w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-900" placeholder="{{ __('Write a message…') }}"></textarea>
             <x-filament::button type="submit">{{ __('Send') }}</x-filament::button>
         </div>
-        <div><x-filament::button size="xs" color="gray" wire:click="close" wire:confirm="{{ __('Close this chat?') }}">{{ __('Close chat') }}</x-filament::button></div>
+        <div class="flex flex-wrap gap-2">
+            <x-filament::button size="xs" color="gray" wire:click="close" wire:confirm="{{ __('Close this chat?') }}">{{ __('Close chat') }}</x-filament::button>
+            @if ($chat->isVisitor() && $chat->assigned_to === $me?->id)
+            {{-- No customer lookup in a visitor's chat (G6): for the account, they log in. --}}
+            <x-filament::button size="xs" color="gray" wire:click="askLogin" :disabled="$chat->login_requested_at !== null">{{ $chat->login_requested_at ? __('Asked to log in') : __('Ask to log in') }}</x-filament::button>
+            <x-filament::button size="xs" color="danger" wire:click="block" wire:confirm="{{ __('Block this visitor\'s address for :hours hours and close the chat?', ['hours' => \App\Support\VisitorChatTools::BLOCK_HOURS]) }}">{{ __('Block') }}</x-filament::button>
+            @endif
+        </div>
     </form>
     @if ($targets['operators'] !== [] || $targets['departments']->isNotEmpty())
     <form wire:submit="transfer" wire:confirm="{{ __('Transfer this chat?') }}" class="flex flex-wrap items-center gap-2">

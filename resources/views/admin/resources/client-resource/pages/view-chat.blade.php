@@ -12,9 +12,16 @@
             @endif
         </div>
 
+        @if ($liveChat->started_anonymously)
+        @include('livewire.admin.partials.visitor-label', ['chat' => $liveChat])
+        @endif
+
         <div class="flex flex-col gap-3 rounded-lg border border-gray-200 p-3 dark:border-white/10">
             @forelse ($messages as $message)
-            @php $client = $message->author_type === \App\Models\LiveChatMessage::CLIENT; @endphp
+            @php
+                $visitor = $message->author_type === \App\Models\LiveChatMessage::VISITOR;
+                $client = $visitor || $message->author_type === \App\Models\LiveChatMessage::CLIENT;
+            @endphp
             @if ($message->author_type === \App\Models\LiveChatMessage::SYSTEM)
             {{-- A note only the staff ever see (F20), e.g. «Taken over by…». --}}
             <p class="text-center text-xs text-gray-500 dark:text-gray-400">{!! \App\Support\ChatText::render($message->body) !!} · {{ $message->created_at?->format('d/m/Y H:i') }}</p>
@@ -30,7 +37,8 @@
             @endif
             <div @class(['flex flex-col', 'items-start' => $client, 'items-end' => !$client])>
                 <div class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ $client ? ($message->user?->name ?? __('Customer')) : ($message->staff?->name ?? __('System')) }} · {{ $message->created_at?->format('d/m/Y H:i') }}
+                    {{-- A visitor's words stay a visitor's, also in a chat linked to the client (§6α, F24). --}}
+                    {{ $visitor ? __('Visitor') : ($client ? ($message->user?->name ?? __('Customer')) : ($message->staff?->name ?? __('System'))) }} · {{ $message->created_at?->format('d/m/Y H:i') }}
                 </div>
                 <div @class([
                     'mt-0.5 max-w-[85%] rounded-lg px-3 py-2 text-sm break-words',

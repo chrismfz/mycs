@@ -330,6 +330,8 @@ return [
             'chats' => [
                 'view' => 'View customers\' live chats',
                 'reply' => 'Answer customers\' live chats',
+                // Step 4 (§6α): a closed visitor's chat linked to a client by hand, with the member's password again.
+                'link' => 'Link a visitor\'s chat to a client',
             ],
             'widgets' => [
                 'revenue' => 'View Revenue Widget',
