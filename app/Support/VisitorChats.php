@@ -72,6 +72,22 @@ class VisitorChats
             && !VisitorChatTools::blocked(CallerIp::key()) && !ChatVisitor::blockedHere();
     }
 
+    /**
+     * The «Chat» button on MyCS's own pages for a visitor (step 4, owner 2026-11-17): while they may chat (may(): on, not
+     * signed in, not «Login as client», not blocked) and someone is available in a department that takes visitors, by
+     * the client area's cached availability (LiveChats::availableDepartmentIds). A page a little stale may show it; the
+     * popup then says no one is there.
+     */
+    public static function buttonShown(): bool
+    {
+        if (!self::may()) {
+            return false;
+        }
+        $available = LiveChats::availableDepartmentIds();
+
+        return $available !== [] && TicketDepartment::query()->offered(guest: true)->whereKey($available)->exists();
+    }
+
     /** A visitor's name as kept: one line, no control or format characters; null when empty or too long (§3 Β). */
     public static function name(?string $name): ?string
     {

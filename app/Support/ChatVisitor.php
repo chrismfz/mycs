@@ -167,7 +167,7 @@ class ChatVisitor
     }
 
     /**
-     * The site a chat came from, as the settings' list names it (§4, F17); null for anything else. Compared without
+     * The site a chat came from, as the settings' list names it, or this instance's own host (§4, F17); null for anything else. Compared without
      * case, kept as listed.
      */
     public static function site(?string $src): ?string
@@ -176,7 +176,9 @@ class ChatVisitor
         if ($src === '') {
             return null;
         }
-        foreach ((array) config('settings.livechat_sites', []) as $site) {
+        // This instance's own host too: the «Chat» button on MyCS's own pages names it (owner 2026-11-17).
+        $own = (string) parse_url((string) config('app.url'), PHP_URL_HOST);
+        foreach ([...(array) config('settings.livechat_sites', []), $own] as $site) {
             if (is_string($site) && strtolower(trim($site)) === $src) {
                 return trim($site);
             }
