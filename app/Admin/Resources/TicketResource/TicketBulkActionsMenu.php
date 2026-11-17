@@ -161,7 +161,8 @@ final class TicketBulkActionsMenu
 
             return;
         }
-        Notification::make()->title($message)->success()->send();
+        // Escaped: it names senders' addresses, and a title is HTML to Filament (sanitised, but a link or markup would show).
+        Notification::make()->title(e($message))->success()->send();
     }
 
     /** @param  Collection<int, Ticket>  $records */

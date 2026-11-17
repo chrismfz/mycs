@@ -168,12 +168,16 @@ class LegacyWhmcsController
         return $record !== null && Gate::allows('view', $record);
     }
 
-    /** viewticket.php?tid=…: the ticket of that number (its own page checks who may see it), else the list. */
+    /**
+     * viewticket.php?tid=…: the ticket of that number when this login may see it (as invoices and services: any account
+     * it has, with `tickets`), else the list. Never another account's, nor a guest's: the redirect told any login that
+     * a number exists, and its id (audit 2026-11-17).
+     */
     private function ticket(string $tid): string
     {
-        $ticket = auth()->check() && $tid !== '' ? Ticket::query()->where('reference', $tid)->value('id') : null;
+        $ticket = auth()->check() && $tid !== '' ? Ticket::query()->where('reference', $tid)->first() : null;
 
-        return $ticket !== null ? route('tickets.show', $ticket) : route('tickets');
+        return $ticket !== null && Gate::allows('view', $ticket) ? route('tickets.show', $ticket->id) : route('tickets');
     }
 
     /** /announcements[/{id}/{slug}.html]: ours by its slug (the import made it from the same title), else the list. */
