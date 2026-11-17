@@ -129,4 +129,24 @@ class InvoiceItem extends Model implements Auditable
             get: fn () => new Price(['price' => $this->price, 'currency' => $this->invoice->currency], tax: 0)
         );
     }
+
+    /**
+     * The portal page of what the line bills (a service, an upgrade's service, a domain), for a mail's line to link to
+     * (nixpal 2026-11-17: «which one is it?»); '' for a line of nothing, or of a record deleted since.
+     *
+     * @return Attribute<string, never>
+     */
+    public function serviceUrl(): Attribute
+    {
+        return Attribute::make(get: function (): string {
+            $reference = $this->reference_type === null ? null : $this->reference;
+
+            return match (true) {
+                $reference instanceof Service => route('services.show', $reference->id),
+                $reference instanceof ServiceUpgrade && $reference->service_id !== null => route('services.show', $reference->service_id),
+                $reference instanceof Domain => route('domains.show', $reference->id),
+                default => '',
+            };
+        });
+    }
 }

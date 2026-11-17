@@ -236,7 +236,7 @@ class PaymentReminders
      * rules as CronJob::suspendable() (active, a plan that is billed, not held then; suspended the day after Suspend
      * Days past its due date), and only a day still to come.
      */
-    private static function suspendOn(Invoice $invoice): ?string
+    public static function suspendOn(Invoice $invoice): ?string
     {
         if (!config('settings.cronjob_suspend_enabled', true)) {
             return null;
