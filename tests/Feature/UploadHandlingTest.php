@@ -17,6 +17,7 @@ use App\Providers\SettingsProvider;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -68,7 +69,7 @@ class UploadHandlingTest extends TestCase
     }
 
     /** Audit 2026-11-17: the name of a file staff attach is what the browser says; made safe as a customer's is. */
-    public function test_a_staff_files_name_is_made_safe_and_may_be_missing(): void
+    public function test_a_staff_files_name_is_made_safe(): void
     {
         [$ticket] = $this->ticket();
         $this->actingAs($this->owner, 'staff');
@@ -81,6 +82,9 @@ class UploadHandlingTest extends TestCase
 
         $kept = TicketMessageAttachment::query()->sole();
         $this->assertSame('invoice.png', $kept->filename);
+        // One stored before names were cleaned shows clean too.
+        DB::table('ticket_message_attachments')->where('id', $kept->id)->update(['filename' => "re\u{202E}fdp.png"]);
+        $this->assertSame('refdp.png', $kept->fresh()->filename);
         @unlink((string) $kept->localPath);
     }
 
