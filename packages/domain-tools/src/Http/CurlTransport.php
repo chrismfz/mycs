@@ -34,7 +34,6 @@ final class CurlTransport implements Transport
         ]);
         $ok = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
 
         return [$ok === false ? 0 : $status, $body];
     }
