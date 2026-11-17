@@ -113,6 +113,17 @@
   `sweeps/2026-11-11-eighth.md` (και τα ανοιχτά του όγδοου, στο τέλος του αρχείου),
   `sweeps/2026-11-12-ninth-tenth.md` (ένατο και δέκατο: τι διορθώθηκε, τι αναιρέθηκε, τι μένει γνωστό, πόσο συχνά συμβαίνουν).
 - Τα 8 ερωτήματα του sweep των domains (`domains.md`, «Sweep 2026-10-22»).
+- **Audit tickets + live chat (2026-11-17), όσα έμειναν:**
+  - «Block sender» πάνω σε From που δεν επιβεβαιώθηκε: προειδοποίηση στο παράθυρο του block, ή ως έχει.
+  - MCP `propose_retry_module_action`, `propose_resolve_module_action`, `server_test`: δικαίωμα update χωρίς το view (το
+    ίδιο σχήμα που κλείστηκε στο `propose_ticket_reply`, #902).
+  - `GuestLifecycle.php:445`: το `block()` πετά εξαίρεση και δεν επιστρέφει ποτέ false, οπότε το μήνυμα του κλάδου δεν
+    φτάνει ποτέ· και άλλα `->block(` χωρίς catch (IpPool, ModuleAction, GatewayBalances).
+  - Διαγραφή συνομιλίας επισκέπτη (GDPR, `livechat.md` §6α) και CSP με `script-src` για το popup `/chat`: το καθένα
+    δικό του βήμα.
+  - Προτείνεται να μείνουν: DKIM χωρίς υποχρεωτικά υπογεγραμμένα Subject/Message-ID, webhooks ειδοποιήσεων προς
+    εσωτερικές διευθύνσεις (μόνο staff), κλειδί API με `tickets.update` που μετακινεί ticket σε άλλο λογαριασμό.
+  - nixpal: «Require DMARC» κλειστό και στα δύο τμήματα, `authserv_id` κενό· να ξανακοιταχτεί με περισσότερο mail.
 
 ## Μετά το cut-over, ανά θέμα
 
@@ -174,6 +185,12 @@
 - [ ] Sweep 5 (2026-11-08, #759–#761): δεν έχει δικό του αρχείο στο `sweeps/`.
 
 ## Έγινε (σύνοψη· λεπτομέρειες στα PRs και στα docs)
+- **2026-11-17: audit ασφαλείας tickets + live chat** (μετά το XSS του Live Helper Chat, πριν ανοίξει το chat σε
+  επισκέπτες): XSS, injection, inclusion, εκτελέσιμο upload ή πρόσβαση σε ξένο λογαριασμό δεν βρέθηκαν, και σε ζωντανή
+  δοκιμή στο devbox. Διορθώθηκαν κατάχρηση και μικρά κενά σε δύο γύρους, κάθε PR με δύο ανεξάρτητα reviews: #898–#900
+  (όρια chat επισκέπτη και ουράς, όριο νέων tickets από mail χωρίς επιβεβαίωση, mail που ρίχνει την ανάγνωση,
+  retention καραντίνας, toast, `viewticket.php`) και #902–#904 (Admin API και MCP, ονόματα αρχείων, References, IP
+  επισκέπτη σε 30 ημέρες). `tickets.md` §6π, `livechat.md` §3 Ε.
 - **2026-11-09 → 11:**
   - **Ελευθερία του staff** (`staff-freedom.md`, #779–#782): διορθώσεις σε τιμολόγιο με πληρωμή, «paid με το χέρι»,
     επεξεργασία πληρωμής, αναίρεση refund, merge/split, διαγραφή υπηρεσίας με τα addons της· τα ίδια από το Admin API
