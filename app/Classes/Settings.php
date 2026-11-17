@@ -563,6 +563,17 @@ class Settings
                     'description' => 'Visitors who are not logged in may chat from the popup /chat, which the launcher on our sites opens. Departments for clients only never take visitors.',
                 ],
                 [
+                    // Owner 2026-11-17: the look of MyCS's own chat buttons (the customers' bubble, the visitors' button).
+                    'name' => 'livechat_button_style',
+                    'label' => 'Chat button style',
+                    'type' => 'select',
+                    'options' => ['text' => 'Text', 'icon-text' => 'Icon and text', 'icon' => 'Round, icon only'],
+                    'default' => 'text',
+                    'required' => true,
+                    'validation' => 'in:text,icon-text,icon',
+                    'description' => 'How the «Chat» button looks on MyCS\'s own pages, for customers and visitors alike, in the theme\'s colour. The code for other sites has its own choice (Setup → Chat launcher code).',
+                ],
+                [
                     // §4: the sites a launcher may name; anything else is no label at all (F17).
                     'name' => 'livechat_sites',
                     'label' => 'Sites with the chat launcher',

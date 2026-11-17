@@ -41,6 +41,14 @@
                 </select>
             </label>
             <label class="flex flex-col gap-1 text-sm">
+                <span class="font-medium">{{ __('Style') }}</span>
+                <select wire:model.live="style" class="rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-900">
+                    <option value="text">{{ __('Text') }}</option>
+                    <option value="icon-text">{{ __('Icon and text') }}</option>
+                    <option value="icon">{{ __('Round, icon only') }}</option>
+                </select>
+            </label>
+            <label class="flex flex-col gap-1 text-sm">
                 <span class="font-medium">{{ __('Colour') }}</span>
                 <input type="color" wire:model.live="colour" class="h-9 w-20 rounded-lg border-gray-300 dark:border-white/10">
             </label>
