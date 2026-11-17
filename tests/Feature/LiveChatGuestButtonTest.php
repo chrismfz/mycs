@@ -3,14 +3,18 @@
 namespace Tests\Feature;
 
 use App\Enums\StaffPresenceStatus;
+use App\Models\ClientUser;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\Ticket;
 use App\Models\TicketDepartment;
 use App\Models\User;
+use App\Support\ChatVisitor;
 use App\Support\CurrentClient;
+use App\Support\LiveChats;
 use App\Support\StaffPresence;
 use App\Support\Tickets\GuestLinks;
+use App\Support\VisitorChats;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
@@ -79,6 +83,7 @@ class LiveChatGuestButtonTest extends TestCase
         $this->get(route('dashboard'))->assertOk()->assertDontSee(self::MARK, false)->assertSeeLivewire('client.chat-bubble');
     }
 
+    /** Hidden by the signed-in guard alone here (onceUsingId); VisitorChats::may() refuses «Login as client» too. */
     public function test_never_during_login_as_client(): void
     {
         $customer = User::factory()->create();
@@ -102,5 +107,27 @@ class LiveChatGuestButtonTest extends TestCase
         $html = $this->get(route('contact'))->getContent();
 
         $this->assertStringNotContainsString('"onmouseover="', $html);
+    }
+
+    /** The layout's fall-through: a login the bubble refuses is never a visitor either. */
+    public function test_a_customer_without_the_chat_permission_gets_neither(): void
+    {
+        $client = User::factory()->create()->client();
+        $user = User::factory()->withoutClient()->create();
+        ClientUser::query()->create(['client_id' => $client->id, 'user_id' => $user->id, 'permissions' => ['tickets'], 'granted_at' => now()]);
+        $this->actingAs($user, 'web');
+        app(CurrentClient::class)->switchTo($client->id);
+
+        $this->assertFalse(LiveChats::customerMay($user), 'no bubble');
+        $this->assertFalse(VisitorChats::buttonShown(), 'and no visitor\'s button');
+    }
+
+    public function test_a_chat_from_the_button_keeps_this_instances_host_as_its_site(): void
+    {
+        $host = (string) parse_url((string) config('app.url'), PHP_URL_HOST);
+        $this->storeSettings(['livechat_sites' => []]);
+
+        $this->assertSame($host, ChatVisitor::site($host));
+        $this->assertNull(ChatVisitor::site('evil.example'));
     }
 }
