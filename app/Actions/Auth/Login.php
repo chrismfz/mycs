@@ -10,6 +10,7 @@ use App\Providers\Filament\AdminPanelProvider;
 use App\Support\AuthCookies;
 use App\Support\ChatVisitor;
 use App\Support\Locales;
+use App\Support\VisitorChatTools;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cookie;
@@ -38,6 +39,8 @@ class Login
         Session::put('user_session', $userSession->ulid);
 
         Auth::guard('web')->login($user);
+        // An interactive login in a session holding a visitor's chat freezes it for this login (docs/livechat.md §3 Δ, G2).
+        VisitorChatTools::freeze($user);
         // Its pages in its own language, as it last chose (docs/accounts.md); one chosen on this visit before signing in stays.
         if (!Session::has('locale') && ($locale = Locales::allowed($user->language)) !== null) {
             Session::put('locale', $locale);

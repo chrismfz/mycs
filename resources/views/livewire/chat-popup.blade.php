@@ -17,6 +17,31 @@
     @elseif ($mode === 'nobody')
     <p class="text-sm opacity-80">{{ __('Live chat is not available right now.') }}</p>
 
+    @elseif ($mode === 'handoff')
+    {{-- ε, after the login: the conversation so far, and the question (§3 Δ, G1, G4). Nothing more is written as a visitor. --}}
+    <div class="flex max-h-[45vh] flex-col gap-2 overflow-y-auto text-sm opacity-80">
+        @foreach ($messages as $line)
+        @php $own = $line->author_type === \App\Models\LiveChatMessage::VISITOR; @endphp
+        <div @class(['flex flex-col', 'items-end' => $own, 'items-start' => ! $own])>
+            <div class="text-xs opacity-60">{{ $own ? __('Visitor') : \App\Support\LiveChats::operatorName($line->staff) }} · {{ $line->created_at?->format('H:i') }}</div>
+            <div class="mt-0.5 max-w-[85%] rounded-lg bg-background-secondary px-3 py-2 break-words">{!! \App\Support\ChatText::render($line->body) !!}</div>
+        </div>
+        @endforeach
+    </div>
+    <div class="rounded-lg border border-neutral p-3 text-sm">
+        <p>{{ __('Continue with the same operator as :account (:email)?', ['account' => (string) \App\Support\CurrentClient::model()?->name, 'email' => $user->email]) }}</p>
+        <p class="mt-1 text-xs opacity-70">{{ __('A new chat of your account opens; what you wrote before signing in stays out of it.') }}</p>
+        @error('handoff') <p class="mt-1 text-xs text-red-500">{{ $message }}</p> @enderror
+        <div class="mt-2 flex gap-2">
+            <x-button.primary type="button" class="!w-auto" wire:click="continueAsCustomer">{{ __('Continue') }}</x-button.primary>
+            <button type="button" class="text-sm underline" wire:click="declineHandoff">{{ __('No, end that chat') }}</button>
+        </div>
+        <div class="mt-2 flex items-center gap-1 text-xs">
+            <span class="opacity-70">{{ __('Not you?') }}</span>
+            <livewire:auth.logout />
+        </div>
+    </div>
+
     @elseif ($mode === 'customer')
     {{-- Who the chat will be from, plainly (G4): the login's own name and email, and the account. --}}
     <div class="rounded-lg border border-neutral p-3 text-sm">
@@ -82,6 +107,13 @@
         </div>
         @if ($chat->status === \App\Models\LiveChat::WAITING)
         <p class="text-xs opacity-70">{{ __('Someone from our team will be with you shortly.') }}</p>
+        @endif
+        @if ($chat->login_requested_at)
+        {{-- ε: the operator asked; the same line for everyone (§3 Δ). --}}
+        <div class="rounded-lg border border-neutral p-3 text-sm">
+            <p>{{ __('For account matters you need to sign in.') }}</p>
+            <x-button.primary type="button" class="mt-2 !w-auto" wire:click="login">{{ __('Sign in and continue') }}</x-button.primary>
+        </div>
         @endif
         <form wire:submit="send" class="flex flex-col gap-2">
             <textarea wire:model="body" rows="2" maxlength="{{ \App\Support\ChatText::MAX }}"

@@ -8,7 +8,10 @@ use App\Models\Client;
 use App\Models\LiveChat;
 use App\Models\Staff;
 use App\Support\LiveChats;
+use App\Support\VisitorChatTools;
 use Filament\Actions\Action;
+use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ManageRelatedRecords;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -64,9 +67,32 @@ class ShowChats extends ManageRelatedRecords
                     })
                     ->formatStateUsing(fn (string $state) => __(ucfirst($state))),
                 // Which login of the account started it (G11), not only the account.
-                TextColumn::make('user.name')->label(__('Started by'))->placeholder('—'),
+                TextColumn::make('user.name')->label(__('Started by'))
+                    ->placeholder(fn (LiveChat $record) => $record->started_anonymously ? __('Visitor (linked)') : '—'),
                 TextColumn::make('messages_count')->label(__('Messages'))->numeric(),
                 TextColumn::make('closed_at')->label(__('Closed'))->dateTime('d/m/Y H:i')->placeholder('—'),
+            ])
+            ->headerActions([
+                // §6α: a closed visitor's chat, by its number, with the member's password again (F18); audited by ids.
+                Action::make('linkVisitorChat')->label(__('Link a visitor\'s chat'))->icon('ri-links-line')->color('gray')
+                    ->visible(fn () => (bool) self::me()?->hasPermission('admin.chats.link'))
+                    ->modalDescription(__('Only a closed chat. The customer does not see it; it shows here, marked as started anonymously.'))
+                    ->schema([
+                        TextInput::make('chat')->label(__('Chat number'))->integer()->minValue(1)->required(),
+                        TextInput::make('password')->label(__('Your password'))->password()->required(),
+                    ])
+                    ->action(function (array $data, Action $action) {
+                        $staff = self::me();
+                        /** @var Client $client */
+                        $client = $this->getRecord();
+                        $refusal = $staff === null ? __('You may not link chats.')
+                            : VisitorChatTools::link($staff, (int) $data['chat'], $client, (string) $data['password']);
+                        if ($refusal !== null) {
+                            Notification::make()->title($refusal)->danger()->send();
+                            $action->halt();
+                        }
+                        Notification::make()->title(__('The chat is linked to this client.'))->success()->send();
+                    }),
             ])
             ->recordUrl(fn (LiveChat $record) => $this->chatUrl($record))
             ->recordActions([

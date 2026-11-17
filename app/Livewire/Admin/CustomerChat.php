@@ -6,6 +6,7 @@ use App\Admin\Resources\ClientResource;
 use App\Models\LiveChat;
 use App\Models\Staff;
 use App\Support\LiveChats;
+use App\Support\VisitorChatTools;
 use Illuminate\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -90,6 +91,26 @@ class CustomerChat extends Component
         $this->reset('transferTo');
         // Out of the member's chats: a transfer to another department may take it out of their sight too.
         $this->dispatch('customer-chat-open', chat: null);
+    }
+
+    /** «Ask to log in» in a visitor's chat (§3 Δ, G6): the server's fixed line, never the operator's words. */
+    public function askLogin(): void
+    {
+        $staff = $this->me();
+        $chat = $this->chat();
+        if ($staff !== null && $chat !== null && !VisitorChatTools::askLogin($staff, $chat)) {
+            $this->addError('body', __('You may not do this here.'));
+        }
+    }
+
+    /** Blocks the visitor's network address for a while, and closes the chat (§3 Ε). */
+    public function block(): void
+    {
+        $staff = $this->me();
+        $chat = $this->chat();
+        if ($staff !== null && $chat !== null && !VisitorChatTools::block($staff, $chat)) {
+            $this->addError('body', __('You may not do this here.'));
+        }
     }
 
     public function close(): void
