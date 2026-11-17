@@ -299,6 +299,25 @@ class CardlinkTest extends TestCase
             ->assertSee(CardlinkOrder::query()->sole()->order_id);
     }
 
+    /**
+     * 2026-11-17: the form comes with a later render (the «Pay» action), and Livewire 4 runs that render's scripts before
+     * its HTML is on the page, so a @script found no form and the redirect to the bank never fired. Alpine sends it from
+     * the form itself, once it is on the page.
+     */
+    public function test_the_form_is_sent_by_alpine_on_the_form_not_by_a_script_of_a_later_render(): void
+    {
+        $invoice = $this->invoice(25);
+
+        $page = $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice])
+            ->set('selectedMethod', 'gateway-' . $this->gateway->id)
+            ->call('processPayment');
+
+        $this->assertMatchesRegularExpression('/<form id="cardlink-form"[^>]*\sx-data[\s>=][^>]*x-init="\$el\.submit\(\)"/', $page->html());
+        foreach ((array) ($page->effects['scripts'] ?? []) as $script) {
+            $this->assertStringNotContainsString('cardlink-form', (string) $script);
+        }
+    }
+
     public function test_empty_and_padded_values_are_signed_as_posted(): void
     {
         // Code review CR-1: the global middleware would trim and null them, and the digest of a real payment would fail.
