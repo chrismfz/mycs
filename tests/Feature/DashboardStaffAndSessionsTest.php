@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Admin\Resources\LoginAttemptResource;
+use App\Admin\Resources\LoginAttemptResource\Pages\ListLoginAttempts;
 use App\Admin\Widgets\StaffAndSessions;
 use App\Enums\StaffPresenceStatus;
 use App\Models\LoginAttempt;
@@ -174,5 +175,19 @@ class DashboardStaffAndSessionsTest extends TestCase
 
         $this->actAs($this->member());
         Livewire::test(StaffAndSessions::class)->assertDontSee(__('Login History'));
+    }
+
+    /** Review of #901: the link's filter is the one the log applies. */
+    public function test_the_links_filter_shows_only_its_area(): void
+    {
+        $viewer = $this->member([...self::BOTH, 'admin.audit.viewAny']);
+        $this->actAs($viewer);
+        $staff = LoginAttempt::query()->create(['area' => LoginAttempt::STAFF, 'staff_id' => $viewer->id, 'email' => 'staff@example.test', 'result' => LoginAttempt::SUCCESS]);
+        $client = LoginAttempt::query()->create(['area' => LoginAttempt::CLIENT, 'user_id' => User::factory()->create()->id, 'email' => 'client@example.test', 'result' => LoginAttempt::SUCCESS]);
+
+        Livewire::withQueryParams(['filters' => ['area' => ['value' => LoginAttempt::CLIENT]]])->test(ListLoginAttempts::class)
+            ->assertCanSeeTableRecords([$client])->assertCanNotSeeTableRecords([$staff]);
+        Livewire::withQueryParams(['filters' => ['area' => ['value' => LoginAttempt::STAFF]]])->test(ListLoginAttempts::class)
+            ->assertCanSeeTableRecords([$staff])->assertCanNotSeeTableRecords([$client]);
     }
 }
