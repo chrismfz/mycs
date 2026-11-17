@@ -32,6 +32,18 @@ class VisitorChats
 
     public const PER_MINUTE_PER_IP = 40;
 
+    /**
+     * A visitor's messages in one chat, in all (audit 2026-11-17): the limits a minute never end, and a chat its visitor
+     * keeps writing in is never idle. Past it the matter is a ticket's.
+     */
+    public const MAX_MESSAGES = 200;
+
+    /**
+     * Visitors' chats a department may have waiting at once: past it the department is as with no one available, and the
+     * popup offers the ticket form (audit 2026-11-17: a chat per address from many addresses rang every operator).
+     */
+    public const WAITING_MAX = 10;
+
     public const NAME_MAX = 60;
 
     public const EMAIL_MAX = 190;
@@ -47,10 +59,17 @@ class VisitorChats
         return TicketDepartment::query()->offered(guest: true)->whereHas('chatStaff')->get(['id', 'name']);
     }
 
-    /** @return Collection<int, TicketDepartment> those of departments() with someone available now (§5α) */
+    /**
+     * @return Collection<int, TicketDepartment> those of departments() with someone available now (§5α) and fewer than
+     *                                           WAITING_MAX visitors already waiting
+     */
     public static function availableDepartments(): Collection
     {
-        return self::departments()->filter(fn (TicketDepartment $department) => LiveChats::availableIn($department->id))->values();
+        $full = LiveChat::query()->whereNull('client_id')->where('status', LiveChat::WAITING)->groupBy('department_id')
+            ->havingRaw('count(*) >= ?', [self::WAITING_MAX])->pluck('department_id')->all();
+
+        return self::departments()->filter(fn (TicketDepartment $department) => !in_array($department->id, $full, false)
+            && LiveChats::availableIn($department->id))->values();
     }
 
     /**
@@ -199,6 +218,9 @@ class VisitorChats
         if (self::over('live-chat-visitor:' . $chat->id, 60, self::PER_MINUTE)
             || self::over('live-chat-visitor-ip:' . CallerIp::key(), 60, self::PER_MINUTE_PER_IP)) {
             return __('Too many messages, wait a moment.');
+        }
+        if ($chat->messages()->where('author_type', LiveChatMessage::VISITOR)->count() >= self::MAX_MESSAGES) {
+            return __('This chat has become too long. Please open a ticket to go on.');
         }
 
         return LiveChats::write($chat, ['author_type' => LiveChatMessage::VISITOR, 'body' => $body], participant: true);

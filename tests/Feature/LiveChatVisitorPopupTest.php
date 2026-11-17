@@ -273,6 +273,43 @@ class LiveChatVisitorPopupTest extends TestCase
         $this->assertSame(VisitorChats::PER_MINUTE + 1, $chat->messages()->count());
     }
 
+    /** Audit 2026-11-17: the limits a minute never end, and a chat its visitor keeps writing in is never idle. */
+    public function test_a_chat_takes_only_so_many_of_its_visitors_messages(): void
+    {
+        $this->start()->assertHasNoErrors();
+        $chat = LiveChat::query()->sole();
+        $rows = array_fill(0, VisitorChats::MAX_MESSAGES - 2, ['chat_id' => $chat->id, 'author_type' => LiveChatMessage::VISITOR, 'body' => 'x',
+            'created_at' => now()]);
+        LiveChatMessage::query()->insert($rows);
+        // The operator's lines do not count.
+        $chat->messages()->create(['author_type' => LiveChatMessage::STAFF, 'body' => 'yes']);
+
+        $this->assertNull(VisitorChats::post($chat, 'the last one'));
+        $this->assertSame(__('This chat has become too long. Please open a ticket to go on.'), VisitorChats::post($chat, 'one too many'));
+        $this->assertSame(0, $chat->messages()->where('body', 'one too many')->count());
+        $this->popup()->set('body', 'again')->call('send')->assertSee(__('This chat has become too long. Please open a ticket to go on.'));
+    }
+
+    /** Audit 2026-11-17: a chat per address from many addresses rang every operator; past the limit, the ticket form. */
+    public function test_a_department_with_its_queue_full_takes_no_more_visitors(): void
+    {
+        for ($i = 0; $i < VisitorChats::WAITING_MAX - 1; $i++) {
+            LiveChat::query()->create(['department_id' => $this->sales->id, 'status' => LiveChat::WAITING, 'started_anonymously' => true, 'ip' => "198.51.100.$i"]);
+        }
+        // Customers waiting, and visitors already being answered, are not the visitors' queue.
+        LiveChat::query()->create(['department_id' => $this->sales->id, 'status' => LiveChat::ACTIVE, 'started_anonymously' => true, 'ip' => '198.51.100.200']);
+        $this->assertSame([$this->sales->id], VisitorChats::availableDepartments()->pluck('id')->all());
+
+        $this->start()->assertHasNoErrors();
+        $this->assertSame(VisitorChats::WAITING_MAX, LiveChat::query()->where('status', LiveChat::WAITING)->count());
+        $this->assertSame([], VisitorChats::availableDepartments()->pluck('id')->all());
+        $this->assertNull(VisitorChats::departmentFor($this->sales->id));
+
+        // One is taken: the department takes visitors again.
+        LiveChat::query()->where('status', LiveChat::WAITING)->first()->update(['status' => LiveChat::ACTIVE]);
+        $this->assertSame([$this->sales->id], VisitorChats::availableDepartments()->pluck('id')->all());
+    }
+
     public function test_the_visitor_writes_and_reads_only_their_own_chat(): void
     {
         $this->start()->assertHasNoErrors();

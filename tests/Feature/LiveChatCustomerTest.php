@@ -135,6 +135,24 @@ class LiveChatCustomerTest extends TestCase
         $this->assertNotNull(LiveChats::start($user, 1, 'hi'));
     }
 
+    /** Audit 2026-11-17: /chat and the bubble are outside MustVerfiyEmail, so a login made with anyone's address chatted as a customer. */
+    public function test_a_login_whose_address_is_not_proven_does_not_chat_where_the_client_area_asks_for_it(): void
+    {
+        $support = $this->department();
+        $this->online($this->operator($support));
+        $user = User::factory()->unverified()->create();
+        $this->asCustomer($user, $user->client());
+
+        $this->assertTrue(LiveChats::customerMay($user), 'no proof is asked for: as the rest of the client area');
+        $this->storeSettings(['mail_must_verify' => true]);
+        $this->assertFalse(LiveChats::customerMay($user));
+        $this->assertNotNull(LiveChats::start($user, $support->id, 'I am the CEO'));
+        $this->assertSame(0, LiveChat::query()->count());
+
+        $user->forceFill(['email_verified_at' => now()])->save();
+        $this->assertTrue(LiveChats::customerMay($user->fresh()));
+    }
+
     public function test_no_one_available_offers_a_ticket_and_starts_nothing(): void
     {
         $support = $this->department();
