@@ -36,10 +36,15 @@ class LiveChats
 
     // ---- the customer's side
 
-    /** The current login may chat for the current account: the setting, the account's `chat`, and not staff in disguise. */
+    /**
+     * The current login may chat for the current account: the setting, the account's `chat`, not staff in disguise, and
+     * its address proven where the client area asks for that (MustVerfiyEmail; the popup's route is outside its group,
+     * and a login made with someone else's address showed the operator a customer: audit 2026-11-17).
+     */
     public static function customerMay(?User $user): bool
     {
-        return self::enabled() && $user !== null && !Actor::impersonating() && CurrentClient::id() > 0 && CurrentClient::allows('chat');
+        return self::enabled() && $user !== null && !Actor::impersonating() && CurrentClient::id() > 0 && CurrentClient::allows('chat')
+            && (!config('settings.mail_must_verify') || $user->hasVerifiedEmail());
     }
 
     /**
