@@ -72,7 +72,7 @@ class UploadHandlingTest extends TestCase
     {
         [$ticket] = $this->ticket();
         $this->actingAs($this->owner, 'staff');
-        $file = \Illuminate\Http\UploadedFile::fake()->createWithContent("in\u{202E}voice.png", $this->png());
+        $file = UploadedFile::fake()->createWithContent("in\u{202E}voice.png", $this->png());
 
         Livewire::test(EditTicket::class, ['record' => $ticket->getRouteKey()])
             ->fillForm(['message' => 'see attached', 'attachments' => [$file]])
