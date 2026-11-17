@@ -1,12 +1,12 @@
 # MyCS: Handoff
 
-> Για όποιον (άνθρωπο ή agent) πιάνει τη δουλειά. Ενημερώνεται σε κάθε βήμα· τελευταία 2026-10-22.
+> Για όποιον (άνθρωπο ή agent) πιάνει τη δουλειά. Ενημερώνεται σε κάθε βήμα· τελευταία 2026-11-17.
 
 ## Κατάσταση
 - **Repo:** `chrismfz/mycs`, hard fork που πήρε τον δικό του δρόμο (`../CLAUDE.md`). **Δημόσιο** ως τώρα· γίνεται
   private «όταν ηρεμήσουμε» (ο υπεύθυνος). Ως τότε τα έγγραφα με σήμανση εμπιστευτικού δεν μπαίνουν στο repo.
-- **Πού είμαστε και τι ακολουθεί:** `ROADMAP.md`, «Πού είμαστε» και «Επόμενα» (2026-10-29: main στο #510). Καμία
-  εταιρεία δεν δουλεύει ακόμα στο MyCS· pilot η nixpal.
+- **Πού είμαστε και τι ακολουθεί:** `ROADMAP.md`, «Πού είμαστε». Η nixpal δουλεύει μόνο στο MyCS από 2026-11-13
+  (`clients.nixpal.com`, orion)· το WHMCS της τερματίστηκε. Επόμενο το myip.gr (ακόμα σε WHMCS).
 - **Αποφάσεις:** όλες στο `decisions.md` και στο `README.md` (γιατί fork, γιατί όχι Blesta/FOSSBilling, Ekdosi μόνο
   τιμολόγηση).
 - **Τρόπος δουλειάς:** ένα θέμα ανά PR· code review σε κάθε PR, και adversarial review (με failing tests που μένουν
@@ -22,20 +22,21 @@
 4. `history/audit-billing.md`, `history/audit-security.md`: τι είναι στραβό στον πυρήνα που κληρονομήσαμε.
 5. `../CLAUDE.md`: κανόνες (secrets, δεδομένα πελατών, contracts).
 6. `cutover-runbook.md` (ξεκίνησε 2026-11-03): τι φέρνει το τελικό import (logins, το κλειδί και το API του WHMCS,
-   attachments), τι κλείνει στο WHMCS την ίδια ώρα, ο καθαρισμός μετά τις δοκιμές.
+   attachments), τι κλείνει στο WHMCS την ίδια ώρα, ο καθαρισμός μετά τις δοκιμές· πώς έγινε στη nixpal:
+   `cutover-nixpal-day.md`, και η πρώτη εβδομάδα του staff: `first-days.md`.
 
 ## Περιβάλλοντα και πρόσβαση
 | Τι | Πού | Όρια |
 |---|---|---|
 | WHMCS myip.gr | `rigel.myip.gr:/home/myipgr/www/clients`, DB `myipgr_clients` (μέσω gsc-mcp `ssh_run`, `mariadb`) | **μόνο read-only** |
-| WHMCS nixpal | `orion.myip.gr:/home/clnixpal/public_html`, DB `clnixpal_nixcldb` (gsc-mcp `ssh_run`, συνδέεται ως root) | **μόνο read-only** |
+| **MyCS nixpal (παραγωγή)** | orion, λογαριασμός cPanel `mycsnixpal` (`~/mycs`), https://clients.nixpal.com (`install.md`, «Σε server cPanel/CloudLinux») | deploy (`sh ~/deploy.sh`) μόνο με OK του ιδιοκτήτη· διάβασμα της βάσης read-only |
+| WHMCS nixpal | τερματίστηκε μετά το cut-over (2026-11-13)· ήταν `clnixpal` στον orion | — |
 | WHMCS API | gsc-mcp `whmcs_call` | μόνο `Get*` |
 | Ekdosi (κώδικας) | `chrismfz/ekdosi` (Laravel 13, Filament 5) | πηγή για port· καμία αλλαγή χωρίς λόγο |
 | Ekdosi (εφαρμογή) | rigel, `/home/myipgr/invoicer/ekdosi` | παραγωγή |
 | Blesta staging (παλιό) | `cs.nixpal.com` | δεν το αγγίζουμε |
-| **Devbox MyCS** (εγκατεστημένο, https://mycs.myip.gr) | VM `devbox` (84.54.49.31, ίδιο με το dev του Ekdosi)· gsc-mcp `ssh_run` host `devbox` | δοκιμές και η πρώτη εγκατάσταση· τρέχει και το dev του Ekdosi, προσοχή στα κοινά (MariaDB, php-fpm, cron) |
+| **Devbox MyCS** (εγκατεστημένο, https://mycs.myip.gr) | VM `devbox` (84.54.49.31, ίδιο με το dev του Ekdosi)· gsc-mcp `ssh_run` host `devbox` | δοκιμές· αργότερα το instance του myip· τρέχει και το dev του Ekdosi, προσοχή στα κοινά (MariaDB, php-fpm, cron) |
 | **DNS δοκιμών** | `mycs.myip.gr` και `*.mycs.myip.gr` → A 84.54.49.31 (TTL 600, στη ζώνη myip.gr, 2026-10-11) | ελεύθερη χρήση για δοκιμές (π.χ. `test.mycs.myip.gr`, ένα subdomain ανά σενάριο/instance) |
-| Staging MyCS (μετά) | ό,τι αποφασιστεί (π.χ. `mycs.nixpal.com`) | δεν έχει στηθεί |
 
 ### Devbox: τι έχει στηθεί (2026-10-11)
 Ίδιο μοτίβο με το Ekdosi στο ίδιο VM (AlmaLinux 10.2, nginx, PHP 8.4.21, MariaDB 10.11):
@@ -77,7 +78,6 @@
   Τα tests τρέχουν και στο devbox (παραπάνω).
 - `.git/info/exclude` κρύβει τα αρχεία του home (`.db-credentials`, `.config/`, `.bash*`, caches).
 - **Admin:** ο πρώτος λογαριασμός δημιουργήθηκε (`app:user:create`, 2026-10-11).
-- **Δεν έχει γίνει:** mail (SMTP) της παραγωγής (`ROADMAP.md`, «Επόμενα» 6).
 
 Λεπτομέρειες (servers, crons, μεγέθη, inventory του WHMCS): `history/blesta-modules/HANDOFF.md` §1, §4.
 
@@ -127,8 +127,8 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
 
 ## Γνωστά ρίσκα
 - Hard fork: τα upgrades του Laravel/Filament/Livewire είναι πλέον δική μας ευθύνη.
-- Ο importer του νέου σχήματος δεν έχει γραφτεί ακόμα: η πρώτη πραγματική μεταφορά θα δείξει ό,τι δεν πιάνουν τα tests
-  (`ROADMAP.md`, «Επόμενα» 4).
+- Η πρώτη πραγματική χρήση (nixpal, από 2026-11-13) δείχνει ό,τι δεν πιάνουν τα tests· ό,τι βρεθεί γράφεται στο
+  runbook πριν το myip.
 - Τα τοπικά tests τρέχουν σε SQLite: ό,τι εξαρτάται από τη MariaDB (row locks, ελληνικά χωρίς διάκριση πεζών/κεφαλαίων
   στο `LIKE`) το ελέγχει μόνο το job της MariaDB στο CI (`../CLAUDE.md`, «Tests»).
 
@@ -153,6 +153,9 @@ Fixtures του zlic και η λογική του: `history/blesta-modules/lice
 
 - **2026-10-22:** sweep domains/registrars (#305–#308, #310): 16 ευρήματα με failing tests, όλα διορθωμένα με code και
   adversarial review· οι κανόνες που άλλαξαν και τα ανοιχτά για τον υπεύθυνο στο `domains.md`, «Sweep 2026-10-22».
+- **2026-11-07 → 12:** έντεκα sweeps για bugs (#708–#811)· το ενδέκατο ήταν το τελευταίο.
+- **2026-11-13:** cut-over της nixpal· από τότε δουλεύει μόνο στο MyCS (`cutover-nixpal-day.md`).
+- **2026-11-17:** audit ασφαλείας tickets + live chat (#898–#907, `ROADMAP.md` «Έγινε»).
 
 ### PR #32 — διορθώσεις δεύτερου εξωτερικού review (2026-10-12)
 

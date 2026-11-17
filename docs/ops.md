@@ -1,6 +1,6 @@
 # Ops: health, dossiers, probes
 
-Tools for testing and for troubleshooting live (the nixpal cut-over first): **read-only**, with **no secrets** in
+Tools for testing and for troubleshooting live (nixpal in production, the devbox): **read-only**, with **no secrets** in
 their output, and the same answer everywhere. The logic is in `app/Services/Ops`. The commands below, and later the
 MCP server (docs/mcp.md) and a health endpoint, are thin layers over it.
 
