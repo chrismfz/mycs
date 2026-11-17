@@ -24,6 +24,11 @@ abstract class ProposeTool extends McpTool
         return Proposals::permission($this->type());
     }
 
+    protected function viewPermission(): ?string
+    {
+        return Proposals::VIEW[$this->type()] ?? null;
+    }
+
     protected function run(Request $request): array
     {
         $staff = $request->user();

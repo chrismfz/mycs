@@ -44,18 +44,18 @@ class TicketNoteTool extends McpTool
     }
 
     /** And View Tickets: without it the admin opens no ticket, so no note there either (review of #860, ADV-860-6). */
-    public function shouldRegister(Request $request): bool
+    protected function viewPermission(): ?string
     {
-        return parent::shouldRegister($request) && self::allowed($request->user(), 'admin.tickets.viewAny');
+        return 'admin.tickets.viewAny';
     }
 
     protected function run(Request $request): array
     {
         $staff = $request->user();
-        // View Tickets before the lookup: «no such ticket» tells nothing to a role that may not see them (re-review).
-        if (!$staff instanceof Staff || !$staff->hasPermission('admin.tickets.viewAny')) {
-            throw new \InvalidArgumentException('Your role may not write on tickets.');
+        if (!$staff instanceof Staff) {
+            throw new \InvalidArgumentException('Not a member of staff.');
         }
+        // View Tickets is asked before this runs (viewPermission): «no such ticket» tells nothing to a role that may not see them.
         $ticket = TicketTool::find((string) $request->get('ticket'));
         // As the ticket page asks of who adds a note there (TicketPolicy::update).
         if (!Gate::forUser($staff)->allows('update', $ticket)) {

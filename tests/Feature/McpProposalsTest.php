@@ -82,7 +82,7 @@ class McpProposalsTest extends TestCase
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $proposal = Proposals::propose(Proposals::RESOLVE_MODULE_ACTION, ['module_action_id' => $this->action->id], $this->staff());
-        $approver = $this->staff(['admin.mcp.use', 'admin.services.update']);
+        $approver = $this->staff(['admin.mcp.use', 'admin.services.viewAny', 'admin.services.update']);
 
         $this->livewireAs($approver)->test(ListMcpProposals::class)->callTableAction('approve', $proposal);
 
@@ -173,5 +173,33 @@ class McpProposalsTest extends TestCase
         MycsServer::actingAs($staff, 'staff')->tool(ServerTestTool::class)->assertOk()->assertSee('"name": "Licensing"');
         MycsServer::actingAs($staff, 'staff')->tool(ServerTestTool::class, ['server' => (string) $server->id])->assertOk()->assertSee('"server": "Licensing"');
         MycsServer::actingAs($this->staff(['admin.mcp.use', 'admin.servers.viewAny']), 'staff')->tool(ServerTestTool::class)->assertHasErrors();
+        // Audit 2026-11-17: update without View Servers listed every server.
+        MycsServer::actingAs($this->staff(['admin.mcp.use', 'admin.servers.update']), 'staff')->tool(ServerTestTool::class)
+            ->assertHasErrors()->assertDontSee('Licensing');
+    }
+
+    /**
+     * Audit 2026-11-17: a role that may change services but not see them learned, by proposing, which service and product
+     * an action is of, or that an action exists at all; and saw others' proposals in the list.
+     */
+    public function test_a_module_action_is_proposed_and_listed_only_to_who_may_see_services(): void
+    {
+        $blind = $this->staff(['admin.mcp.use', 'admin.services.update']);
+        foreach ([ProposeRetryModuleActionTool::class, ProposeResolveModuleActionTool::class] as $tool) {
+            MycsServer::actingAs($blind, 'staff')->tool($tool, ['module_action_id' => $this->action->id])->assertHasErrors()->assertDontSee('suspend');
+            MycsServer::actingAs($blind, 'staff')->tool($tool, ['module_action_id' => 999999])->assertHasErrors()->assertDontSee('No such module action');
+        }
+        $this->assertSame(0, McpProposal::query()->count());
+
+        $proposal = Proposals::propose(Proposals::RETRY_MODULE_ACTION, ['module_action_id' => $this->action->id], $this->staff());
+        $this->assertFalse(Proposals::followable($proposal, $blind));
+        MycsServer::actingAs($blind, 'staff')->tool(ProposalTool::class)->assertDontSee((string) $proposal->summary);
+        $this->assertTrue(Proposals::followable($proposal, $this->staff(['admin.mcp.use', 'admin.services.update', 'admin.services.viewAny'])));
+        // Nor in the admin's list of proposals, which shows each one's summary (review of #907).
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->livewireAs($blind)->test(ListMcpProposals::class)->assertCanNotSeeTableRecords([$proposal]);
+        $this->livewireAs($this->staff(['admin.mcp.use', 'admin.services.update', 'admin.services.viewAny']))->test(ListMcpProposals::class)
+            ->assertCanSeeTableRecords([$proposal]);
+        $this->assertSame(array_keys(Proposals::PERMISSIONS), array_keys(Proposals::VIEW), 'every type says what seeing it asks');
     }
 }

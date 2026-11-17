@@ -2,7 +2,6 @@
 
 namespace App\Mcp\Tools;
 
-use App\Models\Staff;
 use App\Services\Mcp\Proposals;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
@@ -21,20 +20,8 @@ class ProposeTicketReplyTool extends ProposeTool
         ];
     }
 
-    /** And View Tickets, as the note's tool: without it the admin opens no ticket (ADV-860-6; audit 2026-11-17). */
-    public function shouldRegister(Request $request): bool
-    {
-        return parent::shouldRegister($request) && self::allowed($request->user(), 'admin.tickets.viewAny');
-    }
-
     protected function run(Request $request): array
     {
-        // Before the lookup: the answer names the ticket and the start of its subject, and «no such ticket» tells too.
-        $staff = $request->user();
-        if (!$staff instanceof Staff || !$staff->hasPermission('admin.tickets.viewAny')) {
-            throw new \InvalidArgumentException('Your role may not write on tickets.');
-        }
-
         // Not «approve it in the admin»: a draft is used from its ticket, and never sent by approving (review of #423).
         return ['note' => 'Nothing was sent. The draft waits on the ticket\'s page; a member of staff uses it (changes and sends it) or discards it. `proposal` shows done once they took it into the reply box, which is not «sent».']
             + array_diff_key(parent::run($request), ['note' => 0, 'approve_at' => 0]);

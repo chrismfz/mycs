@@ -38,7 +38,7 @@ The design follows Ekdosi's (laravel/mcp, a server class, one tool per question)
 | `logs` (level, laravel / payments) | View Failed Jobs | `mycs:logs` |
 | `zlic_probe` (key, ip) | View Services | `mycs:zlic` |
 | `licenses` (days; product, version, limit) | View Services | Licenses: the tabs' counts, the «Version» column across all, the API column, the Signals tab; with product/version, who runs it (2026-11-15) |
-| `server_test` (server) | Update Servers | Test Connection |
+| `server_test` (server) | Update Servers and View Servers | Test Connection |
 | `ticket` (id, reference; or a list by status, account) | View Tickets | a ticket's page: messages, internal notes, CCs |
 | `domain` (id, name) | View Domains | a domain's page: dates, nameservers, handles, lines, registrar calls |
 | `registrar_log` (status, action, domain) | View Domains | Registrar Log (never requests, answers, EPP codes) |
@@ -136,8 +136,8 @@ reject it in **Other → MCP Proposals** within a day; the menu shows how many a
 
 | Tool | Proposes | Needs (who proposes and who approves) |
 |---|---|---|
-| `propose_retry_module_action` | the admin's Retry of a module action the queue gave up on | Update Services, and for a domain's also Renew Domains |
-| `propose_resolve_module_action` | Mark resolved (an account fixed by hand) | Update Services, and for a domain's also Renew Domains |
+| `propose_retry_module_action` | the admin's Retry of a module action the queue gave up on | View and Update Services, and for a domain's also Renew Domains |
+| `propose_resolve_module_action` | Mark resolved (an account fixed by hand) | View and Update Services, and for a domain's also Renew Domains |
 | `propose_resend_mail` (to, with copies) | a Resend, as the log keeps the mail | Resend Email, and View Email Logs |
 
 - **Once:** an approval is an atomic claim, so two clicks or two members of staff never run it twice. The same request
@@ -159,7 +159,7 @@ reject it in **Other → MCP Proposals** within a day; the menu shows how many a
 - **Who sees what:** staff see their own proposals and those they may decide. A resend's addresses and subject are not
   for everyone.
 - **Limit:** at most 30 waiting proposals per member of staff.
-- **`server_test`** (Update Servers) needs no approval: it changes nothing. It runs the admin's Test Connection with the
+- **`server_test`** (Update Servers and View Servers) needs no approval: it changes nothing. It runs the admin's Test Connection with the
   stored settings, at most once a minute per server; otherwise it returns the last result, so a looping agent never
   gets MyCS locked out.
 
@@ -172,7 +172,7 @@ reject it in **Other → MCP Proposals** within a day; the menu shows how many a
   the admin's ticket page does. At most
   5,000 characters, at most 10 MCP notes per ticket in 24 hours; never on a merged ticket. Everything else the MCP may
   change (prices, products, client details, credits) goes through a proposal.
-- **Ticket reply drafts** (`propose_ticket_reply`, needs Update Tickets): the agent drafts a reply; staff see it on the
+- **Ticket reply drafts** (`propose_ticket_reply`, needs Update Tickets and View Tickets): the agent drafts a reply; staff see it on the
   ticket's page above the reply box, its text as written (links as plain text), and «Use the draft» (into the reply box,
   after what they already wrote: they change it and send it themselves) or «Discard». Approving it in MCP Proposals
   sends nothing (the page offers «Open the ticket» instead). Nothing reaches a customer without a member of staff.
