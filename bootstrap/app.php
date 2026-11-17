@@ -20,6 +20,11 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Support\Facades\Route;
 
+// A trace never carries the calls' arguments, whatever the host's php.ini says (orion: Off): an argument is often a
+// password or a token, and the cut one PHP keeps (its first 15 characters) is not one the log's redaction can recognise
+// (security audit 2026-11-18).
+ini_set('zend.exception_ignore_args', '1');
+
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__ . '/../routes/web.php',
