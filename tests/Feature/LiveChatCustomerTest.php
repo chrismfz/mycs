@@ -205,6 +205,23 @@ class LiveChatCustomerTest extends TestCase
         $this->assertNotNull(LiveChats::start($user, $support->id, 'fourth'), 'three starts in 10 minutes at most');
     }
 
+    /** Audit 2026-11-17: the lock's wait running out was an error page, where VisitorChats::start already refused. */
+    public function test_a_start_while_another_holds_the_accounts_lock_is_refused_not_an_error(): void
+    {
+        $support = $this->department();
+        $this->online($this->operator($support));
+        [$user, $client] = $this->customer();
+        $held = Cache::lock('live-chat-open:' . $client->id, 30);
+        $this->assertTrue($held->get());
+
+        try {
+            $this->assertSame(__('Too many chats started, wait a few minutes.'), LiveChats::start($user, $support->id, 'hi'));
+        } finally {
+            $held->release();
+        }
+        $this->assertSame(0, LiveChat::query()->count());
+    }
+
     public function test_an_operator_sees_only_the_chats_of_departments_that_list_them(): void
     {
         $support = $this->department('Support');

@@ -7,6 +7,7 @@ use App\Models\LiveChat;
 use App\Models\LiveChatMessage;
 use App\Models\Staff;
 use App\Models\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -32,6 +33,9 @@ use OwenIt\Auditing\Events\AuditCustom;
 class VisitorChatTools
 {
     public const HANDOFF_MINUTES = 10;
+
+    /** Days a closed visitor chat keeps its network address (§6α). */
+    public const ADDRESS_DAYS = 30;
 
     public const BLOCK_HOURS = 24;
 
@@ -142,36 +146,42 @@ class VisitorChatTools
         $clientId = CurrentClient::id();
         // The account's lock first, as LiveChats::start takes it: one open chat per account, also against a start in the
         // client area at the same moment (F10, review of #889); then the chat's row.
-        $refusal = Cache::lock('live-chat-open:' . $clientId, 10)->block(5, fn () => DB::transaction(function () use ($user, $pending, $clientId) {
-            $chat = LiveChat::query()->whereKey($pending->id)->lockForUpdate()->first();
-            if ($chat === null || !$chat->isOpen() || $chat->client_id !== null || $chat->handoff_user_id !== $user->id
-                || $chat->handoff_at === null || $chat->handoff_at->lte(now()->subMinutes(self::HANDOFF_MINUTES))) {
-                return __('This chat can no longer be continued.');
-            }
-            $may = LiveChats::customerMay($user) && !self::blocked((string) $chat->ip) && LiveChats::openChatOf($clientId) === null;
-            $chat->forceFill(['status' => LiveChat::CLOSED, 'closed_at' => now(), 'visitor_token_hash' => null])->save();
-            if (!$may) {
-                $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM, 'body' => __('Closed: the login did not continue this chat.')]);
+        // The account is starting a chat elsewhere past our wait: the visitor's chat stays frozen and they may press
+        // again; never an error page (audit 2026-11-17).
+        try {
+            $refusal = Cache::lock('live-chat-open:' . $clientId, 10)->block(5, fn () => DB::transaction(function () use ($user, $pending, $clientId) {
+                $chat = LiveChat::query()->whereKey($pending->id)->lockForUpdate()->first();
+                if ($chat === null || !$chat->isOpen() || $chat->client_id !== null || $chat->handoff_user_id !== $user->id
+                    || $chat->handoff_at === null || $chat->handoff_at->lte(now()->subMinutes(self::HANDOFF_MINUTES))) {
+                    return __('This chat can no longer be continued.');
+                }
+                $may = LiveChats::customerMay($user) && !self::blocked((string) $chat->ip) && LiveChats::openChatOf($clientId) === null;
+                $chat->forceFill(['status' => LiveChat::CLOSED, 'closed_at' => now(), 'visitor_token_hash' => null])->save();
+                if (!$may) {
+                    $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM, 'body' => __('Closed: the login did not continue this chat.')]);
 
-                return __('This chat can no longer be continued.');
-            }
-            $next = LiveChat::query()->create([
-                'client_id' => $clientId,
-                'user_id' => $user->id,
-                'department_id' => $chat->department_id,
-                'status' => $chat->assigned_to !== null ? LiveChat::ACTIVE : LiveChat::WAITING,
-                'assigned_to' => $chat->assigned_to,
-                'last_participant_message_at' => now(),
-            ]);
-            $next->forceFill(['continued_from' => $chat->id])->save();
-            // For the staff only (F20): which login continued, and where.
-            $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM,
-                'body' => __('Continued by the login :email as chat #:id.', ['email' => (string) $user->email, 'id' => $next->id])]);
-            $next->messages()->create(['author_type' => LiveChatMessage::SYSTEM,
-                'body' => __('Continues the visitor\'s chat #:id after a login (:email). Ask again for what was asked before.', ['id' => $chat->id, 'email' => (string) $user->email])]);
+                    return __('This chat can no longer be continued.');
+                }
+                $next = LiveChat::query()->create([
+                    'client_id' => $clientId,
+                    'user_id' => $user->id,
+                    'department_id' => $chat->department_id,
+                    'status' => $chat->assigned_to !== null ? LiveChat::ACTIVE : LiveChat::WAITING,
+                    'assigned_to' => $chat->assigned_to,
+                    'last_participant_message_at' => now(),
+                ]);
+                $next->forceFill(['continued_from' => $chat->id])->save();
+                // For the staff only (F20): which login continued, and where.
+                $chat->messages()->create(['author_type' => LiveChatMessage::SYSTEM,
+                    'body' => __('Continued by the login :email as chat #:id.', ['email' => (string) $user->email, 'id' => $next->id])]);
+                $next->messages()->create(['author_type' => LiveChatMessage::SYSTEM,
+                    'body' => __('Continues the visitor\'s chat #:id after a login (:email). Ask again for what was asked before.', ['id' => $chat->id, 'email' => (string) $user->email])]);
 
-            return null;
-        }));
+                return null;
+            }));
+        } catch (LockTimeoutException) {
+            return __('Too many chats started, wait a few minutes.');
+        }
         ChatVisitor::forget();
 
         return $refusal;
@@ -185,6 +195,16 @@ class VisitorChatTools
             self::closeFrozen($pending, $user->id, __('Closed: the visitor signed in and did not continue.'));
         }
         ChatVisitor::forget();
+    }
+
+    /**
+     * A visitor's network address is kept for abuse only (the limits, the block): ADDRESS_DAYS after their chat closed
+     * it goes (docs/livechat.md §6α; audit 2026-11-17: it was promised and never done). Returns how many chats.
+     */
+    public static function forgetOldAddresses(): int
+    {
+        return LiveChat::query()->whereNotNull('ip')->where('status', LiveChat::CLOSED)
+            ->where('closed_at', '<', now()->subDays(self::ADDRESS_DAYS))->update(['ip' => null]);
     }
 
     /** The frozen chats no one confirmed in HANDOFF_MINUTES close (the minute's command). Returns how many. */

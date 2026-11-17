@@ -20,6 +20,8 @@ class LiveChatCloseIdle extends Command
     {
         $closed = LiveChats::closeIdle() + VisitorChatTools::expireHandoffs();
         $this->info("{$closed} idle chat(s) closed.");
+        // A visitor's address goes 30 days after their chat closed (§6α).
+        VisitorChatTools::forgetOldAddresses();
 
         return self::SUCCESS;
     }
