@@ -169,7 +169,7 @@ final class Retention
         // (audit 2026-11-17): it goes by when it came.
         if ($key === 'ticket_quarantine') {
             $deleted += self::inChunks(fn (): Builder => DB::table($log['table'])->where('status', TicketQuarantine::PENDING)
-                ->where('reason', 'automated')->where('created_at', '<', $cutoff), $delete, $max);
+                ->where('reason', 'automated')->where('created_at', '<', $cutoff), $delete, max(0, $max - $deleted));
         }
 
         return $deleted;

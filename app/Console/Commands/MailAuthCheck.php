@@ -67,7 +67,7 @@ class MailAuthCheck extends Command
         }
         // Our own DKIM check, which tickets fall back on when our server vouches for nothing (docs/tickets.md §3 Β).
         if (!$this->option('bank')) {
-            $dkim = app(Dkim::class)->verdict($raw, $from);
+            $dkim = (new Dkim)->verdict($raw, $from);
             $this->line(sprintf('tickets, own DKIM check: %s (%s)', $dkim->authenticated ? 'VOUCHED' : 'not vouched', $dkim->reason));
         }
 

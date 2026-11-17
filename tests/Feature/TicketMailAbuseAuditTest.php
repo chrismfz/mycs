@@ -86,6 +86,7 @@ class TicketMailAbuseAuditTest extends TestCase
      */
     public function test_a_mail_that_stopped_the_reading_three_times_is_kept_by_its_headers_and_the_next_mail_is_read(): void
     {
+        Storage::fake(TicketQuarantine::DISK);
         $killer = $this->mail(['From' => 'eve@evil.example', 'Subject' => 'Kills the run'], str_repeat('x', 2000));
         $this->mailbox->unseen[] = $killer;
         $this->mailbox->unseen[] = $this->mail(['From' => 'maria@example.com', 'Subject' => 'After it']);
@@ -97,6 +98,7 @@ class TicketMailAbuseAuditTest extends TestCase
         $held = TicketQuarantine::query()->sole();
         $this->assertSame(['too_large', 'eve@evil.example', 'Kills the run'], [$held->reason, $held->from_email, $held->subject]);
         $this->assertSame('', (string) $held->preview, 'its body was not read');
+        $this->assertStringNotContainsString('xxxx', (string) Storage::disk(TicketQuarantine::DISK)->get((string) $held->raw_path), 'nor kept');
         $this->assertSame('After it', Ticket::query()->sole()->subject);
         $this->assertSame([], $this->mailbox->unseen);
     }
@@ -111,6 +113,21 @@ class TicketMailAbuseAuditTest extends TestCase
 
         $this->assertSame('Second try', Ticket::query()->sole()->subject);
         $this->assertSame(0, TicketQuarantine::query()->count());
+    }
+
+    /** Review of #899: only a run that died counts. A mail the run got past alive, read or not, has its start taken back. */
+    public function test_a_run_that_goes_on_takes_the_start_back(): void
+    {
+        $first = $this->mail(['From' => 'maria@example.com', 'Subject' => 'One']);
+        $second = $this->mail(['From' => 'nikos@example.com', 'Subject' => 'Two']);
+        $this->mailbox->unseen = [$first, $second];
+
+        $this->artisan('app:fetch-emails')->assertSuccessful();
+
+        $this->assertSame(2, Ticket::query()->count());
+        foreach ([$first, $second] as $raw) {
+            $this->assertSame(0, (int) Cache::get('ticket-mail-started:' . $this->support->id . ':' . sha1($raw)));
+        }
     }
 
     /** Automated mail is not even counted in the menu, so no one handles it: it kept its whole raw message for ever. */
@@ -137,7 +154,7 @@ class TicketMailAbuseAuditTest extends TestCase
     }
 
     /** The name looked up is the sender's choice, and the resolver waits its whole timeout for servers that never answer. */
-    public function test_a_domain_whose_dkim_lookup_failed_is_not_asked_again_and_many_failures_stop_the_lookups(): void
+    public function test_a_domain_whose_dkim_lookup_failed_is_not_asked_again_for_a_while(): void
     {
         $asked = [];
         DkimDns::$resolver = function (string $name) use (&$asked) {
@@ -147,21 +164,19 @@ class TicketMailAbuseAuditTest extends TestCase
         };
 
         $this->assertSame(['v=DKIM1; p=abc'], DkimDns::txt('s1._domainkey.good.example'));
-        $this->assertNull(DkimDns::txt('s1._domainkey.dead0.example'));
-        $this->assertNull(DkimDns::txt('other._domainkey.DEAD0.example'), 'the domain, whatever the selector');
-        $this->assertSame(['s1._domainkey.good.example', 's1._domainkey.dead0.example'], $asked);
+        $this->assertNull(DkimDns::txt('s1._domainkey.dead.example'));
+        $this->assertNull(DkimDns::txt('other._domainkey.DEAD.example'), 'the domain, whatever the selector');
+        $this->assertSame(['s1._domainkey.good.example', 's1._domainkey.dead.example'], $asked);
 
-        for ($i = 1; $i < DkimDns::FAILURES; $i++) {
+        // Review of #899: failures of other domains never stop the lookups of a good one.
+        for ($i = 0; $i < 20; $i++) {
             $this->assertNull(DkimDns::txt("s._domainkey.dead{$i}.example"));
         }
-        $this->assertCount(1 + DkimDns::FAILURES, $asked);
-        $this->assertNull(DkimDns::txt('s._domainkey.good.example'), 'no lookup at all for a while: not vouched for by our check, never refused');
-        $this->assertCount(1 + DkimDns::FAILURES, $asked);
+        $this->assertSame(['v=DKIM1; p=abc'], DkimDns::txt('s2._domainkey.good.example'));
 
-        $this->travel(DkimDns::WINDOW_SECONDS + 1)->seconds();
-        $this->assertSame(['v=DKIM1; p=abc'], DkimDns::txt('s._domainkey.good.example'));
-        $this->assertNull(DkimDns::txt('s._domainkey.dead0.example'));
-        $this->assertCount(2 + DkimDns::FAILURES, $asked, 'dead0 is still remembered');
+        $this->travel(DkimDns::REMEMBER_MINUTES + 1)->minutes();
+        $this->assertNull(DkimDns::txt('s1._domainkey.dead.example'));
+        $this->assertSame('s1._domainkey.dead.example', end($asked), 'asked again once the while is over');
     }
 
     public function test_the_tickets_dkim_check_asks_through_the_bounded_lookup(): void

@@ -40,9 +40,13 @@ final class FakeTicketMailbox implements Mailbox
             $summary->fetched++;
             try {
                 // As ImapEngineMailbox: a mail the caller will not read whole comes as its headers only.
-                $email = $mayRead !== null && $mayRead(sha1($raw)) !== true
-                    ? Parser::headersOnly((string) strstr(str_replace("\r\n", "\n", $raw) . "\n\n", "\n\n", true), strlen($raw))
-                    : Parser::parse($raw);
+                if ($mayRead !== null && $mayRead(sha1($raw)) !== true) {
+                    $size = strlen($raw);
+                    $raw = (string) strstr(str_replace("\r\n", "\n", $raw) . "\n\n", "\n\n", true);
+                    $email = Parser::headersOnly($raw, $size);
+                } else {
+                    $email = Parser::parse($raw);
+                }
             } catch (Throwable) {
                 $email = null;
             }
