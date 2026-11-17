@@ -73,12 +73,15 @@ final class Attachments
         return strtolower(pathinfo(self::safeName($filename), PATHINFO_EXTENSION));
     }
 
-    /** A name to show and to download as: no directories, no control characters, at most 200 characters (its extension kept). */
+    /**
+     * A name to show and to download as: no directories, no control or format characters (a bidi override shows
+     * `…fdp.zip` as `…piz.pdf`: audit 2026-11-17), at most 200 characters (its extension kept).
+     */
     public static function safeName(?string $name): string
     {
         $name = str_replace('\\', '/', trim((string) $name));
         $name = basename($name);
-        $name = trim((string) preg_replace('/[\x00-\x1F\x7F]/u', '', $name));
+        $name = trim((string) preg_replace('/[\x00-\x1F\x7F]|\p{Cf}/u', '', $name));
         if ($name === '' || $name === '.' || $name === '..') {
             return 'file';
         }

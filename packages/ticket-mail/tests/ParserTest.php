@@ -66,6 +66,28 @@ final class ParserTest extends TestCase
         $this->assertSame(['count', 'count'], array_column($email->refused, 'reason'));
     }
 
+    /** Audit 2026-11-17: a megabyte of References was 170,000 ids in one query; a thousand refused files a thousand names in the message. */
+    public function test_references_and_refused_names_are_bounded(): void
+    {
+        $ids = array_map(fn (int $i) => "<r{$i}@example.com>", range(1, 120));
+        $files = array_map(fn (int $i) => ['name' => "run{$i}.exe", 'content' => 'MZ'], range(1, 30));
+        $email = Parser::parse(Eml::make(['From' => 'maria@example.com', 'In-Reply-To' => '<parent@example.com>', 'References' => implode(' ', $ids)], 'Hello', $files));
+
+        $this->assertCount(1 + Parser::MAX_REFERENCES, $email->references);
+        $this->assertSame('parent@example.com', $email->references[0]);
+        $this->assertSame('r120@example.com', $email->references[Parser::MAX_REFERENCES], 'the nearest ancestors are the ones kept');
+        $this->assertNotContains('r1@example.com', $email->references);
+        $this->assertCount(Parser::MAX_REFUSED_NAMED, $email->refused);
+    }
+
+    /** Audit 2026-11-17: a bidi override in a name shows `reportfdp.zip` as `reportpiz.pdf`. */
+    public function test_a_files_name_keeps_no_format_characters(): void
+    {
+        $this->assertSame('reportfdp.zip', Attachments::safeName("report\u{202E}fdp.zip"));
+        $this->assertSame('zip', Attachments::extension("a\u{200B}.z\u{200D}ip"));
+        $this->assertSame('Τιμολόγιο 2026.pdf', Attachments::safeName('Τιμολόγιο 2026.pdf'));
+    }
+
     public function test_a_long_body_is_cut_and_control_characters_go(): void
     {
         $email = Parser::parse(Eml::make([], str_repeat('a', Parser::MAX_BODY_CHARS + 10) . "\x00"));

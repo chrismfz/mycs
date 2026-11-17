@@ -30,6 +30,15 @@ class TicketMessageAttachment extends Model
         return $this->belongsTo(TicketMessage::class);
     }
 
+    /**
+     * The name as shown, in a page, a mail or a tool's answer: made safe on the way out too, so one stored before
+     * safeName dropped format characters (a bidi override) shows as any other (review of #903).
+     */
+    public function getFilenameAttribute(?string $name): string
+    {
+        return Attachments::safeName($name);
+    }
+
     /** The file on disk, only inside the tickets' own folder: a path that leads anywhere else (`..`, a link) has none. */
     public function getLocalPathAttribute(): ?string
     {

@@ -443,7 +443,10 @@ final class WhmcsTicketImport
 
             return;
         }
-        $have = DB::table('ticket_message_attachments')->where('ticket_message_id', $messageId)->pluck('filename')->all();
+        // As safeName writes them now: a name brought before it dropped format characters is still the same file, never
+        // brought a second time (review of #903).
+        $have = array_map(fn ($name) => Attachments::safeName((string) $name),
+            DB::table('ticket_message_attachments')->where('ticket_message_id', $messageId)->pluck('filename')->all());
         foreach ($names as $index => $stored) {
             $name = Attachments::safeName(str_contains($stored, '_') ? substr($stored, strpos($stored, '_') + 1) : $stored);
             if (in_array($name, $have, true)) {

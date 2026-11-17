@@ -17,6 +17,7 @@ use App\Providers\SettingsProvider;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -65,6 +66,26 @@ class UploadHandlingTest extends TestCase
 
         $this->assertSame(0, TicketMessageAttachment::query()->count());
         $this->assertSame(0, TicketMessage::query()->where('ticket_id', $ticket->id)->count());
+    }
+
+    /** Audit 2026-11-17: the name of a file staff attach is what the browser says; made safe as a customer's is. */
+    public function test_a_staff_files_name_is_made_safe(): void
+    {
+        [$ticket] = $this->ticket();
+        $this->actingAs($this->owner, 'staff');
+        $file = UploadedFile::fake()->createWithContent("in\u{202E}voice.png", $this->png());
+
+        Livewire::test(EditTicket::class, ['record' => $ticket->getRouteKey()])
+            ->fillForm(['message' => 'see attached', 'attachments' => [$file]])
+            ->call('note')
+            ->assertHasNoErrors();
+
+        $kept = TicketMessageAttachment::query()->sole();
+        $this->assertSame('invoice.png', $kept->filename);
+        // One stored before names were cleaned shows clean too.
+        DB::table('ticket_message_attachments')->where('id', $kept->id)->update(['filename' => "re\u{202E}fdp.png"]);
+        $this->assertSame('refdp.png', $kept->fresh()->filename);
+        @unlink((string) $kept->localPath);
     }
 
     public function test_a_stored_path_outside_the_tickets_folder_is_never_served(): void

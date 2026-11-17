@@ -20,6 +20,12 @@ final class Parser
 {
     public const MAX_BODY_CHARS = 60_000;
 
+    /** Message-IDs kept of In-Reply-To, and of the end of References, each. */
+    public const MAX_REFERENCES = 50;
+
+    /** Refused files a mail names, at most. */
+    public const MAX_REFUSED_NAMED = 10;
+
     /** The headers that tell automated mail (§3 Ε), kept as they are. */
     private const KEPT_HEADERS = ['auto-submitted', 'precedence', 'x-autoreply', 'x-autorespond',
         'list-id', 'list-unsubscribe', 'return-path', 'content-type', 'x-loop', 'feedback-id', 'x-mycs-ticket'];
@@ -64,10 +70,14 @@ final class Parser
             }
         }
 
+        // The nearest ancestors only (References lists the oldest first): a header of a megabyte was 170,000 ids, more
+        // than a query takes (audit 2026-11-17).
         $references = array_merge(
-            MessageId::listFrom($message->getHeader('In-Reply-To')?->getRawValue()),
-            MessageId::listFrom($message->getHeader('References')?->getRawValue()),
+            array_slice(MessageId::listFrom($message->getHeader('In-Reply-To')?->getRawValue()), 0, self::MAX_REFERENCES),
+            array_slice(MessageId::listFrom($message->getHeader('References')?->getRawValue()), -self::MAX_REFERENCES),
         );
+        // What was refused is named in the message and kept with a quarantined mail: the first few are enough.
+        $refused = array_slice($refused, 0, self::MAX_REFUSED_NAMED);
 
         return new InboundEmail(
             messageId: MessageId::normalise($message->getHeader('Message-ID')?->getRawValue()),

@@ -304,7 +304,9 @@ class EditTicket extends EditRecord
         // Move attachments
         foreach ($data['attachments'] as $attachment) {
             $originalPath = (string) TicketMessageAttachment::inFolder($attachment);
-            $filename = $data['attachment_names'][$attachment];
+            // The name is the browser's to say: made safe as a customer's or a mail's is (audit 2026-11-17).
+            $given = $data['attachment_names'][$attachment] ?? null;
+            $filename = Attachments::safeName(is_string($given) ? $given : basename($attachment));
             $mimeType = File::mimeType($originalPath);
             $filesize = File::size($originalPath);
 
