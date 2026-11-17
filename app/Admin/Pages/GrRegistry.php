@@ -304,7 +304,7 @@ class GrRegistry extends Page
      * domain still ours: a name transferred away and back is two rows, and the old one's hosts showed twice (owner
      * 2026-11-17). HOSTS_PER_PAGE a page.
      *
-     * @return LengthAwarePaginator<int, array{host: non-empty-string, addresses: list<string>, domain: Domain, url: string, read_at: mixed}>
+     * @return LengthAwarePaginator<int, array{host: string, addresses: list<string>, domain: Domain, url: string, read_at: mixed}>
      */
     private function hosts(): LengthAwarePaginator
     {
