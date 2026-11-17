@@ -154,7 +154,9 @@ class Plan extends Model implements Auditable
      */
     public function inUse(): bool
     {
-        return $this->services()->exists() || ServiceUpgrade::query()->where('plan_id', $this->id)->exists();
+        // Also one a service had before a change of package: its history prices the months before it by its cycle (review
+        // of #910, A4).
+        return $this->services()->exists() || ServiceUpgrade::query()->where('plan_id', $this->id)->orWhere('from_plan_id', $this->id)->exists();
     }
 
     protected static function booted(): void

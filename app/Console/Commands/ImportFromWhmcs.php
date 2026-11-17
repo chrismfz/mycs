@@ -36,6 +36,7 @@ use App\Services\Import\WhmcsCustomFieldImport;
 use App\Services\Import\WhmcsDomainImport;
 use App\Services\Import\WhmcsEkdosiContactImport;
 use App\Services\Import\WhmcsEmailHistoryImport;
+use App\Services\Import\WhmcsEndDates;
 use App\Services\Import\WhmcsKnowledgebaseImport;
 use App\Services\Import\WhmcsLinePeriods;
 use App\Services\Import\WhmcsMassPay;
@@ -336,6 +337,8 @@ class ImportFromWhmcs extends Command
             $this->markCpanelResellers();
             // After the services (their parents) and the orders, before the notes and the invoice lines (docs/addons.md, step 4).
             $this->importAddons();
+            // After the services and the addons: when the ended ones ended (docs/growth-churn.md).
+            $this->importEndDates();
             $this->importOfflineSsl();
             $this->importOfflineDedicated();
             $this->importDomains();
@@ -1690,6 +1693,13 @@ class ImportFromWhmcs extends Command
         foreach ($result['notes'] as $note) {
             $this->warn($note);
         }
+    }
+
+    /** When the services and addons that ended in WHMCS ended (WhmcsEndDates, WG-28). */
+    private function importEndDates(): void
+    {
+        $c = (new WhmcsEndDates($this->pdo))->run();
+        $this->info("End dates: {$c['services']} service(s) and {$c['addons']} addon(s) from WHMCS, {$c['from_parent']} addon(s) from their parent; {$c['unknown']} ended, not known when.");
     }
 
     /** @var array<int, int>|null WHMCS addon (tblhostingaddons.id) => its own service here (WhmcsAddonImport) */

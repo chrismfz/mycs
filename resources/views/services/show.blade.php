@@ -69,6 +69,12 @@
                         <span class="mr-2">{{ __('services.registration_date') }}:</span>
                         <span class="text-base/50">{{ $service->created_at?->format('M d, Y') }}</span>
                     </div>
+                    @if($service->isEnded() && $service->ended_at)
+                    <div class="flex items-center text-base">
+                        <span class="mr-2">{{ __('services.ended_on') }}:</span>
+                        <span class="text-base/50">{{ $service->ended_at->format('M d, Y') }}</span>
+                    </div>
+                    @endif
                     {{-- An addon names its main service; a main service lists its addons (docs/addons.md). --}}
                     @if($service->parent)
                     <div class="flex items-center text-base">
