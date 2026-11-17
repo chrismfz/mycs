@@ -309,7 +309,8 @@ class GrRegistry extends Page
     private function hosts(): LengthAwarePaginator
     {
         $all = $this->allHosts();
-        $page = $this->getPage('hostsPage');
+        // Never past the last page (a bookmarked ?hostsPage=2 after the list shrank read «no hosts»: review of #905).
+        $page = min(max(1, (int) $this->getPage('hostsPage')), max(1, (int) ceil($all->count() / self::HOSTS_PER_PAGE)));
 
         return new LengthAwarePaginator($all->forPage($page, self::HOSTS_PER_PAGE)->values(), $all->count(), self::HOSTS_PER_PAGE, $page, ['pageName' => 'hostsPage']);
     }
@@ -324,6 +325,9 @@ class GrRegistry extends Page
             ->whereNotIn('status', DomainStatus::terminalValues())
             ->orderBy('fqdn')->lazy(200)
             ->filter(fn (Domain $domain) => ($domain->meta['child_hosts']['hosts'] ?? []) !== [])->collect()
+            // One row a name: the one that holds it, else the newest read (an unpaid or lapsed row beside it: review of #905).
+            ->sortBy(fn (Domain $domain) => [$domain->status->holdsName() ? 0 : 1, -strtotime((string) ($domain->meta['child_hosts']['read_at'] ?? '1970-01-01'))])
+            ->unique('fqdn')->sortBy('fqdn')
             ->flatMap(fn (Domain $domain) => collect($domain->meta['child_hosts']['hosts'] ?? [])->map(fn ($host) => [
                 'host' => (string) ($host['name'] ?? $host['host'] ?? ''),
                 'addresses' => array_values(array_map('strval', (array) ($host['addresses'] ?? []))),

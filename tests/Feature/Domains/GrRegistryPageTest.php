@@ -120,6 +120,13 @@ class GrRegistryPageTest extends TestCase
         $this->assertSame(1, substr_count($html, 'ns1.cdnet.gr'));
         $this->assertStringContainsString('22/10/2026', $html);
         $this->assertStringNotContainsString('18/10/2026', $html);
+
+        // An unpaid row beside the held one (not terminal): still one, the held one's (review of #905).
+        Domain::factory()->create(['client_id' => $client->id, 'sld' => 'cdnet', 'tld' => 'gr', 'fqdn' => 'cdnet.gr', 'status' => 'pending_register',
+            'meta' => $hosts('2026-10-30T10:00:00+00:00')]);
+        $html = $this->get(GrRegistry::getUrl())->assertOk()->getContent();
+        $this->assertSame(1, substr_count($html, 'ns1.cdnet.gr'));
+        $this->assertStringContainsString('22/10/2026', $html);
     }
 
     public function test_many_glue_hosts_come_a_page_at_a_time(): void
@@ -132,5 +139,8 @@ class GrRegistryPageTest extends TestCase
 
         Livewire::test(GrRegistry::class)->assertSee('ns25.big.gr')->assertDontSee('ns26.big.gr')
             ->call('gotoPage', 2, 'hostsPage')->assertSee('ns26.big.gr')->assertSee('ns30.big.gr')->assertDontSee('ns01.big.gr');
+
+        // A page past the end (the list shrank): the last one, never «no hosts» (review of #905).
+        Livewire::test(GrRegistry::class)->call('gotoPage', 9, 'hostsPage')->assertSee('ns26.big.gr')->assertDontSee(__('domains.gr_registry.hosts_none'));
     }
 }
