@@ -151,7 +151,8 @@
                                 @endphp
                                 @if($identifier !== '')
                                     <br><small class="text-base/60 whitespace-normal break-words">{{ $identifier }}</small>
-                                @elseif($item->reference_type && $item->reference && $item->reference->label)
+                                {{-- Nothing tells it apart, not even in its text: «Product #id» (review of #895: never under a line that names it). --}}
+                                @elseif($item->reference instanceof \App\Models\Service && \App\Support\ServiceIdentifier::parts($item->reference) === [])
                                     <br><small style="color: #666; font-size: 0.9em;">{{ $item->reference->label }}</small>
                                 @endif
                             </td>

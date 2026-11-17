@@ -378,7 +378,7 @@ class Service extends Model implements Auditable
         // No plan (deleted before BIL-6, an import with none): no period to describe until staff set one.
         if ($this->plan === null || $this->plan->type == 'free' || $this->plan->type == 'one-time') {
             return Attribute::make(
-                get: fn () => $this->product->name ?? ''
+                get: fn () => $this->lineName()
             );
         }
 
@@ -413,14 +413,16 @@ class Service extends Model implements Auditable
     }
 
     /**
-     * Its product's name on an invoice line; an addon's with its parent's («Extra IPv4 (vm104.example.gr)», docs/addons.md),
-     * never a username (a line is mailed).
+     * Its product's name on an invoice line, with what tells it apart («LITESPEED 20 — shop.example.gr», as WHMCS wrote its
+     * lines; nixpal 2026-11-17: ten of one product on one invoice look alike, in the PDF and the mail too); an addon's with
+     * its parent's («Extra IPv4 (vm104.example.gr)», docs/addons.md). Never a username (a line is mailed), nor the
+     * customer's own label (free text, on a fiscal document: review of #895), and never cut: a domain cut short is none.
      */
     public function lineName(): string
     {
         $name = (string) ($this->product->name ?? '');
         if ($this->parent_service_id === null || ($parent = $this->parent) === null) {
-            return $name;
+            return ServiceIdentifier::named($this, $name, username: false, label: false);
         }
         $of = ServiceIdentifier::line($parent, 60, username: false);
         $of = $of !== '' ? $of : (string) ($parent->product->name ?? '');

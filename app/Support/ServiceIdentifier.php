@@ -33,13 +33,15 @@ final class ServiceIdentifier
 
     /**
      * What tells it apart, most telling first. Its panel's username only for whom may see it ($username; null: who may
-     * manage the service, as its page shows it: review of #615), never in a mail.
+     * manage the service, as its page shows it: review of #615), never in a mail. Its label (the customer's own free text)
+     * left out with $label false: an invoice line's text, which goes on the PDF and to Ekdosi (review of #895, ADV-895-3).
      *
      * @return list<string>
      */
-    public static function parts(Service $service, ?bool $username = null): array
+    public static function parts(Service $service, ?bool $username = null, bool $label = true): array
     {
-        $label = trim((string) ($service->getAttributes()['label'] ?? ''));
+        $own = $label;
+        $label = $own ? trim((string) ($service->getAttributes()['label'] ?? '')) : '';
         $license = $service->license;
         if ($license !== null || $service->product?->server?->extension === 'NixpalLicensing') {
             $ips = $license === null ? [] : array_values(array_filter(array_map('trim', explode(',', (string) $license->valid_ip))));
@@ -64,7 +66,7 @@ final class ServiceIdentifier
 
         // An addon with nothing of its own (an extra IP, more disk) is told apart by its parent's (docs/addons.md).
         if ($parts === [] && $service->parent_service_id !== null && ($parent = $service->parent) !== null && $parent->parent_service_id === null) {
-            return self::parts($parent, $username);
+            return self::parts($parent, $username, $own);
         }
 
         return $parts;
@@ -82,10 +84,10 @@ final class ServiceIdentifier
      * Its name and what tells it apart («Hosting Plus — shop.example.gr»): $name, then the parts that are not $name
      * already (its label is often both).
      */
-    public static function named(Service $service, string $name, ?int $limit = null, ?bool $username = null): string
+    public static function named(Service $service, string $name, ?int $limit = null, ?bool $username = null, bool $label = true): string
     {
         $name = trim($name);
-        $line = self::besides($service, $name, $limit, $username);
+        $line = self::besides($service, $name, $limit, $username, label: $label);
 
         return match (true) {
             $line === '' => $name,
@@ -100,10 +102,10 @@ final class ServiceIdentifier
      *
      * @param  list<string>  $except
      */
-    public static function besides(Service $service, string $name, ?int $limit = null, ?bool $username = null, array $except = []): string
+    public static function besides(Service $service, string $name, ?int $limit = null, ?bool $username = null, array $except = [], bool $label = true): string
     {
         $skip = [trim($name), ...array_map('trim', $except)];
-        $line = implode(' · ', array_filter(self::parts($service, $username), fn (string $part) => !in_array($part, $skip, true)));
+        $line = implode(' · ', array_filter(self::parts($service, $username, $label), fn (string $part) => !in_array($part, $skip, true)));
 
         return $limit === null ? $line : Str::limit($line, $limit);
     }

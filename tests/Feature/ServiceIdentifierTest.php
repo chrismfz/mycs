@@ -14,6 +14,7 @@ use App\Models\Service;
 use App\Models\ServiceUpgrade;
 use App\Models\User;
 use App\Support\ServiceIdentifier;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -160,5 +161,27 @@ class ServiceIdentifierTest extends TestCase
         $moved->product->forceFill(['server_id' => $server->id])->save();
         $this->assertSame(['new-login'], ServiceIdentifier::parts($moved->fresh(), username: true), 'its module\'s, not a stale one');
         $this->assertStringNotContainsString('login', $moved->fresh()->mailName, 'never in a mail');
+    }
+
+    /** nixpal 2026-11-17: a new line says which service it bills, so the PDF and the mail (its text alone) say it too. */
+    public function test_a_new_lines_text_names_the_service_never_its_username(): void
+    {
+        $period = [Carbon::parse('2026-11-24'), Carbon::parse('2027-11-24')];
+        $hosting = $this->service(['domain' => 'shop.example.gr']);
+        $name = (string) $hosting->product->name;
+        $this->assertStringStartsWith("{$name} — shop.example.gr (", $hosting->describeLine(...$period));
+        $this->assertSame("{$name} — shop.example.gr", $hosting->lineName());
+
+        $license = $this->service(['label' => 'office']);
+        License::query()->create(['service_id' => $license->id, 'license_key' => 'NIXPAL-ABCDEFGH9999', 'status' => 'active', 'valid_ip' => '198.51.100.9']);
+        $this->assertSame("{$name} — 198.51.100.9", $license->fresh()->lineName(), 'its IP; its label is the customer\'s own text (review of #895)');
+
+        $radio = $this->service([], ['centova_username' => 'radio-example']);
+        $this->assertSame($name, $radio->lineName(), 'nothing to tell it apart but a username: the product alone');
+
+        // The invoice page adds nothing the line says already.
+        $line = new InvoiceItem(['description' => $hosting->describeLine(...$period), 'reference_type' => Service::class, 'reference_id' => $hosting->id]);
+        $line->setRelation('reference', $hosting);
+        $this->assertSame('', ServiceIdentifier::forLine($line));
     }
 }
