@@ -63,7 +63,6 @@ final class PaypalVaultClientTest extends TestCase
         $http = new FakeTransport;
         $http->requests = [];
         $reflection = new \ReflectionProperty($http, 'responses');
-        $reflection->setAccessible(true);
         $reflection->setValue($http, [[401, '{"error":"invalid_client"}']]);
 
         try {

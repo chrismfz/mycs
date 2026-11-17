@@ -36,7 +36,6 @@ final class CurlTransport implements Transport
         if ($response === false) {
             $response = json_encode(['code' => -1, 'desc' => 'transport error: ' . curl_error($ch)]);
         }
-        curl_close($ch);
 
         return [$status, (string) $response];
     }
