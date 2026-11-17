@@ -10,7 +10,6 @@ class TicketAttachmentResource extends JsonApiResource
         'id',
         'uuid',
         'filename',
-        'path',
         'filesize',
         'mime_type',
         'created_at',

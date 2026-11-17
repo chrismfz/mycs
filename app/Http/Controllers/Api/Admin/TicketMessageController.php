@@ -12,6 +12,7 @@ use App\Models\Ticket;
 use App\Models\TicketMessage;
 use Dedoc\Scramble\Attributes\Group;
 use Dedoc\Scramble\Attributes\QueryParameter;
+use Spatie\QueryBuilder\AllowedFilter;
 use Spatie\QueryBuilder\QueryBuilder;
 
 #[Group(name: 'Ticket Messages', weight: 6)]
@@ -33,9 +34,9 @@ class TicketMessageController extends ApiController
     {
         // Fetch ticketMessages with pagination
         $ticketMessages = QueryBuilder::for(TicketMessage::class)
-            ->allowedFilters('id', 'currency_code')
+            ->allowedFilters('id', AllowedFilter::exact('ticket_id'))
             ->allowedIncludes(...$this->allowedIncludes(self::INCLUDES))
-            ->allowedSorts('id', 'created_at', 'updated_at', 'currency_code')
+            ->allowedSorts('id', 'created_at', 'updated_at')
             ->simplePaginate(min(max((int) request('per_page', 15), 1), 100));
 
         // Return the ticketMessages as a JSON response
