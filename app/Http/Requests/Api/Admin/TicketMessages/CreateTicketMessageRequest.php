@@ -17,10 +17,10 @@ class CreateTicketMessageRequest extends AdminApiRequest
         return [
             'message' => 'required|string|max:5000',
             // A reply by the customer (user_id) or by a member of staff (staff_id), one of the two (docs/accounts.md, PR 1).
-            'user_id' => 'nullable|required_without:staff_id|prohibits:staff_id|exists:users,id',
+            'user_id' => 'nullable|required_without:staff_id|prohibits:staff_id|integer|exists:users,id',
             // As the staff member whose key it is, never as another one.
             'staff_id' => ['nullable', 'required_without:user_id', Rule::in(array_filter([$this->attributes->get('api_key')?->staff_id]))],
-            'ticket_id' => 'required|exists:tickets,id',
+            'ticket_id' => 'required|integer|exists:tickets,id',
         ];
     }
 

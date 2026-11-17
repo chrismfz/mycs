@@ -76,6 +76,13 @@ class McpTicketReplyDraftTest extends TestCase
         $this->assertStringNotContainsString('secret subject', (string) $text);
         $this->assertStringNotContainsString('"proposed": true', (string) $text);
         $this->assertSame(0, McpProposal::query()->count());
+
+        // Nor another's draft through the `proposal` tool's list (reviews of #902).
+        $mine = Proposals::propose(Proposals::TICKET_REPLY, ['ticket_id' => $ticket->id, 'message' => 'Draft'], $this->staff(['*']));
+        $this->assertFalse(Proposals::allows($staff, Proposals::TICKET_REPLY, $mine->payload));
+        $listed = $this->withHeaders($headers)->postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 3, 'method' => 'tools/call',
+            'params' => ['name' => 'proposal', 'arguments' => (object) []]])->getContent();
+        $this->assertStringNotContainsString('secret subject', (string) $listed);
     }
 
     public function test_approving_it_sends_nothing(): void

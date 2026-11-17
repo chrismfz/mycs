@@ -9,6 +9,7 @@ use App\Helpers\ExtensionHelper;
 use App\Http\Resources\TicketAttachmentResource;
 use App\Livewire\Auth\Tfa;
 use App\Models\ApiKey;
+use App\Models\ClientUser;
 use App\Models\Gateway;
 use App\Models\Invoice;
 use App\Models\MoneyEvent;
@@ -267,6 +268,12 @@ class StaffSplitTest extends TestCase
 
         $post($ticket, $stranger)->assertUnprocessable()->assertJsonValidationErrors('user_id');
         $post($guest, $owner)->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $this->postJson('/api/v1/admin/ticket-messages', ['ticket_id' => $ticket->id, 'message' => 'x', 'user_id' => [$stranger->id]], $headers)
+            ->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        // A login of the account that may not use its tickets.
+        $member = User::factory()->create();
+        ClientUser::query()->create(['client_id' => $owner->client()->id, 'user_id' => $member->id, 'granted_at' => now(), 'permissions' => ['invoices']]);
+        $post($ticket, $member)->assertUnprocessable()->assertJsonValidationErrors('user_id');
         $post($ticket, $owner)->assertSuccessful();
         $this->assertSame(1, $ticket->messages()->count());
 
