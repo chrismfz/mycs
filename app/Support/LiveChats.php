@@ -8,6 +8,7 @@ use App\Models\LiveChatMessage;
 use App\Models\Staff;
 use App\Models\TicketDepartment;
 use App\Models\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -110,23 +111,28 @@ class LiveChats
         }
 
         // One open chat per account, even when two tabs start at once (F13).
-        return Cache::lock('live-chat-open:' . $clientId, 10)->block(5, function () use ($user, $clientId, $department, $body) {
-            if (self::openChatOf($clientId) !== null) {
-                return __('A chat of this account is already open.');
-            }
-            DB::transaction(function () use ($user, $clientId, $department, $body) {
-                $chat = LiveChat::query()->create([
-                    'client_id' => $clientId,
-                    'user_id' => $user->id,
-                    'department_id' => $department->id,
-                    'status' => LiveChat::WAITING,
-                    'last_participant_message_at' => now(),
-                ]);
-                $chat->messages()->create(['author_type' => LiveChatMessage::CLIENT, 'user_id' => $user->id, 'body' => $body]);
-            });
+        // Another tab of the account holds the lock past our wait: a refusal, never an error page (audit 2026-11-17).
+        try {
+            return Cache::lock('live-chat-open:' . $clientId, 10)->block(5, function () use ($user, $clientId, $department, $body) {
+                if (self::openChatOf($clientId) !== null) {
+                    return __('A chat of this account is already open.');
+                }
+                DB::transaction(function () use ($user, $clientId, $department, $body) {
+                    $chat = LiveChat::query()->create([
+                        'client_id' => $clientId,
+                        'user_id' => $user->id,
+                        'department_id' => $department->id,
+                        'status' => LiveChat::WAITING,
+                        'last_participant_message_at' => now(),
+                    ]);
+                    $chat->messages()->create(['author_type' => LiveChatMessage::CLIENT, 'user_id' => $user->id, 'body' => $body]);
+                });
 
-            return null;
-        });
+                return null;
+            });
+        } catch (LockTimeoutException) {
+            return __('The account is busy with another chat right now. Press again in a moment.');
+        }
     }
 
     /** The customer's message in their account's open chat. Null when sent; else what to tell them. */

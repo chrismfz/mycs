@@ -24,6 +24,7 @@ use App\Support\StaffPresence;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Sleep;
 use Livewire\Livewire;
 use OwenIt\Auditing\Models\Audit;
 use Tests\TestCase;
@@ -203,6 +204,24 @@ class LiveChatCustomerTest extends TestCase
         $this->assertNull(LiveChats::start($user, $support->id, 'third'));
         LiveChat::query()->update(['status' => LiveChat::CLOSED]);
         $this->assertNotNull(LiveChats::start($user, $support->id, 'fourth'), 'three starts in 10 minutes at most');
+    }
+
+    /** Audit 2026-11-17: the lock's wait running out was an error page, where VisitorChats::start already refused. */
+    public function test_a_start_while_another_holds_the_accounts_lock_is_refused_not_an_error(): void
+    {
+        $support = $this->department();
+        $this->online($this->operator($support));
+        [$user, $client] = $this->customer();
+        $held = Cache::lock('live-chat-open:' . $client->id, 30);
+        $this->assertTrue($held->get());
+        Sleep::fake(syncWithCarbon: true); // the five seconds of the wait, not lived through
+
+        try {
+            $this->assertSame(__('The account is busy with another chat right now. Press again in a moment.'), LiveChats::start($user, $support->id, 'hi'));
+        } finally {
+            $held->release();
+        }
+        $this->assertSame(0, LiveChat::query()->count());
     }
 
     public function test_an_operator_sees_only_the_chats_of_departments_that_list_them(): void

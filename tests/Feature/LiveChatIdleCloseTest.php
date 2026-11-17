@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Support\CurrentClient;
 use App\Support\LiveChats;
 use App\Support\StaffPresence;
+use App\Support\VisitorChatTools;
 use Filament\Facades\Filament;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -217,5 +218,22 @@ class LiveChatIdleCloseTest extends TestCase
 
         $this->assertNull(LiveChats::endedChatOf($other->id, $chat->id));
         $this->assertNotNull(LiveChats::endedChatOf($chat->client_id, $chat->id));
+    }
+
+    /** Audit 2026-11-17: docs/livechat.md §6α promised it and nothing did it. */
+    public function test_a_visitors_address_goes_thirty_days_after_their_chat_closed(): void
+    {
+        $department = TicketDepartment::query()->create(['name' => 'Sales ' . uniqid()]);
+        $chat = fn (string $status, ?int $closedDaysAgo) => LiveChat::query()->create(['department_id' => $department->id, 'status' => $status,
+            'started_anonymously' => true, 'ip' => '198.51.100.7', 'closed_at' => $closedDaysAgo === null ? null : now()->subDays($closedDaysAgo)]);
+        $old = $chat(LiveChat::CLOSED, VisitorChatTools::ADDRESS_DAYS + 1);
+        $recent = $chat(LiveChat::CLOSED, VisitorChatTools::ADDRESS_DAYS - 1);
+        $open = $chat(LiveChat::ACTIVE, null);
+
+        $this->artisan('mycs:livechat-close-idle')->assertSuccessful();
+
+        $this->assertNull($old->fresh()->ip);
+        $this->assertSame(['198.51.100.7', '198.51.100.7'], [$recent->fresh()->ip, $open->fresh()->ip]);
+        $this->assertSame(LiveChat::ACTIVE, $open->fresh()->status);
     }
 }
