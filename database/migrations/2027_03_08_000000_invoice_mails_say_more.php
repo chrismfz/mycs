@@ -22,7 +22,14 @@ return new class extends Migration
         'Θα εξοφληθεί αυτόματα με {% if auto_charge_method %}{{ auto_charge_method }}{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}: δεν χρειάζεται να κάνετε κάτι.' => '{% if auto_charge_method %}Θα χρεωθεί αυτόματα{% if charge_on %} στις **{{ charge_on }}**{% endif %} με **{{ auto_charge_method }}**{% else %}Θα εξοφληθεί αυτόματα με τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}: δεν χρειάζεται να κάνετε κάτι.',
         'Η πληρωμή σας για το προτιμολόγιο **#{{ invoice_number }}** ελήφθη με επιτυχία. Σας ευχαριστούμε! Αυτό το email επιβεβαιώνει την πληρωμή σας.' => 'Η πληρωμή σας για το προτιμολόγιο **#{{ invoice_number }}** ελήφθη με επιτυχία. Σας ευχαριστούμε! Αυτό το email επιβεβαιώνει την πληρωμή σας.' . "\n" . '' . "\n" . '{% if paid_until %}' . "\n" . '**Πληρωμένες έως:**' . "\n" . '' . "\n" . '{% for line in paid_until %}' . "\n" . '- {{ line.name }}: **{{ line.until }}**' . "\n" . '{% endfor %}' . "\n" . '{% endif %}',
         'Σας υπενθυμίζουμε ότι το προτιμολόγιο **#{{ invoice_number }}** λήγει στις **{{ invoice.due_at|date("d/m/Y") }}**. Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα.' => 'Σας υπενθυμίζουμε ότι το προτιμολόγιο **#{{ invoice_number }}** λήγει στις **{{ invoice.due_at|date("d/m/Y") }}**.{% if suspend_on %} Αν μείνει απλήρωτο, οι υπηρεσίες του αναστέλλονται στις **{{ suspend_on }}**.{% endif %} Αν το έχετε ήδη εξοφλήσει, παραβλέψτε αυτό το μήνυμα.',
+        // card_payment_due: the day the cron charges, as the new invoice says (REV2-897-2).
+        'Invoice **#{{ invoice_number }}** of **{{ total }}** will be charged automatically on **{{ invoice.due_at|date("d/m/Y") }}** with {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}your saved payment method{% endif %}. There is nothing you need to do.' => 'Invoice **#{{ invoice_number }}** of **{{ total }}** will be charged automatically on **{% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}** with {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}your saved payment method{% endif %}. There is nothing you need to do.',
+        'Το προτιμολόγιο **#{{ invoice_number }}** ποσού **{{ total }}** θα χρεωθεί αυτόματα στις **{{ invoice.due_at|date("d/m/Y") }}** με {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}. Δεν χρειάζεται να κάνετε κάτι.' => 'Το προτιμολόγιο **#{{ invoice_number }}** ποσού **{{ total }}** θα χρεωθεί αυτόματα στις **{% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}** με {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}. Δεν χρειάζεται να κάνετε κάτι.',
+        'Invoice #{{ invoice_number }} ({{ total }}) will be charged automatically on {{ invoice.due_at|date("d/m/Y") }}.' => 'Invoice #{{ invoice_number }} ({{ total }}) will be charged automatically on {% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}.',
+        'Το προτιμολόγιο #{{ invoice_number }} ({{ total }}) θα χρεωθεί αυτόματα στις {{ invoice.due_at|date("d/m/Y") }}.' => 'Το προτιμολόγιο #{{ invoice_number }} ({{ total }}) θα χρεωθεί αυτόματα στις {% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}.',
     ];
+
+    private const FIELDS = ['body', 'in_app_body'];
 
     private const KEYS = ['new_invoice_created', 'invoice_paid', 'invoice_payment_reminder', 'card_payment_due', 'invoice_overdue', 'invoice_modified'];
 
@@ -48,18 +55,22 @@ return new class extends Migration
     /** @param  callable(string): string  $change */
     private function each(callable $change): void
     {
-        foreach (DB::table('notification_templates')->whereIn('key', self::KEYS)->get(['id', 'body', 'translations']) as $row) {
+        foreach (DB::table('notification_templates')->whereIn('key', self::KEYS)->get(['id', 'body', 'in_app_body', 'translations']) as $row) {
             $changes = [];
-            $body = $change((string) $row->body);
-            if ($body !== (string) $row->body) {
-                $changes['body'] = $body;
+            foreach (self::FIELDS as $field) { // the mail's body, and the bell's and the push's text
+                $text = $change((string) $row->{$field});
+                if ($text !== (string) $row->{$field}) {
+                    $changes[$field] = $text;
+                }
             }
             $translations = is_string($row->translations) ? json_decode($row->translations, true) : null;
             $translated = false;
             foreach (is_array($translations) ? $translations : [] as $locale => $fields) {
-                if (is_array($fields) && is_string($fields['body'] ?? null) && ($new = $change($fields['body'])) !== $fields['body']) {
-                    $translations[$locale]['body'] = $new;
-                    $translated = true;
+                foreach (self::FIELDS as $field) {
+                    if (is_array($fields) && is_string($fields[$field] ?? null) && ($new = $change($fields[$field])) !== $fields[$field]) {
+                        $translations[$locale][$field] = $new;
+                        $translated = true;
+                    }
                 }
             }
             if ($translated) { // re-encoded only when a body in it changed

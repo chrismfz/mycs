@@ -236,7 +236,7 @@ class PaymentReminders
      * rules as CronJob::suspendable() (active, a plan that is billed, not held then; suspended the day after Suspend
      * Days past its due date), and only a day still to come.
      */
-    public static function suspendOn(Invoice $invoice): ?string
+    public static function suspendOn(Invoice $invoice, bool $renewedOnly = false): ?string
     {
         if (!config('settings.cronjob_suspend_enabled', true)) {
             return null;
@@ -247,6 +247,12 @@ class PaymentReminders
         }
         $days = max(0, (int) config('settings.cronjob_order_suspend', 8));
         $services = self::services($invoice);
+        if ($renewedOnly) {
+            // A mail that says «pay it by …»: only the services whose period it bills; paying a charge on another does not
+            // move that one's day (review of #897, REV2-897-1).
+            $services = $services->filter(fn (Service $service) => $invoice->items->contains(fn (InvoiceItem $item) => $item->reference_type === Service::class
+                && (int) $item->reference_id === (int) $service->id && $item->kind !== InvoiceItem::KIND_CHARGE))->values();
+        }
         EloquentCollection::make($services->all())->loadMissing('parent'); // an addon's hold is its parent's too (ADV-A3-1)
         $on = $services
             ->filter(fn (Service $service) => $service->status === Service::STATUS_ACTIVE && $service->plan_id !== null && $service->expires_at !== null

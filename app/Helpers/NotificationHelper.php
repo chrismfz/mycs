@@ -25,6 +25,7 @@ use App\Models\ServiceCancellation;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Services\Domains\DomainRenewalService;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Mail\MailAudit;
 use App\Services\Money\BankTransferDetails;
@@ -548,7 +549,7 @@ class NotificationHelper
             // not move the day its service is suspended (review of #897, ADV-897-3).
             'suspend_on' => $invoice->status === Invoice::STATUS_UNPAID && !PaymentReminders::chargedOnItsOwn($invoice)
                 && $invoice->items->contains(fn (InvoiceItem $item) => $item->reference_type === Service::class && $item->kind !== InvoiceItem::KIND_CHARGE)
-                ? (string) PaymentReminders::suspendOn($invoice) : '',
+                ? (string) PaymentReminders::suspendOn($invoice, renewedOnly: true) : '',
             // The day the cron charges it (Days Before, a late invoice: today), as its page says; '' for none (ADV-897-1/2).
             'charge_on' => (string) AutoCharge::nextAttempt($invoice)?->format('d/m/Y'),
             // Paid: each service and domain it paid for, until when («paid, is it renewed?», nixpal 2026-11-17).
@@ -591,7 +592,8 @@ class NotificationHelper
             // Only a period it holds now (review of #897): a service ended since is not renewed (staff refund it), and a
             // period paid ahead of an unpaid one waits; its expiry tells both.
             $held = ($reference instanceof Service || $reference instanceof Domain) && $reference->expires_at !== null
-                && Carbon::parse($reference->expires_at)->startOfDay()->gte($item->period_end->startOfDay())
+                // A domain within the registrar's tolerance of it is renewed, as DomainRenewalService takes it (REV2-897-3).
+                && Carbon::parse($reference->expires_at)->startOfDay()->gte($item->period_end->startOfDay()->subDays($reference instanceof Domain ? DomainRenewalService::TOLERANCE_DAYS : 0))
                 && !($reference instanceof Service && !in_array($reference->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true));
             $name = match (true) {
                 !$held => '',

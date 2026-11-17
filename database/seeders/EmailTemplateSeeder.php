@@ -791,7 +791,7 @@ class EmailTemplateSeeder extends Seeder
 
                 Dear {{ user.first_name }},
 
-                Invoice **#{{ invoice_number }}** of **{{ total }}** will be charged automatically on **{{ invoice.due_at|date("d/m/Y") }}** with {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}your saved payment method{% endif %}. There is nothing you need to do.
+                Invoice **#{{ invoice_number }}** of **{{ total }}** will be charged automatically on **{% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}** with {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}your saved payment method{% endif %}. There is nothing you need to do.
 
                 If your card has changed or expired, please update it, or pay the invoice with another method, before that date.
 
@@ -811,7 +811,7 @@ class EmailTemplateSeeder extends Seeder
                 </div>
                 HTML,
             'in_app_title' => 'Upcoming charge: invoice #{{ invoice_number }}',
-            'in_app_body' => 'Invoice #{{ invoice_number }} ({{ total }}) will be charged automatically on {{ invoice.due_at|date("d/m/Y") }}.',
+            'in_app_body' => 'Invoice #{{ invoice_number }} ({{ total }}) will be charged automatically on {% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}.',
             'mail_enabled' => 'choice_on',
             'in_app_enabled' => 'choice_on',
             'edit_preference_message' => 'Tell me before an automatic payment',
@@ -1954,7 +1954,7 @@ class EmailTemplateSeeder extends Seeder
 
                     Αγαπητέ/ή {{ user.first_name }},
 
-                    Το προτιμολόγιο **#{{ invoice_number }}** ποσού **{{ total }}** θα χρεωθεί αυτόματα στις **{{ invoice.due_at|date("d/m/Y") }}** με {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}. Δεν χρειάζεται να κάνετε κάτι.
+                    Το προτιμολόγιο **#{{ invoice_number }}** ποσού **{{ total }}** θα χρεωθεί αυτόματα στις **{% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}** με {% if auto_charge_method %}**{{ auto_charge_method }}**{% else %}τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}. Δεν χρειάζεται να κάνετε κάτι.
 
                     Αν η κάρτα σας έχει αλλάξει ή λήξει, ενημερώστε την ή εξοφλήστε το προτιμολόγιο με άλλο τρόπο πριν από αυτή την ημερομηνία.
 
@@ -1974,7 +1974,7 @@ class EmailTemplateSeeder extends Seeder
                     </div>
                     HTML,
                 'in_app_title' => 'Επερχόμενη χρέωση: #{{ invoice_number }}',
-                'in_app_body' => 'Το προτιμολόγιο #{{ invoice_number }} ({{ total }}) θα χρεωθεί αυτόματα στις {{ invoice.due_at|date("d/m/Y") }}.',
+                'in_app_body' => 'Το προτιμολόγιο #{{ invoice_number }} ({{ total }}) θα χρεωθεί αυτόματα στις {% if charge_on %}{{ charge_on }}{% else %}{{ invoice.due_at|date("d/m/Y") }}{% endif %}.',
             ],
         ],
         'invoice_overdue' => [
