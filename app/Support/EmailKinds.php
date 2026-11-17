@@ -76,6 +76,18 @@ final class EmailKinds
         return self::KINDS[$templateKey] ?? 'general';
     }
 
+    /**
+     * The templates of a kind whose permission $allows refuses (general: «emails»): «My emails» never shows a member the
+     * invoices, tickets or welcome mails the rest of the site hides from them (security audit 2026-11-18).
+     *
+     * @param  callable(string): bool  $allows
+     * @return list<string>
+     */
+    public static function keysNotAllowed(callable $allows): array
+    {
+        return array_keys(array_filter(self::KINDS, fn (string $kind) => !$allows(self::PERMISSIONS[$kind] ?? 'emails')));
+    }
+
     /** The account's owner gets this template's mail: its primary contact takes the kind, or it is one of ALWAYS. */
     public static function sends(Client $client, string $templateKey): bool
     {

@@ -80,9 +80,36 @@ class ClientEmailsTest extends TestCase
         $this->actingAs($helper)->withSession($this->loginUser($helper))->get(route('account.emails'))->assertForbidden();
         $this->actingAs($helper)->withSession($this->loginUser($helper))->get(route('account'))->assertOk()->assertDontSee(route('account.emails'));
 
-        $grant->update(['permissions' => ['tickets', 'emails']]);
+        $grant->update(['permissions' => ['tickets', 'emails', 'invoices']]);
         app()->forgetInstance(CurrentClient::class); // its grant is kept for the request; a test is one app
         $this->actingAs($helper)->withSession($this->loginUser($helper))->get(route('account.emails'))->assertOk()->assertSee('Ours');
+    }
+
+    /** Audit 2026-11-18: «emails» alone is the general mails; an invoice, a ticket or a welcome mail needs its own area. */
+    public function test_a_member_sees_only_the_kinds_of_the_areas_granted(): void
+    {
+        $invoice = $this->mail('Invoice #12 created');
+        $ticket = $this->mail('Ticket reply', ['template_key' => 'new_ticket_message']);
+        $welcome = $this->mail('Your hosting is ready', ['template_key' => 'new_server_created']);
+        $this->mail('Order received', ['template_key' => 'new_order_created']);
+        $helper = User::factory()->withoutClient()->create();
+        $grant = ClientUser::query()->create(['client_id' => $this->client->id, 'user_id' => $helper->id, 'owner' => false,
+            'permissions' => ['emails'], 'granted_at' => now()]);
+        $this->actingAs($helper)->withSession($this->loginUser($helper));
+
+        $page = Livewire::actingAs($helper)->test(Emails::class);
+        $page->assertSee('Order received')->assertDontSee('Invoice #12')->assertDontSee('Ticket reply')->assertDontSee('Your hosting is ready');
+        foreach ([$invoice, $ticket, $welcome] as $hidden) {
+            $page->call('show', $hidden->id)->assertSee(__('account.emails.not_found'))->assertDontSee($hidden->subject . ' body');
+        }
+
+        $grant->update(['permissions' => ['emails', 'tickets']]);
+        app()->forgetInstance(CurrentClient::class);
+        Livewire::actingAs($helper)->test(Emails::class)->assertSee('Ticket reply')->assertDontSee('Invoice #12');
+
+        // The owner (a grant without a list) sees them all.
+        app()->forgetInstance(CurrentClient::class);
+        Livewire::actingAs($this->owner)->test(Emails::class)->assertSee('Invoice #12')->assertSee('Ticket reply')->assertSee('Your hosting is ready');
     }
 
     public function test_a_guest_is_sent_to_log_in(): void

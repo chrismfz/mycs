@@ -5,6 +5,7 @@ namespace App\Livewire\Client;
 use App\Livewire\Component;
 use App\Models\EmailLog;
 use App\Support\CurrentClient;
+use App\Support\EmailKinds;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
@@ -44,7 +45,9 @@ class Emails extends Component
 
     public function render()
     {
-        $mails = self::forAccount(CurrentClient::id());
+        // A member's own areas only: «emails» alone is the general mails, not the invoices or tickets (audit 2026-11-18).
+        $mails = self::forAccount(CurrentClient::id())
+            ->whereNotIn('template_key', EmailKinds::keysNotAllowed(fn (string $permission) => CurrentClient::allows($permission)));
         $email = $this->open === null ? null : (clone $mails)->whereKey($this->open)->first();
 
         return view('client.account.emails', [
