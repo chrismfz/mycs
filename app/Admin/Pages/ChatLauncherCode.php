@@ -39,6 +39,8 @@ class ChatLauncherCode extends Page
 
     public string $form = 'html';
 
+    public string $style = 'text';
+
     public static function getNavigationLabel(): string
     {
         return __('Chat launcher code');
@@ -66,7 +68,7 @@ class ChatLauncherCode extends Page
     protected function getViewData(): array
     {
         $checked = ChatLauncher::checked(['site' => $this->site, 'department' => $this->department, 'text' => $this->text,
-            'position' => $this->position, 'colour' => $this->colour]);
+            'position' => $this->position, 'colour' => $this->colour, 'style' => $this->style]);
         $form = in_array($this->form, ChatLauncher::FORMS, true) ? $this->form : 'html';
 
         return [

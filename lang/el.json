@@ -1981,5 +1981,8 @@
     "Script: :url, integrity :hash. A new version is a new file; the hash of this one never changes.": "Script: :url, integrity :hash. Νέα έκδοση σημαίνει νέο αρχείο· το hash αυτού δεν αλλάζει ποτέ.",
     "No secrets in it, and it passes no identity: customers prove who they are only by signing in to MyCS. To change a button already on a site, make the code again and paste it again.": "Δεν έχει μυστικά και δεν περνά ταυτότητα: ο πελάτης αποδεικνύει ποιος είναι μόνο με σύνδεση στο MyCS. Για να αλλάξει ένα κουμπί που έχει ήδη μπει σε site, ξαναβγάλτε τον κώδικα και ξαναβάλτε τον.",
     "The button's look is an inline style: the site's CSP needs style-src 'unsafe-inline', or the site styles [data-mycs-chat] itself.": "Η εμφάνιση του κουμπιού είναι inline style: το CSP του site θέλει style-src 'unsafe-inline', αλλιώς το site δίνει μόνο του στυλ στο [data-mycs-chat].",
-    "No braces { }.": "Χωρίς άγκιστρα { }."
+    "No braces { }.": "Χωρίς άγκιστρα { }.",
+    "Style": "Στυλ",
+    "Icon and text": "Εικονίδιο και κείμενο",
+    "Round, icon only": "Στρογγυλό, μόνο εικονίδιο"
 }

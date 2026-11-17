@@ -82,9 +82,10 @@
     </div>
     @endif
     @unless ($popup)
-    <button type="button" wire:click="toggle" x-on:click="remember(!$wire.open)"
-        class="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg hover:opacity-90">
-        {{ __('Chat') }}
+    <button type="button" wire:click="toggle" x-on:click="remember(!$wire.open)" title="{{ __('Chat') }}"
+        @class(['inline-flex items-center justify-center gap-2 rounded-full bg-primary text-sm font-semibold text-white shadow-lg hover:opacity-90',
+            'h-12 w-12' => \App\Support\ChatLauncher::ownStyle() === 'icon', 'px-4 py-2' => \App\Support\ChatLauncher::ownStyle() !== 'icon'])>
+        <x-chat-button-face />
     </button>
     @endunless
     @endif

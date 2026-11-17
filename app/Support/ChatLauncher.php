@@ -22,6 +22,23 @@ class ChatLauncher
 
     public const TEXT_MAX = 30;
 
+    /** The button's look (owner 2026-11-17): the text, our chat icon and the text, or a round button with the icon only. */
+    public const STYLES = ['text', 'icon-text', 'icon'];
+
+    /** Our one chat icon: a fixed file, never anyone's upload (§3 ΣΤ). */
+    public static function icon(): string
+    {
+        return trim((string) file_get_contents(resource_path('launcher/chat-icon.svg')));
+    }
+
+    /** The look MyCS's own buttons take (Settings → livechat_button_style). */
+    public static function ownStyle(): string
+    {
+        $style = (string) config('settings.livechat_button_style', 'text');
+
+        return in_array($style, self::STYLES, true) ? $style : 'text';
+    }
+
     /** The script as it is served and as the inline forms carry it. */
     public static function script(): string
     {
@@ -44,7 +61,7 @@ class ChatLauncher
      * colour #rrggbb. Null when any is not.
      *
      * @param  array<string, mixed>  $choices
-     * @return array{site: string, department: int|null, text: string, position: string, colour: string}|null
+     * @return array{site: string, department: int|null, text: string, position: string, colour: string, style: string}|null
      */
     public static function checked(array $choices): ?array
     {
@@ -54,14 +71,16 @@ class ChatLauncher
         $text = trim((string) ($choices['text'] ?? ''));
         $position = (string) ($choices['position'] ?? '');
         $colour = strtolower((string) ($choices['colour'] ?? ''));
+        $style = (string) ($choices['style'] ?? 'text');
         if ($site === null || ($department !== null && !VisitorChats::departments()->contains('id', $department))
             // No braces: Astro, Vue and their kind would run them as code on the site (ADV-890-1); one line, no separators.
             || $text === '' || mb_strlen($text) > self::TEXT_MAX || preg_match('/[\x00-\x1F\x7F\p{Cc}\p{Cf}\p{Zl}\p{Zp}{}]/u', $text) === 1
-            || !in_array($position, self::POSITIONS, true) || preg_match('/^#[0-9a-f]{6}$/D', $colour) !== 1) {
+            || !in_array($position, self::POSITIONS, true) || preg_match('/^#[0-9a-f]{6}$/D', $colour) !== 1
+            || !in_array($style, self::STYLES, true)) {
             return null;
         }
 
-        return ['site' => $site, 'department' => $department, 'text' => $text, 'position' => $position, 'colour' => $colour];
+        return ['site' => $site, 'department' => $department, 'text' => $text, 'position' => $position, 'colour' => $colour, 'style' => $style];
     }
 
     /** The popup's address the button opens: the site's label and the department asked for (a wish: F17). */
@@ -74,11 +93,20 @@ class ChatLauncher
     public static function button(array $checked, bool $preview = false): string
     {
         $side = $checked['position'] === 'left' ? 'left' : 'right';
+        $look = $checked['style'] ?? 'text';
         $style = ($preview ? '' : "position:fixed;bottom:16px;{$side}:16px;z-index:2147483000;")
-            . 'padding:10px 18px;border:0;border-radius:999px;background:' . $checked['colour'] . ';color:#fff;'
+            . ($look === 'icon' ? 'width:52px;height:52px;padding:0;border-radius:50%;' : 'padding:10px 18px;border-radius:999px;gap:8px;')
+            . 'display:inline-flex;align-items:center;justify-content:center;border:0;background:' . $checked['colour'] . ';color:#fff;'
             . 'font:600 14px/1.2 system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)';
+        // The icon is our fixed file; the text, escaped, is the label an icon-only button still says (aria-label, title).
+        $inside = match ($look) {
+            'icon' => self::icon(),
+            'icon-text' => self::icon() . '<span>' . e($checked['text']) . '</span>',
+            default => e($checked['text']),
+        };
+        $label = $look === 'icon' ? ' aria-label="' . e($checked['text']) . '" title="' . e($checked['text']) . '"' : '';
 
-        return '<button type="button" data-mycs-chat="' . e(self::popupUrl($checked)) . '" style="' . e($style) . '">' . e($checked['text']) . '</button>';
+        return '<button type="button" data-mycs-chat="' . e(self::popupUrl($checked)) . '"' . $label . ' style="' . e($style) . '">' . $inside . '</button>';
     }
 
     /** The code to paste, in one of FORMS. */
