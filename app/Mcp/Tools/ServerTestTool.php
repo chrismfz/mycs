@@ -30,6 +30,12 @@ class ServerTestTool extends McpTool
         return 'admin.servers.update';
     }
 
+    /** It lists the servers, and names one: the admin's list of them asks for View Servers (audit 2026-11-17). */
+    protected function viewPermission(): ?string
+    {
+        return 'admin.servers.viewAny';
+    }
+
     protected function run(Request $request): array
     {
         $id = trim((string) $request->get('server'));

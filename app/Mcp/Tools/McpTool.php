@@ -35,13 +35,27 @@ abstract class McpTool extends Tool
     abstract protected function permission(): string;
 
     /**
+     * And the permission to see what it names, when permission() is one to change it (an update): a role that may not
+     * open the record in the admin learns nothing of it here either, not even that it exists (audit 2026-11-17).
+     */
+    protected function viewPermission(): ?string
+    {
+        return null;
+    }
+
+    private function mayUse(mixed $staff): bool
+    {
+        return self::allowed($staff, $this->permission()) && ($this->viewPermission() === null || self::allowed($staff, $this->viewPermission()));
+    }
+
+    /**
      * @return array<array-key, mixed>
      */
     abstract protected function run(Request $request): array;
 
     public function shouldRegister(Request $request): bool
     {
-        return self::allowed($request->user(), $this->permission());
+        return $this->mayUse($request->user());
     }
 
     public function handle(Request $request): Response
@@ -49,7 +63,7 @@ abstract class McpTool extends Tool
         $staff = $request->user();
         $started = hrtime(true);
         $this->findKeys($request);
-        if (!self::allowed($staff, $this->permission())) {
+        if (!$this->mayUse($staff)) {
             $this->record($staff, $request, 'denied', null, $started);
 
             return Response::error('Not allowed.');

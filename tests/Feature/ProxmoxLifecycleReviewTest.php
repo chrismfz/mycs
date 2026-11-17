@@ -16,7 +16,9 @@ use App\Services\Proxmox\GuestLifecycle;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
 use MyCS\Extensions\Servers\Proxmox\Proxmox;
 use RuntimeException;
 use Tests\TestCase;
@@ -191,5 +193,26 @@ class ProxmoxLifecycleReviewTest extends TestCase
             ->filterTable('outside_pool', true)
             ->assertCanSeeTableRecords([$outside])
             ->assertCanNotSeeTableRecords([$inPool]);
+    }
+
+    /** Audit 2026-11-17: block() throws when its wait runs out; the branch with our message was never reached. */
+    public function test_another_action_on_the_same_vm_is_told_in_our_words(): void
+    {
+        $service = $this->mapped();
+        $server = $service->provisioningServer();
+        $extension = ExtensionHelper::getExtension('server', 'Proxmox', $server->settings);
+        $this->assertInstanceOf(Proxmox::class, $extension);
+        $held = Cache::lock("proxmox.guest.{$server->id}.{$service->id}", 150);
+        $this->assertTrue($held->get());
+        Sleep::fake(syncWithCarbon: true);
+
+        try {
+            (new GuestLifecycle($extension->client(), $server, 'mycs', fn () => null))->suspend($service);
+            $this->fail('the VM was acted on while another action held it');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString("Another action on service #{$service->id}'s VM is running", $e->getMessage());
+        } finally {
+            $held->release();
+        }
     }
 }

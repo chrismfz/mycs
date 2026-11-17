@@ -51,7 +51,7 @@ class McpProposalTargetAuthzTest extends TestCase
 
     public function test_staff_without_domain_permission_cannot_propose_a_domain_action(): void
     {
-        $staff = $this->staff(['admin.mcp.use', 'admin.services.update']);
+        $staff = $this->staff(['admin.mcp.use', 'admin.services.viewAny', 'admin.services.update']);
         $action = $this->domainAction();
         $this->assertFalse((new ModuleActionPolicy)->update($staff, $action));
         try {
@@ -66,7 +66,7 @@ class McpProposalTargetAuthzTest extends TestCase
     {
         $action = $this->domainAction();
         $proposal = Proposals::propose(Proposals::RESOLVE_MODULE_ACTION, ['module_action_id' => $action->id], $this->staff(['*']));
-        $restricted = $this->staff(['admin.mcp.use', 'admin.services.update']);
+        $restricted = $this->staff(['admin.mcp.use', 'admin.services.viewAny', 'admin.services.update']);
         $this->assertFalse((new ModuleActionPolicy)->update($restricted, $action));
         // Hidden to them (it was offered and ran before R1's fix); nothing changes.
         $this->livewireAs($restricted)->test(ListMcpProposals::class)->assertTableActionHidden('approve', $proposal);
@@ -80,9 +80,9 @@ class McpProposalTargetAuthzTest extends TestCase
     {
         $action = $this->domainAction();
         $proposal = Proposals::propose(Proposals::RETRY_MODULE_ACTION, ['module_action_id' => $action->id], $this->staff(['*']));
-        $approver = $this->staff(['admin.mcp.use', 'admin.services.update', 'admin.domains.renew']);
+        $approver = $this->staff(['admin.mcp.use', 'admin.services.viewAny', 'admin.services.update', 'admin.domains.renew']);
         $this->assertTrue($approver->can('decide', $proposal));
-        $approver->role->update(['permissions' => ['admin.mcp.use', 'admin.services.update']]);
+        $approver->role->update(['permissions' => ['admin.mcp.use', 'admin.services.viewAny', 'admin.services.update']]);
         $approver->refresh();
 
         $this->assertFalse($approver->can('decide', $proposal->fresh()));
@@ -94,10 +94,13 @@ class McpProposalTargetAuthzTest extends TestCase
         $this->assertSame(McpProposal::STATUS_PENDING, $proposal->fresh()->status);
     }
 
-    /** A service's action stays the services\' (nothing more asked of it). */
+    /**
+     * A service's action stays the services\': to change them, and to see them, as the admin's Pending Module Actions asks
+     * (ModuleActionPolicy::view; audit 2026-11-17). Nothing of the domains.
+     */
     public function test_a_service_action_still_needs_only_the_services_permission(): void
     {
-        $staff = $this->staff(['admin.mcp.use', 'admin.services.update']);
+        $staff = $this->staff(['admin.mcp.use', 'admin.services.viewAny', 'admin.services.update']);
         $product = $this->createProduct();
         $service = Service::factory()->create(['client_id' => User::factory()->create()->client()->id, 'product_id' => $product->product->id,
             'plan_id' => $product->plan->id, 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1]);

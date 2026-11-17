@@ -62,6 +62,17 @@ final class Proposals
         self::TICKET_REPLY => 'admin.tickets.update',
     ];
 
+    /**
+     * And the permission to see what a proposal names, as the admin page of its target asks (audit 2026-11-17): its
+     * summary names the service and product, the domain and invoice, the ticket and its subject, the mail.
+     */
+    public const VIEW = [
+        self::RETRY_MODULE_ACTION => 'admin.services.viewAny', // ModuleActionPolicy::view, for a domain's action too
+        self::RESOLVE_MODULE_ACTION => 'admin.services.viewAny',
+        self::RESEND_MAIL => 'admin.email_logs.viewAny',
+        self::TICKET_REPLY => 'admin.tickets.viewAny',
+    ];
+
     /** @param array<string, mixed> $payload */
     public static function propose(string $type, array $payload, Staff $staff): McpProposal
     {
@@ -218,19 +229,18 @@ final class Proposals
      */
     public static function allows(Staff $staff, string $type, array $payload): bool
     {
-        if (!isset(self::PERMISSIONS[$type]) || !$staff->hasPermission(self::PERMISSIONS[$type])) {
+        // Both, before any lookup: «no such …» and «… is closed» tell a role that may not see them that they exist.
+        if (!isset(self::PERMISSIONS[$type], self::VIEW[$type]) || !$staff->hasPermission(self::PERMISSIONS[$type])
+            || !$staff->hasPermission(self::VIEW[$type])) {
             return false;
         }
 
         return match ($type) {
             self::RETRY_MODULE_ACTION, self::RESOLVE_MODULE_ACTION => ($action = ModuleAction::query()->find((int) ($payload['module_action_id'] ?? 0))) === null
                 || Gate::forUser($staff)->allows('update', $action),
-            // And View Tickets: a draft's summary names the ticket and the start of its subject, here and in the
-            // `proposal` tool's list (reviews of #902).
-            self::TICKET_REPLY => $staff->hasPermission('admin.tickets.viewAny')
-                && (($ticket = Ticket::query()->find((int) ($payload['ticket_id'] ?? 0))) === null || Gate::forUser($staff)->allows('update', $ticket)),
-            // A resend: the admin's Resend is on the mail log, which they must be able to read (code review of #584, F4).
-            default => Gate::forUser($staff)->allows('viewAny', EmailLog::class),
+            self::TICKET_REPLY => ($ticket = Ticket::query()->find((int) ($payload['ticket_id'] ?? 0))) === null || Gate::forUser($staff)->allows('update', $ticket),
+            // A resend: the admin's Resend is on the mail log, which they must be able to read (VIEW; code review of #584, F4).
+            default => true,
         };
     }
 

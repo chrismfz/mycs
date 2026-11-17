@@ -7,6 +7,7 @@ use App\Models\ProxmoxGuest;
 use App\Models\Server;
 use App\Models\Service;
 use Closure;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use MyCS\Proxmox\Guest;
 use MyCS\Proxmox\ProxmoxClient;
@@ -442,7 +443,10 @@ final class GuestLifecycle
         // One action on a service's guest at a time (a suspension and a payment's unsuspension racing).
         $this->waited = 0;
         $lock = Cache::lock("proxmox.guest.{$this->server->id}.{$service->id}", 150);
-        if (!$lock->block(10)) {
+        // block() throws when the wait runs out, it never answers false: the message staff read is ours (audit 2026-11-17).
+        try {
+            $lock->block(10);
+        } catch (LockTimeoutException) {
             throw new RuntimeException("Another action on service #{$service->id}'s VM is running: tried again later.");
         }
         try {
