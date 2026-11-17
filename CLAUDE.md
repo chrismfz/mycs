@@ -9,7 +9,8 @@
   Ekdosi (φορολογικά παραστατικά, myDATA, λογιστικά), ούτε στο Ekdosi ό,τι ανήκει εδώ.
 - Hard fork (2026-10-10) που πήρε τον δικό του δρόμο: **δεν ακολουθούμε το upstream ούτε παίρνουμε κώδικά του**
   (2026-10-14: έχουμε αποκλίνει τόσο που ένα cherry-pick δεν εφαρμόζει). Ιστορικό στο `docs/history/`.
-- Pilot είναι η nixpal· το myip.gr έρχεται μετά. Ένα instance ανά εταιρεία. Ό,τι διαφέρει ανάμεσα στις εταιρείες
+- Η nixpal δουλεύει μόνο στο MyCS από 2026-11-13 (`clients.nixpal.com`, orion)· το myip.gr έρχεται μετά (ακόμα σε
+  WHMCS· το `mycs.myip.gr` είναι το devbox και αργότερα το instance του). Ένα instance ανά εταιρεία. Ό,τι διαφέρει ανάμεσα στις εταιρείες
   (αρίθμηση, proforma, πιστώσεις, φόροι, υπενθυμίσεις) είναι **ρύθμιση**, όχι κώδικας (`docs/settings-map.md`).
 
 ## Κανόνες ασφάλειας και δεδομένων
@@ -17,7 +18,8 @@
   secrets. Οι ρυθμίσεις μπαίνουν στο `.env` (δεν γίνεται commit) ή κρυπτογραφημένες στη βάση (`encrypted` cast).
 - **Ποτέ πραγματικά δεδομένα πελατών:** dumps, license keys, domains, IPs, emails, ΑΦΜ. Τα fixtures ανωνυμοποιούνται.
 - Όχι κώδικας vendor ή ionCube, όχι κλειστά extensions του marketplace.
-- Στους servers παραγωγής (rigel, orion) και στις βάσεις του WHMCS μόνο read-only, εκτός αν ζητηθεί ρητά.
+- Στους servers παραγωγής (rigel, orion) και στις βάσεις του WHMCS μόνο read-only, εκτός αν ζητηθεί ρητά. Η nixpal
+  τρέχει στον orion: deploy εκεί μόνο με OK του ιδιοκτήτη.
 - Τίποτα που «τηλεφωνεί σπίτι»: telemetry, update checks, marketplace και self-updater αφαιρούνται και δεν επιστρέφουν.
 - Templates που επεξεργάζεται το staff **δεν** γίνονται compile ως Blade/PHP (`docs/history/audit-security.md`).
 

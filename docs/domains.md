@@ -16,7 +16,7 @@
   (ονόματα/IDN, RDAP, whois). Το Ekdosi έχει πλήρες υποσύστημα (7 πίνακες, Openprovider, register/transfer/renew/
   manage/restore, pricing sync, imports, Filament, ~170 tests με mock HTTP), **χωρίς** χρήση σε παραγωγή. Το spike
   μετέφερε τον πυρήνα (48 tests) και έκανε μία live μεταφορά· είναι 670+ commits πίσω και **δεν** γίνεται merge.
-- **nixpal (pilot):** 14 εγγραφές: Openprovider active 7· CNIC active 3, grace 1, expired 1, transferred away 2.
+- **nixpal (2026-10-16):** 14 εγγραφές: Openprovider active 7· CNIC active 3, grace 1, expired 1, transferred away 2.
   10 TLDs, όλα με autoreg Openprovider, μόνο ετήσια, EUR και USD.
 - **myip** (2026-10-16): 1.843 active: .gr (grepp) 1.388, CNIC 198, Openprovider 256. Εκτός .gr: **~450–500**.
   35 TLDs (grepp 6, Openprovider 29), EUR και USD. Ανανεώσεις με

@@ -1,7 +1,7 @@
 # MCP server
 
 MyCS has an MCP server at **`https://<host>/mcp`** for staff and their agents (Claude Code, Claude Desktop, another
-MCP client). It serves the tools of docs/ops.md and is meant for testing and troubleshooting, the nixpal cut-over first.
+MCP client). It serves the tools of docs/ops.md and is meant for testing and troubleshooting, on the live instance (nixpal) and the devbox.
 The design follows Ekdosi's (laravel/mcp, a server class, one tool per question). Auth uses MyCS's own admin API keys.
 
 ## Access

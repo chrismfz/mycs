@@ -1504,7 +1504,7 @@ WHMCS 8.13.7: 189 πίνακες, οι 107 με δεδομένα· access logs 3
 φτάνουν κατευθείαν στη MyCS, χωρίς forwarders. Με τη σειρά:
 
 1. **Πριν:** η MyCS στο `mycs.nixpal.com` (ίδιος server), πάγωμα του WHMCS (πρώτα τα cron), import και parity.
-2. **Host:** στο WHM «Modify Account» το `clients.nixpal.com` γίνεται `old-clients.nixpal.com` (το WHMCS μένει εκεί ως
+2. **Host:** στο WHM «Modify Account» το `clients.nixpal.com` γίνεται `old-clients.nixpal.com` (έγινε τελικά `clients-old`, 2026-11-13· η πραγματική σειρά: `cutover-nixpal-day.md`) (το WHMCS μένει εκεί ως
    αρχείο, χωρίς cron). Το `mycs.nixpal.com` γίνεται `clients.nixpal.com`: vhost/alias, SSL (AutoSSL), `APP_URL` στο
    `.env`, `php artisan config:cache`. Έλεγχος: `clients.nixpal.com/health`, ένα `zlic.php` με fixture.
 3. **Μετά τον host, ποτέ πριν:** τα webhooks παίρνουν το `APP_URL` της στιγμής· με το παλιό θα έδειχναν στο

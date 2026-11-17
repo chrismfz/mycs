@@ -102,7 +102,7 @@
 ## Αυτοματισμοί (Automation Settings)
 Η καρτέλα **Automation** των ρυθμίσεων (key `cronjob`) ακολουθεί τις ενότητες και τη διατύπωση της σελίδας Automation
 Settings του WHMCS. Κάθε εταιρεία έχει τις δικές της τιμές στη βάση του instance της· τα defaults του κώδικα είναι της
-nixpal (pilot). Τιμές από το `tblconfiguration` των δύο WHMCS, 2026-10-13 (read-only).
+nixpal. Τιμές από το `tblconfiguration` των δύο WHMCS, 2026-10-13 (read-only).
 
 | WHMCS (`tblconfiguration`) | myip | nixpal | MyCS |
 |---|---|---|---|
