@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Exceptions\DisplayException;
 use App\Helpers\ExtensionHelper;
+use App\Livewire\Client\Credits;
 use App\Livewire\Invoices\Show;
+use App\Models\Currency;
 use App\Models\EmailLog;
 use App\Models\Gateway;
 use App\Models\Invoice;
@@ -316,6 +318,30 @@ class CardlinkTest extends TestCase
         foreach ((array) ($page->effects['scripts'] ?? []) as $script) {
             $this->assertStringNotContainsString('cardlink-form', (string) $script);
         }
+    }
+
+    /**
+     * 2026-11-17 (review of #894): Add Funds called pay() at once and threw the window away, so every deposit left an
+     * order nobody used and another one was made on the invoice. Now it only goes to the invoice, its gateway picked.
+     */
+    public function test_add_funds_makes_no_order_and_goes_to_the_invoice_with_its_gateway_picked(): void
+    {
+        Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'prefix' => '€', 'format' => '1.000,00']);
+        $this->storeSettings(['credits_enabled' => true, 'credits_minimum_deposit' => 5, 'credits_maximum_deposit' => 500, 'credits_maximum_credit' => 1000, 'default_currency' => 'EUR']);
+
+        $page = $this->livewireAs($this->user)->test(Credits::class)
+            ->set('amount', 20)->set('gateway', $this->gateway->id)->call('addCredit')->assertHasNoErrors();
+
+        $invoice = Invoice::query()->where('client_id', $this->user->client()->id)->sole();
+        $page->assertRedirect(route('invoices.show', $invoice) . '?pay=1');
+        $this->assertSame(0, CardlinkOrder::query()->count(), 'no order before the customer presses «Pay»');
+        $this->assertSame($this->gateway->id, (int) $invoice->preferred_gateway_id);
+
+        $this->livewireAs($this->user)->test(Show::class, ['invoice' => $invoice])
+            ->assertSet('selectedMethod', 'gateway-' . $this->gateway->id)
+            ->call('processPayment')
+            ->assertSee('id="cardlink-form"', false);
+        $this->assertSame(1, CardlinkOrder::query()->count(), 'one order, the one the customer pays');
     }
 
     public function test_empty_and_padded_values_are_signed_as_posted(): void
