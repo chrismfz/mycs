@@ -291,6 +291,9 @@ class ServiceResource extends Resource
                             ->hintIcon(...$hint('When it was terminated or cancelled: set by itself. Empty: it ended in WHMCS, which kept no date; Growth and churn leaves it out until one is given.'))
                             ->maxDate(now())
                             ->nullable()
+                            // Saved only when its day changes: an untouched end keeps its time (review of #910, R1).
+                            ->dehydrated(fn ($state, ?Service $record) => $record?->ended_at?->toDateString()
+                                !== (filled($state) ? Carbon::parse($state)->toDateString() : null))
                             ->placeholder('dd/mm/yyyy'),
                         DatePicker::make('suspend_hold_until')
                             ->label('Do Not Suspend Until')

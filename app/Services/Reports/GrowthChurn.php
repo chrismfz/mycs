@@ -62,14 +62,15 @@ final class GrowthChurn
         for ($month = $from; $month->lessThan($yearEnd) && $month->lessThanOrEqualTo($until); $month = $month->addMonth()) {
             $end = $month->addMonth()->lessThan($until) ? $month->addMonth() : $until;
             $row = self::movement($lines, $month, $end);
-            $last = self::movement($lines, $month->subYear(), $month->addMonth()->subYear(), false);
+            // The same days a year before: the running month to the same day, as the total (review of #910, R3).
+            $last = self::movement($lines, $month->subYear(), $end->subYear(), false);
             $months[] = ['month' => $month, 'end' => $end] + $row + [
                 'clients' => self::countBetween($firstPaid, $month, $end),
                 'domains_new' => self::domainsNew($domains, $month, $end),
                 'domains_lost' => self::domainsLost($domains, $month, $end),
                 'last_year' => ['new' => $last['new'], 'lost' => $last['cancelled'] + $last['terminated'], 'net' => $last['net'],
                     'new_count' => $last['new_count'], 'lost_count' => $last['cancelled_count'] + $last['terminated_count'],
-                    'clients' => self::countBetween($firstPaid, $month->subYear(), $month->addMonth()->subYear())],
+                    'clients' => self::countBetween($firstPaid, $month->subYear(), $end->subYear())],
             ];
         }
 
@@ -109,8 +110,8 @@ final class GrowthChurn
      */
     private static function lines(string $currency): array
     {
-        $services = Service::query()->with(['plan', 'cancellation'])->where('currency_code', $currency)->whereNotNull('activated_at')
-            ->get(['id', 'product_id', 'plan_id', 'price', 'quantity', 'status', 'activated_at', 'ended_at']);
+        $services = Service::query()->with(['plan', 'cancellation', 'parent.cancellation'])->where('currency_code', $currency)->whereNotNull('activated_at')
+            ->get(['id', 'parent_service_id', 'product_id', 'plan_id', 'price', 'quantity', 'status', 'activated_at', 'ended_at']);
         $upgrades = ServiceUpgrade::query()->where('status', ServiceUpgrade::STATUS_COMPLETED)->whereNotNull('applied_at')->whereNotNull('from_price')
             ->whereIn('service_id', Service::query()->select('id')->where('currency_code', $currency))
             ->orderBy('applied_at')->orderBy('id')->get(['id', 'service_id', 'from_product_id', 'from_plan_id', 'from_price', 'applied_at'])
@@ -147,16 +148,19 @@ final class GrowthChurn
             }
             $states[] = [$start, $after[0], $after[1]];
 
+            // An addon with no request of its own left with its parent's (an immediate one is not copied to it, review of
+            // #910, R2).
+            $request = $service->cancellation ?? $service->parent?->cancellation;
             $kind = null;
             if ($end !== null) {
-                $kind = $service->cancellation !== null ? 'cancelled'
+                $kind = $request !== null ? 'cancelled'
                     : ($service->status === Service::STATUS_TERMINATED ? 'terminated' : 'cancelled');
             }
             $lines[] = [
                 'id' => (int) $service->id, 'start' => $start, 'end' => $end, 'kind' => $kind,
-                'reason' => $service->cancellation !== null ? trim((string) $service->cancellation->reason)
+                'reason' => $request !== null ? trim((string) $request->reason)
                     : ($service->status === Service::STATUS_TERMINATED ? self::TERMINATED : self::CANCELLED_BY_STAFF),
-                'request' => $service->cancellation !== null,
+                'request' => $request !== null,
                 'states' => array_reverse($states),
             ];
         }
