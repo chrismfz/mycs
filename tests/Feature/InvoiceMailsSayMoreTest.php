@@ -105,8 +105,10 @@ class InvoiceMailsSayMoreTest extends TestCase
         $invoice = $this->invoice($this->service(), Invoice::STATUS_UNPAID);
         $data = ['invoice' => $invoice, 'items' => $invoice->items, 'has_subscription' => true, 'invoice_number' => $invoice->id];
 
-        $html = TemplateRenderer::renderMarkdown($body, $data + ['auto_charge_method' => 'Visa 4242']);
-        $this->assertStringContainsString('charged automatically on <strong>' . $invoice->due_at->format('d/m/Y') . '</strong> with <strong>Visa 4242</strong>', $html);
+        $html = TemplateRenderer::renderMarkdown($body, $data + ['auto_charge_method' => 'Visa 4242', 'charge_on' => '21/11/2026']);
+        $this->assertStringContainsString('charged automatically on <strong>21/11/2026</strong> with <strong>Visa 4242</strong>', $html, 'the day the cron charges (ADV-897-1)');
+        $html = TemplateRenderer::renderMarkdown($body, $data + ['auto_charge_method' => 'Visa 4242', 'charge_on' => '']);
+        $this->assertStringContainsString('charged automatically with <strong>Visa 4242</strong>', $html, 'no day known: none promised');
         $html = TemplateRenderer::renderMarkdown($body, $data + ['auto_charge_method' => '']);
         $this->assertStringContainsString('paid automatically with your saved payment method', $html, 'a gateway subscription: no date of ours');
     }

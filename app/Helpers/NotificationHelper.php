@@ -544,7 +544,13 @@ class NotificationHelper
             'preferred_method' => self::preferredMethod($invoice),
             // Unpaid and paid by nobody on their own: the day the cron suspends its first service, as the last overdue
             // notice tells it ('' for none; nixpal 2026-11-17: «what if I do not pay?»).
-            'suspend_on' => $invoice->status === Invoice::STATUS_UNPAID && !PaymentReminders::chargedOnItsOwn($invoice) ? (string) PaymentReminders::suspendOn($invoice) : '',
+            // Only for an invoice that renews a period of a service: a charge alone (an extra on a service paid ahead) does
+            // not move the day its service is suspended (review of #897, ADV-897-3).
+            'suspend_on' => $invoice->status === Invoice::STATUS_UNPAID && !PaymentReminders::chargedOnItsOwn($invoice)
+                && $invoice->items->contains(fn (InvoiceItem $item) => $item->reference_type === Service::class && $item->kind !== InvoiceItem::KIND_CHARGE)
+                ? (string) PaymentReminders::suspendOn($invoice) : '',
+            // The day the cron charges it (Days Before, a late invoice: today), as its page says; '' for none (ADV-897-1/2).
+            'charge_on' => (string) AutoCharge::nextAttempt($invoice)?->format('d/m/Y'),
             // Paid: each service and domain it paid for, until when («paid, is it renewed?», nixpal 2026-11-17).
             'paid_until' => $invoice->status === Invoice::STATUS_PAID ? self::paidUntil($invoice) : [],
         ];
@@ -582,10 +588,15 @@ class NotificationHelper
         $until = [];
         foreach ($invoice->items as $item) {
             $reference = $item->reference_type === null || $item->period_end === null || $item->kind === InvoiceItem::KIND_CHARGE ? null : $item->reference;
+            // Only a period it holds now (review of #897): a service ended since is not renewed (staff refund it), and a
+            // period paid ahead of an unpaid one waits; its expiry tells both.
+            $held = ($reference instanceof Service || $reference instanceof Domain) && $reference->expires_at !== null
+                && Carbon::parse($reference->expires_at)->startOfDay()->gte($item->period_end->startOfDay())
+                && !($reference instanceof Service && !in_array($reference->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true));
             $name = match (true) {
+                !$held => '',
                 $reference instanceof Service => (string) $reference->mail_name,
-                $reference instanceof Domain => (string) $reference->fqdn,
-                default => '',
+                default => (string) $reference->fqdn, // a domain: $held asks it is one of the two
             };
             if ($name === '') {
                 continue;

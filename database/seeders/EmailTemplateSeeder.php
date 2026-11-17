@@ -71,7 +71,7 @@ class EmailTemplateSeeder extends Seeder
                 </div>
 
                 {% if has_subscription %}
-                {% if auto_charge_method %}It will be charged automatically on **{{ invoice.due_at|date("d/m/Y") }}** with **{{ auto_charge_method }}**{% else %}It will be paid automatically with your saved payment method{% endif %}: there is nothing you need to do.
+                {% if auto_charge_method %}It will be charged automatically{% if charge_on %} on **{{ charge_on }}**{% endif %} with **{{ auto_charge_method }}**{% else %}It will be paid automatically with your saved payment method{% endif %}: there is nothing you need to do.
                 {% else %}
                 <div class="action">
                 	<a class="button button-blue" href="{{ urls.pay }}">
@@ -1272,7 +1272,7 @@ class EmailTemplateSeeder extends Seeder
                     </div>
 
                     {% if has_subscription %}
-                    {% if auto_charge_method %}Θα χρεωθεί αυτόματα στις **{{ invoice.due_at|date("d/m/Y") }}** με **{{ auto_charge_method }}**{% else %}Θα εξοφληθεί αυτόματα με τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}: δεν χρειάζεται να κάνετε κάτι.
+                    {% if auto_charge_method %}Θα χρεωθεί αυτόματα{% if charge_on %} στις **{{ charge_on }}**{% endif %} με **{{ auto_charge_method }}**{% else %}Θα εξοφληθεί αυτόματα με τον αποθηκευμένο τρόπο πληρωμής σας{% endif %}: δεν χρειάζεται να κάνετε κάτι.
                     {% else %}
                     <div class="action">
                     	<a class="button button-blue" href="{{ urls.pay }}">
