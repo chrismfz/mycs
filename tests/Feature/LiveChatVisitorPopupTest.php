@@ -439,4 +439,20 @@ class LiveChatVisitorPopupTest extends TestCase
         RateLimiter::clear('live-chat-visitor:' . $chat->id);
         $this->assertSame(__('Too many messages, wait a moment.'), VisitorChats::post($chat, 'one more'));
     }
+
+    /**
+     * 2026-11-17: the form comes with a later render («Continue as a visitor»), and Livewire 4 runs that render's scripts
+     * before its HTML is on the page, so a @script found no widget, its solution was never sent and every start was
+     * refused. The glue is Alpine's, on the widget's own wrapper, which runs once the element is there.
+     */
+    public function test_the_captcha_glue_comes_with_the_widget_not_as_a_script_of_a_later_render(): void
+    {
+        $popup = $this->popup()->call('asGuest');
+        $html = $popup->html();
+        $this->assertStringContainsString('<altcha-widget', $html);
+        $this->assertMatchesRegularExpression('/<div data-mycs-altcha x-data="[^"]*statechange[^"]*\$wire\.set\(\'captcha\'/s', $html);
+        foreach ((array) ($popup->effects['scripts'] ?? []) as $script) {
+            $this->assertStringNotContainsString('altcha-widget', (string) $script);
+        }
+    }
 }
