@@ -143,7 +143,7 @@ class InvoiceItem extends Model implements Auditable
 
             return match (true) {
                 $reference instanceof Service => route('services.show', $reference->id),
-                $reference instanceof ServiceUpgrade && $reference->service_id !== null => route('services.show', $reference->service_id),
+                $reference instanceof ServiceUpgrade => route('services.show', $reference->service_id),
                 $reference instanceof Domain => route('domains.show', $reference->id),
                 default => '',
             };

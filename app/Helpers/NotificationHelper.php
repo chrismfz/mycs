@@ -583,7 +583,7 @@ class NotificationHelper
         foreach ($invoice->items as $item) {
             $reference = $item->reference_type === null || $item->period_end === null || $item->kind === InvoiceItem::KIND_CHARGE ? null : $item->reference;
             $name = match (true) {
-                $reference instanceof Service => (string) $reference->mailName,
+                $reference instanceof Service => (string) $reference->mail_name,
                 $reference instanceof Domain => (string) $reference->fqdn,
                 default => '',
             };
