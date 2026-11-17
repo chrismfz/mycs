@@ -54,7 +54,7 @@
         <x-filament::section>
             <div class="text-sm text-gray-500">{{ $report['current'] ? __('Recurring a month now') : __('Recurring a month at the end of :year', ['year' => $year]) }}</div>
             <div class="text-2xl font-semibold">{{ $money($report['mrr_now']) }}</div>
-            <div class="text-sm text-gray-500">{{ __('a year: :amount', ['amount' => $money($report['mrr_now'] * 12)]) }} · {{ __('a year before: :amount', ['amount' => $money($report['mrr_year_ago'])]) }}
+            <div class="text-sm text-gray-500">{{ __('a year: :amount', ['amount' => $money($report['mrr_now'] * 12)]) }} · {{ __('a year before: :amount a month', ['amount' => $money($report['mrr_year_ago'])]) }}
                 @if (($change = $percent($report['mrr_now'], $report['mrr_year_ago'])) !== null)
                     · <span class="font-semibold {{ $tone($report['mrr_now'] - $report['mrr_year_ago']) }}">{{ $change }}</span>
                 @endif

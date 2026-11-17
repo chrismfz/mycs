@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\DisplayException;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\Invoice;
@@ -138,8 +139,14 @@ class GrowthChurnReview2Test extends TestCase
             'status' => ServiceUpgrade::STATUS_COMPLETED, 'from_product_id' => $small->id, 'from_plan_id' => $monthly->id,
             'from_price' => '10.00', 'applied_at' => '2026-06-01 12:00:00', 'created_at' => '2026-06-01 12:00:00', 'updated_at' => '2026-06-01 12:00:00']);
 
-        $this->assertFalse($monthly->inUse(), 'staff may delete it');
-        $monthly->delete();
+        // Fixed by cutting the case (KISS): a plan in a service's history is in use, so staff hide it instead of deleting it.
+        $this->assertTrue($monthly->inUse(), 'a plan a service had before a change of package is in its history');
+        try {
+            $monthly->delete();
+            $this->fail('the plan of a service\'s history is deleted');
+        } catch (DisplayException) {
+        }
+        $this->assertNotNull(DB::table('service_upgrades')->where('service_id', $service->id)->value('from_plan_id'));
 
         $report = GrowthChurn::year('EUR', 2026);
         $this->assertSame(1000, $report['months'][1]['new'], 'it started at 10 a month');

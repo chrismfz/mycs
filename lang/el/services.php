@@ -584,7 +584,7 @@ return [
         ],
     ],
     'registration_date' => 'Ημερομηνία εγγραφής',
-    'ended_on' => 'Ημερομηνία λήξης',
+    'ended_on' => 'Ημερομηνία τερματισμού',
     'bulk_license' => [
         'listed' => 'Στη λίστα',
         'checked_day' => 'Check σε 24 ώρες',

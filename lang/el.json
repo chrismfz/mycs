@@ -2029,9 +2029,9 @@
     "To :date": "Έως :date",
     "Upgrades": "Upgrades",
     "Why they left": "Γιατί έφυγαν",
-    "a year before: :amount": "πριν από ένα έτος: :amount",
     "a year: :amount": "τον χρόνο: :amount",
     "churn :percent a month": "churn :percent τον μήνα",
     "Terminations": "Τερματισμοί",
-    "What each product gained and lost a month, in the same period. A change of package moves its value from one product to the other.": "Τι κέρδισε και τι έχασε κάθε προϊόν τον μήνα, στο ίδιο διάστημα. Μια αλλαγή πακέτου μεταφέρει την αξία της από το ένα προϊόν στο άλλο."
+    "What each product gained and lost a month, in the same period. A change of package moves its value from one product to the other.": "Τι κέρδισε και τι έχασε κάθε προϊόν τον μήνα, στο ίδιο διάστημα. Μια αλλαγή πακέτου μεταφέρει την αξία της από το ένα προϊόν στο άλλο.",
+    "a year before: :amount a month": "πριν από ένα έτος: :amount τον μήνα"
 }

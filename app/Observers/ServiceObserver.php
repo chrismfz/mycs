@@ -331,9 +331,9 @@ class ServiceObserver
     }
 
     /**
-     * When it ended (docs/growth-churn.md): the moment its status turns Terminated or Cancelled, whichever path does it;
-     * kept from one ended status to the other; cleared when it runs again (staff bring it back). A time set with the
-     * change itself is kept.
+     * When it ended (docs/growth-churn.md): the moment its status turns from running (or new) to Terminated or Cancelled,
+     * whichever path does it; kept from one ended status to the other, unknown too; cleared when it runs again (staff
+     * bring it back). A time set with the change itself is kept.
      */
     private static function markEnd(Service $service): void
     {
@@ -342,7 +342,9 @@ class ServiceObserver
         }
         if (!$service->isEnded()) {
             $service->ended_at = null;
-        } elseif ($service->ended_at === null) {
+        } elseif (!in_array($service->getOriginal('status'), Service::ENDED_STATUSES, true)) {
+            // From running (or new) to ended: now. From one ended status to the other it keeps its end, even an unknown
+            // one (an import with no date stays unknown, review of #910, A1).
             $service->ended_at = now();
         }
     }

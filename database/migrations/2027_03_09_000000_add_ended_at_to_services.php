@@ -19,19 +19,21 @@ return new class extends Migration
             $table->timestamp('ended_at')->nullable()->after('activated_at');
         });
 
-        // The first end since it last ran (as ServiceObserver::markEnd keeps it from one ended status to the other; review
-        // of #910, R4).
-        $audits = fn (int $id, array $statuses) => DB::table('audits')->where('auditable_type', 'App\\Models\\Service')
-            ->where('auditable_id', $id)->where('event', 'updated')
-            ->where(function ($query) use ($statuses) {
+        // The last time it went from running to ended, as ServiceObserver::markEnd stamps it: a move from one ended status
+        // to the other is not an end (reviews of #910, R4 and A1). None: not known.
+        $like = function ($query, string $column, array $statuses) {
+            $query->where(function ($query) use ($column, $statuses) {
                 foreach ($statuses as $status) {
-                    $query->orWhere('new_values', 'like', '%"status":"' . $status . '"%');
+                    $query->orWhere($column, 'like', '%"status":"' . $status . '"%');
                 }
             });
+        };
         foreach (DB::table('services')->whereIn('status', ['terminated', 'cancelled'])->pluck('id')->chunk(500) as $chunk) {
             foreach ($chunk as $id) {
-                $ran = $audits((int) $id, ['active', 'suspended', 'pending'])->max('created_at');
-                $at = $audits((int) $id, ['terminated', 'cancelled'])->when($ran !== null, fn ($query) => $query->where('created_at', '>', $ran))->min('created_at');
+                $at = DB::table('audits')->where('auditable_type', 'App\\Models\\Service')->where('auditable_id', $id)->where('event', 'updated')
+                    ->tap(fn ($query) => $like($query, 'new_values', ['terminated', 'cancelled']))
+                    ->tap(fn ($query) => $like($query, 'old_values', ['active', 'suspended', 'pending']))
+                    ->max('created_at');
                 if ($at !== null) {
                     DB::table('services')->where('id', $id)->update(['ended_at' => $at]);
                 }

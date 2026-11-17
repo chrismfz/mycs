@@ -143,9 +143,11 @@ class GrowthChurnReviewTest extends TestCase
     {
         $service = $this->service($this->product(), '10.00', '2025-01-01 09:00:00');
         DB::table('services')->where('id', $service->id)->update(['status' => Service::STATUS_CANCELLED]);
-        foreach ([['terminated', '2026-01-10 03:00:00'], ['cancelled', '2026-03-05 11:00:00']] as [$status, $at]) {
+        // As the auditing package writes them: the old status beside the new (review 2 of #910, A1: only a move from
+        // running to ended is an end).
+        foreach ([['active', 'terminated', '2026-01-10 03:00:00'], ['terminated', 'cancelled', '2026-03-05 11:00:00']] as [$was, $status, $at]) {
             DB::table('audits')->insert(['event' => 'updated', 'auditable_type' => Service::class, 'auditable_id' => $service->id,
-                'old_values' => '{}', 'new_values' => json_encode(['status' => $status]), 'created_at' => $at, 'updated_at' => $at]);
+                'old_values' => json_encode(['status' => $was]), 'new_values' => json_encode(['status' => $status]), 'created_at' => $at, 'updated_at' => $at]);
         }
         Schema::table('services', fn ($table) => $table->dropColumn('ended_at'));
         (require base_path('database/migrations/2027_03_09_000000_add_ended_at_to_services.php'))->up();

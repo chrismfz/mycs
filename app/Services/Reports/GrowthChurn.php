@@ -55,7 +55,8 @@ final class GrowthChurn
         $until = $current ? $now : $yearEnd;
 
         [$lines, $unknown] = self::lines($currency);
-        $firstPaid = self::firstPaid($currency);
+        $newClients = self::newClients($currency, $from, $until);
+        $lastNewClients = self::newClients($currency, $from->subYear(), $until->subYear());
         $domains = Domain::query()->where('currency_code', $currency)->get(['id', 'status', 'created_at', 'expires_at']);
 
         $months = [];
@@ -65,12 +66,12 @@ final class GrowthChurn
             // The same days a year before: the running month to the same day, as the total (review of #910, R3).
             $last = self::movement($lines, $month->subYear(), $end->subYear(), false);
             $months[] = ['month' => $month, 'end' => $end] + $row + [
-                'clients' => self::countBetween($firstPaid, $month, $end),
+                'clients' => self::countBetween($newClients, $month, $end),
                 'domains_new' => self::domainsNew($domains, $month, $end),
                 'domains_lost' => self::domainsLost($domains, $month, $end),
                 'last_year' => ['new' => $last['new'], 'lost' => $last['cancelled'] + $last['terminated'], 'net' => $last['net'],
                     'new_count' => $last['new_count'], 'lost_count' => $last['cancelled_count'] + $last['terminated_count'],
-                    'clients' => self::countBetween($firstPaid, $month->subYear(), $end->subYear())],
+                    'clients' => self::countBetween($lastNewClients, $month->subYear(), $end->subYear())],
             ];
         }
 
@@ -83,7 +84,7 @@ final class GrowthChurn
         }
         // Against the same days a year before (to date in the running year).
         $lastMove = self::movement($lines, $from->subYear(), $until->subYear(), false);
-        $lastTotals = $lastMove + ['clients' => self::countBetween($firstPaid, $from->subYear(), $until->subYear()),
+        $lastTotals = $lastMove + ['clients' => count($lastNewClients),
             'domains_new' => self::domainsNew($domains, $from->subYear(), $until->subYear()),
             'domains_lost' => self::domainsLost($domains, $from->subYear(), $until->subYear())];
 
@@ -110,7 +111,7 @@ final class GrowthChurn
      */
     private static function lines(string $currency): array
     {
-        $services = Service::query()->with(['plan', 'cancellation', 'parent.cancellation'])->where('currency_code', $currency)->whereNotNull('activated_at')
+        $services = Service::query()->with(['plan', 'cancellation', 'parent:id,status,ended_at', 'parent.cancellation'])->where('currency_code', $currency)->whereNotNull('activated_at')
             ->get(['id', 'parent_service_id', 'product_id', 'plan_id', 'price', 'quantity', 'status', 'activated_at', 'ended_at']);
         $upgrades = ServiceUpgrade::query()->where('status', ServiceUpgrade::STATUS_COMPLETED)->whereNotNull('applied_at')->whereNotNull('from_price')
             ->whereIn('service_id', Service::query()->select('id')->where('currency_code', $currency))
@@ -129,8 +130,15 @@ final class GrowthChurn
 
                 continue;
             }
-            // Never before it started (a WHMCS date earlier than its signup): it ended as it started.
-            $end = $service->ended_at === null ? null : max($start, $service->ended_at->getTimestamp());
+            $end = $service->ended_at?->getTimestamp();
+            // Ended before it started (a WHMCS end before the date its import gave its start, review of #910, A3): when it
+            // ran is not known; left out with those of no known end.
+            if ($end !== null && $end < $start) {
+                $unknown['count']++;
+                $unknown['cents'] += $now[1];
+
+                continue;
+            }
             // Applied while it ran: an upgrade at its start counts as one (it started at the price before).
             $applied = ($upgrades[$service->id] ?? collect())->filter(fn (ServiceUpgrade $upgrade) => $upgrade->applied_at->getTimestamp() >= $start
                 && ($end === null || $upgrade->applied_at->getTimestamp() < $end))->values();
@@ -150,7 +158,12 @@ final class GrowthChurn
 
             // An addon with no request of its own left with its parent's (an immediate one is not copied to it, review of
             // #910, R2).
-            $request = $service->cancellation ?? $service->parent?->cancellation;
+            // Only when it ended with its parent, the same day (review of #910, A2): one that ended alone before never takes a
+            // later request of its parent.
+            $parent = $service->parent;
+            $withParent = $service->ended_at !== null && $parent !== null && $parent->isEnded() && $parent->ended_at !== null
+                && $parent->ended_at->isSameDay($service->ended_at);
+            $request = $service->cancellation ?? ($withParent ? $parent->cancellation : null);
             $kind = null;
             if ($end !== null) {
                 $kind = $request !== null ? 'cancelled'
@@ -322,7 +335,8 @@ final class GrowthChurn
         [$a, $b] = [$from->getTimestamp(), $until->getTimestamp()];
         $groups = [];
         foreach ($lines as $line) {
-            if ($line['end'] === null || $line['end'] < $a || $line['end'] >= $b) {
+            // The same losses as the months count: worth something a month (review of #910, A5).
+            if ($line['end'] === null || $line['end'] < $a || $line['end'] >= $b || $line['states'][count($line['states']) - 1][2] <= 0) {
                 continue;
             }
             $text = preg_replace('/\s+/u', ' ', (string) $line['reason']) ?? '';
@@ -344,27 +358,37 @@ final class GrowthChurn
     }
 
     /**
-     * Each customer's first payment, when it was in this currency (as ClientIncome's «new»: an imported invoice with no
-     * payment date was paid before anything, so its customer is never new).
+     * The new customers of [from, until), as Income by client counts them (ClientIncome «new»: net received in the period
+     * above zero, nothing paid before it in any currency, an imported invoice with no payment date included; review of
+     * #910, A6), each at its first paid invoice in the period that brought something in.
      *
      * @return list<int> timestamps
      */
-    private static function firstPaid(string $currency): array
+    private static function newClients(string $currency, CarbonImmutable $from, CarbonImmutable $until): array
     {
+        $query = fn () => Invoice::query()->where('status', Invoice::STATUS_PAID)->where('currency_code', $currency)->whereNotNull('client_id')
+            ->where('paid_at', '>=', $from)->where('paid_at', '<', $until);
+        $invoices = $query()->toBase()->get(['id', 'client_id', 'paid_at'])->keyBy('id');
+        $sum = [];
         $first = [];
-        $never = [];
-        foreach (Invoice::query()->where('status', Invoice::STATUS_PAID)->whereNotNull('client_id')
-            ->orderBy('paid_at')->orderBy('id')->toBase()->get(['client_id', 'paid_at', 'currency_code']) as $row) {
-            $client = (int) $row->client_id;
-            if ($row->paid_at === null) {
-                $never[$client] = true;
-            } elseif (!isset($first[$client])) {
-                $first[$client] = [CarbonImmutable::parse($row->paid_at)->getTimestamp(), (string) $row->currency_code];
+        foreach (RevenueForecast::netByInvoice($query()) as $id => $cents) {
+            $invoice = $invoices[$id];
+            $client = (int) $invoice->client_id;
+            $sum[$client] = ($sum[$client] ?? 0) + $cents;
+            if ($cents > 0) {
+                $at = CarbonImmutable::parse($invoice->paid_at)->getTimestamp();
+                $first[$client] = min($first[$client] ?? PHP_INT_MAX, $at);
             }
         }
+        $clients = array_keys(array_filter($sum, fn (int $cents) => $cents > 0));
+        if ($clients === []) {
+            return [];
+        }
+        $before = Invoice::query()->where('status', Invoice::STATUS_PAID)->whereIn('client_id', $clients)
+            ->where(fn ($query) => $query->where('paid_at', '<', $from)->orWhereNull('paid_at'))->distinct()->pluck('client_id')
+            ->map(fn ($id) => (int) $id)->all();
 
-        return array_values(array_map(fn (array $paid) => $paid[0],
-            array_filter(array_diff_key($first, $never), fn (array $paid) => $paid[1] === $currency)));
+        return array_values(array_map(fn (int $client) => $first[$client], array_diff($clients, $before)));
     }
 
     /** @param  list<int>  $times */
