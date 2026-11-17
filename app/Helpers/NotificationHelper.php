@@ -14,6 +14,7 @@ use App\Models\Contact;
 use App\Models\Domain;
 use App\Models\EmailLog;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\InvoiceTransaction;
 use App\Models\Notification;
 use App\Models\NotificationPreference;
@@ -24,6 +25,7 @@ use App\Models\ServiceCancellation;
 use App\Models\Ticket;
 use App\Models\TicketMessage;
 use App\Models\User;
+use App\Services\Domains\DomainRenewalService;
 use App\Services\Invoice\PaymentReminders;
 use App\Services\Mail\MailAudit;
 use App\Services\Money\BankTransferDetails;
@@ -541,6 +543,17 @@ class NotificationHelper
             'bank_transfer' => BankTransferDetails::forTemplate($invoice),
             // Its preferred payment method's name, for the button («Pay with PayPal»): its page opens with it chosen.
             'preferred_method' => self::preferredMethod($invoice),
+            // Unpaid and paid by nobody on their own: the day the cron suspends its first service, as the last overdue
+            // notice tells it ('' for none; nixpal 2026-11-17: «what if I do not pay?»).
+            // Only for an invoice that renews a period of a service: a charge alone (an extra on a service paid ahead) does
+            // not move the day its service is suspended (review of #897, ADV-897-3).
+            'suspend_on' => $invoice->status === Invoice::STATUS_UNPAID && !PaymentReminders::chargedOnItsOwn($invoice)
+                && $invoice->items->contains(fn (InvoiceItem $item) => $item->reference_type === Service::class && $item->kind !== InvoiceItem::KIND_CHARGE)
+                ? (string) PaymentReminders::suspendOn($invoice, renewedOnly: true) : '',
+            // The day the cron charges it (Days Before, a late invoice: today), as its page says; '' for none (ADV-897-1/2).
+            'charge_on' => (string) AutoCharge::nextAttempt($invoice)?->format('d/m/Y'),
+            // Paid: each service and domain it paid for, until when («paid, is it renewed?», nixpal 2026-11-17).
+            'paid_until' => $invoice->status === Invoice::STATUS_PAID ? self::paidUntil($invoice) : [],
         ];
 
         // Generate the invoice PDF, in the customer's language
@@ -563,6 +576,40 @@ class NotificationHelper
         ];
 
         self::toAccount($client, $key, $data, $attachments, gated: !$byStaff);
+    }
+
+    /**
+     * Each service and domain the invoice pays a period of, and the period's end, from its lines (a charge or a line of
+     * no period, as an imported one, says nothing): «shop.example.gr — 24/11/2027», the latest end of each once.
+     *
+     * @return list<array{name: string, until: string}>
+     */
+    public static function paidUntil(Invoice $invoice): array
+    {
+        $until = [];
+        foreach ($invoice->items as $item) {
+            $reference = $item->reference_type === null || $item->period_end === null || $item->kind === InvoiceItem::KIND_CHARGE ? null : $item->reference;
+            // Only a period it holds now (review of #897): a service ended since is not renewed (staff refund it), and a
+            // period paid ahead of an unpaid one waits; its expiry tells both.
+            $held = ($reference instanceof Service || $reference instanceof Domain) && $reference->expires_at !== null
+                // A domain within the registrar's tolerance of it is renewed, as DomainRenewalService takes it (REV2-897-3).
+                && Carbon::parse($reference->expires_at)->startOfDay()->gte($item->period_end->startOfDay()->subDays($reference instanceof Domain ? DomainRenewalService::TOLERANCE_DAYS : 0))
+                && !($reference instanceof Service && !in_array($reference->status, [Service::STATUS_ACTIVE, Service::STATUS_SUSPENDED], true));
+            $name = match (true) {
+                !$held => '',
+                $reference instanceof Service => (string) $reference->mail_name,
+                default => (string) $reference->fqdn, // a domain: $held asks it is one of the two
+            };
+            if ($name === '') {
+                continue;
+            }
+            $key = $reference::class . ':' . $reference->getKey();
+            if (!isset($until[$key]) || $item->period_end->gt($until[$key]['end'])) {
+                $until[$key] = ['name' => $name, 'end' => $item->period_end];
+            }
+        }
+
+        return array_values(array_map(fn (array $one) => ['name' => $one['name'], 'until' => $one['end']->format('d/m/Y')], $until));
     }
 
     /**

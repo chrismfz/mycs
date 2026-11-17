@@ -156,7 +156,8 @@ final class TemplatePreview
         $cancellation->setRelation('service', $service);
         $ticketUrl = url('/tickets/guest/' . str_repeat('x', 43));
         $invoiceData = ['invoice' => $invoice, 'items' => $invoice->items, 'total' => $total, 'amount' => $total, 'credit' => '', 'subtotal' => '', 'tax' => '',
-            'has_subscription' => false, 'auto_charge_method' => 'Visa **** 4242', 'remaining' => (string) $invoice->formattedRemaining, 'partly_paid' => false, 'bank_transfer' => null, 'preferred_method' => 'PayPal'];
+            'has_subscription' => false, 'auto_charge_method' => 'Visa **** 4242', 'remaining' => (string) $invoice->formattedRemaining, 'partly_paid' => false, 'bank_transfer' => null, 'preferred_method' => 'PayPal',
+            'suspend_on' => now()->addDays(10)->format('d/m/Y'), 'paid_until' => [['name' => 'Web Hosting — shop.example.gr', 'until' => now()->addYear()->format('d/m/Y')]]];
 
         $data = match ($key) {
             'new_login_detected' => ['ip' => '203.0.113.7', 'device' => 'Firefox on Windows', 'time' => now()->format('d/m/Y H:i')],

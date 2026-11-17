@@ -111,7 +111,8 @@ class InvoiceMailTaxMethodTest extends TestCase
         $mails = $this->mails($client, $invoice);
 
         $this->assertStringContainsString('with Visa **** 4242', $mails['card_payment_due']);
-        $this->assertStringContainsString('paid automatically with Visa **** 4242', $mails['new_invoice_created']);
+        // And when (nixpal 2026-11-17, #896): «charged automatically on <its due date> with …».
+        $this->assertMatchesRegularExpression('/charged automatically on \\d{2}\/\\d{2}\/\\d{4} with Visa \\*\\*\\*\\* 4242/', $mails['new_invoice_created']);
     }
 
     /** Review F1 of #573: a gateway subscription pays it, the cron never charges the saved card: not named. */

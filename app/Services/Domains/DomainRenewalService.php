@@ -42,7 +42,7 @@ use Throwable;
 class DomainRenewalService
 {
     /** Slack when comparing the registrar's expiry with the period paid (29 February, registry rounding). */
-    private const TOLERANCE_DAYS = 3;
+    public const TOLERANCE_DAYS = 3;
 
     /** An unconfirmed charge blocks any new one this long, then staff check (as the Blesta module's RenewalPlan). */
     private const PENDING_HOLD_DAYS = 7;
