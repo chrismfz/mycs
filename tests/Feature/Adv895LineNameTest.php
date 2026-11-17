@@ -52,7 +52,7 @@ class Adv895LineNameTest extends TestCase
      * accessor is never empty (baseLabel «<product> #<id>»). Before #895 a new line's forLine named the domain; now the
      * text says it, forLine is '', and every new line of a service gets «LITESPEED 20 #42» printed under it.
      */
-    public function test_ADV_895_1_the_invoice_page_prints_no_product_and_id_under_a_new_line(): void
+    public function test_ad_v_895_1_the_invoice_page_prints_no_product_and_id_under_a_new_line(): void
     {
         $service = $this->service(['domain' => 'shop.example.gr']);
         [$invoice] = $this->invoiced($service);
@@ -64,7 +64,7 @@ class Adv895LineNameTest extends TestCase
     }
 
     /** ADV-895-1 (same branch): a service's own label, now in the line's text, is printed a second time under it. */
-    public function test_ADV_895_1_the_invoice_page_does_not_repeat_the_label_under_a_new_line(): void
+    public function test_ad_v_895_1_the_invoice_page_does_not_repeat_the_label_under_a_new_line(): void
     {
         $service = $this->service(['label' => 'adv-office-box']);
         License::query()->create(['service_id' => $service->id, 'license_key' => 'NIXPAL-ABCDEFGH9999', 'status' => 'active', 'valid_ip' => '198.51.100.9']);
@@ -78,7 +78,7 @@ class Adv895LineNameTest extends TestCase
      * ADV-895-2. Str::limit(60) cuts what tells it apart mid-part («… · 203.0.113…»); forLine then no longer finds the
      * part in the text and the portal page adds it again under the (already truncated) line.
      */
-    public function test_ADV_895_2_a_cut_identifier_is_not_added_again_by_the_invoice_page(): void
+    public function test_ad_v_895_2_a_cut_identifier_is_not_added_again_by_the_invoice_page(): void
     {
         $service = $this->service(['domain' => 'customer-online-store-' . str_repeat('x', 22) . '.example.gr', 'dedicated_ip' => '203.0.113.10']);
         [, $item] = $this->invoiced($service);
@@ -90,7 +90,7 @@ class Adv895LineNameTest extends TestCase
      * ADV-895-2 (the text itself). A real domain longer than 60 characters is cut on the PDF, the mail and the fiscal
      * document (Ekdosi): the customer's invoice names a domain that does not exist («….exampl...»).
      */
-    public function test_ADV_895_2_a_long_domain_is_written_whole_on_the_line(): void
+    public function test_ad_v_895_2_a_long_domain_is_written_whole_on_the_line(): void
     {
         $domain = 'my-very-long-online-shop-name-for-greek-customers.example.com.gr';
         $this->assertGreaterThan(60, strlen($domain));
@@ -104,7 +104,7 @@ class Adv895LineNameTest extends TestCase
      * WHMCS's mod_clientproductdescriptions, which WHMCS never printed on an invoice). For a license it comes first, and
      * it now goes into the line's text: the PDF and the fiscal document Ekdosi issues from the bridge's `description`.
      */
-    public function test_ADV_895_3_a_customers_own_label_is_not_on_the_fiscal_line(): void
+    public function test_ad_v_895_3_a_customers_own_label_is_not_on_the_fiscal_line(): void
     {
         $service = $this->service(['label' => 'Γιώργος - χρωστάει ακόμα']);
         License::query()->create(['service_id' => $service->id, 'license_key' => 'NIXPAL-ABCDEFGH9999', 'status' => 'active', 'valid_ip' => '198.51.100.9']);

@@ -174,7 +174,7 @@ class ServiceIdentifierTest extends TestCase
 
         $license = $this->service(['label' => 'office']);
         License::query()->create(['service_id' => $license->id, 'license_key' => 'NIXPAL-ABCDEFGH9999', 'status' => 'active', 'valid_ip' => '198.51.100.9']);
-        $this->assertSame("{$name} — office · 198.51.100.9", $license->fresh()->lineName());
+        $this->assertSame("{$name} — 198.51.100.9", $license->fresh()->lineName(), 'its IP; its label is the customer\'s own text (review of #895)');
 
         $radio = $this->service([], ['centova_username' => 'radio-example']);
         $this->assertSame($name, $radio->lineName(), 'nothing to tell it apart but a username: the product alone');
