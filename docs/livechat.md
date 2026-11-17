@@ -729,6 +729,11 @@ adversarial review (§10).
    αντίγραφα κι αν έχει η σελίδα· μόνο το ακριβές `/chat-launcher-v1.js` σερβίρεται. Λόγω `noopener` η σελίδα δεν έχει
    λαβή στο popup, άρα κάθε κλικ ανοίγει νέο παράθυρο (δεν εστιάζει το παλιό): επιλογή, όχι σφάλμα. Η μορφή με `<script
    src>` θέλει από το CSP του site `style-src 'unsafe-inline'` για το inline style του κουμπιού, αλλιώς στυλ από το site.
+   **Κουμπί στις σελίδες του ίδιου του MyCS (owner 2026-11-17):** για επισκέπτη χωρίς login, «Chat» κάτω δεξιά (`bg-primary`
+   του θέματος, `components/chat-guest-button`), που ανοίγει το ίδιο popup με `noopener,popup`, `src` = ο host του
+   `APP_URL` και `page` = το path. Μόνο όσο `VisitorChats::may()` (on, χωρίς login, όχι «Login as client», όχι block) και
+   κάποιος είναι διαθέσιμος σε τμήμα για επισκέπτες, από την ίδια cached διαθεσιμότητα της φούσκας (30″)· ποτέ σε σελίδα
+   private link. Ο συνδεδεμένος πελάτης κρατά τη φούσκα. Κανένα endpoint και κανένα polling.
 5. **Κλείσιμο του LHC.**
    - Ticket από chat (F4), διατήρηση της IP και διαγραφή από admin;
    - import των παλιών chats (F19);
