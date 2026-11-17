@@ -208,7 +208,9 @@ final class Proposals
      */
     public static function visibleTo(Builder $query, ?Staff $staff): Builder
     {
-        $types = array_keys(array_filter(self::PERMISSIONS, fn (string $permission) => $staff?->hasPermission($permission) ?? false));
+        // A type's view permission too: the admin's list shows each one's summary (review of #907).
+        $types = array_keys(array_filter(self::PERMISSIONS, fn (string $permission, string $type) => $staff !== null
+            && $staff->hasPermission($permission) && $staff->hasPermission(self::VIEW[$type]), ARRAY_FILTER_USE_BOTH));
 
         return $query->where(fn (Builder $query) => $query->where('proposed_by', $staff === null ? 0 : $staff->id)->orWhereIn('type', $types));
     }

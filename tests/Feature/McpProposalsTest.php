@@ -195,5 +195,11 @@ class McpProposalsTest extends TestCase
         $this->assertFalse(Proposals::followable($proposal, $blind));
         MycsServer::actingAs($blind, 'staff')->tool(ProposalTool::class)->assertDontSee((string) $proposal->summary);
         $this->assertTrue(Proposals::followable($proposal, $this->staff(['admin.mcp.use', 'admin.services.update', 'admin.services.viewAny'])));
+        // Nor in the admin's list of proposals, which shows each one's summary (review of #907).
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->livewireAs($blind)->test(ListMcpProposals::class)->assertCanNotSeeTableRecords([$proposal]);
+        $this->livewireAs($this->staff(['admin.mcp.use', 'admin.services.update', 'admin.services.viewAny']))->test(ListMcpProposals::class)
+            ->assertCanSeeTableRecords([$proposal]);
+        $this->assertSame(array_keys(Proposals::PERMISSIONS), array_keys(Proposals::VIEW), 'every type says what seeing it asks');
     }
 }
