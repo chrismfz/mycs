@@ -2,7 +2,9 @@
 
 namespace App\Admin\Widgets;
 
+use App\Admin\Resources\LoginAttemptResource;
 use App\Admin\Resources\UserResource;
+use App\Models\LoginAttempt;
 use App\Models\Staff;
 use App\Models\UserSession;
 use App\Support\StaffPresence;
@@ -56,7 +58,17 @@ class StaffAndSessions extends Widget
             'online' => $staff === null ? 0 : count(array_filter($staff, fn (array $member) => $member['online'])),
             'sessions' => $sessions,
             'sessionCount' => $sessionCount,
+            // A small «Login history» by each part (owner 2026-11-17), filtered to its area: more is one click away.
+            'staffLogins' => self::loginHistory(LoginAttempt::STAFF),
+            'customerLogins' => self::loginHistory(LoginAttempt::CLIENT),
         ]);
+    }
+
+    private static function loginHistory(string $area): ?string
+    {
+        return LoginAttemptResource::canViewAny()
+            ? LoginAttemptResource::getUrl('index', ['filters' => ['area' => ['value' => $area]]])
+            : null;
     }
 
     private static function seesStaff(): bool

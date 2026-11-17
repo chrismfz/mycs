@@ -2,8 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\LoginAttemptResource;
+use App\Admin\Resources\LoginAttemptResource\Pages\ListLoginAttempts;
 use App\Admin\Widgets\StaffAndSessions;
 use App\Enums\StaffPresenceStatus;
+use App\Models\LoginAttempt;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\User;
@@ -156,5 +159,35 @@ class DashboardStaffAndSessionsTest extends TestCase
         $this->actAs($viewer->fresh());
 
         $component->call('$refresh')->assertDontSee('192.0.2.30')->assertDontSee('customer session');
+    }
+
+    /** Owner 2026-11-17: a small «Login History» by each part, filtered to its area, for whoever may open the log. */
+    public function test_each_part_links_to_the_login_history_of_its_area_by_permission(): void
+    {
+        $this->actAs($this->member([...self::BOTH, 'admin.audit.viewAny']));
+        $html = Livewire::test(StaffAndSessions::class)->assertSee(__('Login History'))->html();
+
+        $staff = strpos($html, e(LoginAttemptResource::getUrl('index', ['filters' => ['area' => ['value' => LoginAttempt::STAFF]]])));
+        $customers = strpos($html, e(LoginAttemptResource::getUrl('index', ['filters' => ['area' => ['value' => LoginAttempt::CLIENT]]])));
+        $this->assertNotFalse($staff);
+        $this->assertNotFalse($customers);
+        $this->assertLessThan($customers, $staff, 'the staff link above, the customers one below');
+
+        $this->actAs($this->member());
+        Livewire::test(StaffAndSessions::class)->assertDontSee(__('Login History'));
+    }
+
+    /** Review of #901: the link's filter is the one the log applies. */
+    public function test_the_links_filter_shows_only_its_area(): void
+    {
+        $viewer = $this->member([...self::BOTH, 'admin.audit.viewAny']);
+        $this->actAs($viewer);
+        $staff = LoginAttempt::query()->create(['area' => LoginAttempt::STAFF, 'staff_id' => $viewer->id, 'email' => 'staff@example.test', 'result' => LoginAttempt::SUCCESS]);
+        $client = LoginAttempt::query()->create(['area' => LoginAttempt::CLIENT, 'user_id' => User::factory()->create()->id, 'email' => 'client@example.test', 'result' => LoginAttempt::SUCCESS]);
+
+        Livewire::withQueryParams(['filters' => ['area' => ['value' => LoginAttempt::CLIENT]]])->test(ListLoginAttempts::class)
+            ->assertCanSeeTableRecords([$client])->assertCanNotSeeTableRecords([$staff]);
+        Livewire::withQueryParams(['filters' => ['area' => ['value' => LoginAttempt::STAFF]]])->test(ListLoginAttempts::class)
+            ->assertCanSeeTableRecords([$staff])->assertCanNotSeeTableRecords([$client]);
     }
 }

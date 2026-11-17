@@ -15,7 +15,12 @@
 
         @if ($staff !== null)
         {{-- Who is in, never from where (docs/livechat.md §7β): no email, IP or device here. --}}
-        <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('Staff') }}</h3>
+        <div class="flex items-baseline justify-between gap-3">
+            <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('Staff') }}</h3>
+            @if ($staffLogins)
+            <a href="{{ $staffLogins }}" wire:navigate class="text-xs text-gray-400 hover:text-primary-500 hover:underline dark:text-gray-500">{{ __('Login History') }}</a>
+            @endif
+        </div>
         {{-- About five rows, then it scrolls, as Servers does (owner 2026-11-04: «small like Servers»). --}}
         <ul class="-me-2 mb-3 divide-y divide-gray-100 pe-2 dark:divide-white/5" style="{{ $scroll }}">
             @foreach ($staff as $member)
@@ -36,7 +41,12 @@
         @endif
 
         @if ($sessions !== null)
-        <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ trans_choice('Customer sessions, last :count minute|Customer sessions, last :count minutes', \App\Admin\Widgets\StaffAndSessions::SESSION_MINUTES, ['count' => \App\Admin\Widgets\StaffAndSessions::SESSION_MINUTES]) }}</h3>
+        <div class="flex items-baseline justify-between gap-3">
+            <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ trans_choice('Customer sessions, last :count minute|Customer sessions, last :count minutes', \App\Admin\Widgets\StaffAndSessions::SESSION_MINUTES, ['count' => \App\Admin\Widgets\StaffAndSessions::SESSION_MINUTES]) }}</h3>
+            @if ($customerLogins)
+            <a href="{{ $customerLogins }}" wire:navigate class="text-xs text-gray-400 hover:text-primary-500 hover:underline dark:text-gray-500">{{ __('Login History') }}</a>
+            @endif
+        </div>
         @if ($sessions === [])
         <p class="py-1.5 text-sm text-gray-500 dark:text-gray-400">{{ __('No customer is signed in.') }}</p>
         @else
