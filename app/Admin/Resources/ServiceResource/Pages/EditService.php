@@ -243,7 +243,7 @@ class EditService extends EditRecord
     }
 
     /** Who stored a password and how (the attribute's own audit shows only that it changed, never its value). */
-    private static function auditPassword(Service $record, string $event): void
+    public static function auditPassword(Service $record, string $event): void
     {
         $record->auditEvent = $event;
         $record->isCustomEvent = true;

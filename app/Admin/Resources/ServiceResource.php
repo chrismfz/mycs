@@ -69,6 +69,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
 use Throwable;
 
@@ -397,12 +398,33 @@ class ServiceResource extends Resource
                             ->hintIcon(...$hint('The server this account is on (e.g. after moving it with WHM\'s Transfer Tool). Changing it moves nothing: it records where the account is, and every action goes there from now on.')),
                         TextInput::make('domain')->label('Domain')->maxLength(255),
                         TextInput::make('username')->label('Username')->maxLength(255),
-                        // Hidden from serialization, so filled from the record here (else a save would wipe it); emptied,
-                        // it is cleared (review F3).
+                        // Never in the page until asked (audit 2026-11-18): the field starts empty, a save stores only one
+                        // typed in (empty keeps the stored one, review F3), and «Show» reads it, audited with who.
                         TextInput::make('password')->label('Password')->password()->revealable()->maxLength(255)
+                            ->placeholder(fn (?Service $record) => filled($record?->getRawOriginal('password')) ? __('Stored: empty keeps it') : null)
                             ->hintIcon(...$hint(__('Stored here only: saving the form changes nothing on the server. «More» has «Change password on server» and «Resend welcome email».')))
-                            ->afterStateHydrated(fn (TextInput $component, ?Service $record) => $component->state(rescue(fn () => $record?->password, null, false)))
-                            ->dehydrateStateUsing(fn (?string $state) => filled($state) ? $state : null),
+                            ->hintActions([
+                                Action::make('revealStoredPassword')->label(__('Show (audited)'))->icon('ri-eye-line')->color('warning')
+                                    ->visible(fn (?Service $record) => $record !== null && filled($record->getRawOriginal('password')))
+                                    ->modalHeading(__('Password'))->modalSubmitAction(false)->modalCancelActionLabel(__('Close'))
+                                    ->mountUsing(function (Service $record) {
+                                        abort_unless(Auth::guard('staff')->user()?->can('update', $record) === true, 403);
+                                        EditService::auditPassword($record, 'password_revealed');
+                                    })
+                                    ->modalContent(fn (Service $record) => new HtmlString('<code class="select-all break-all">'
+                                        . e((string) rescue(fn () => $record->password, '', false)) . '</code>')),
+                                // An obsolete one removed (review F3): here, as an empty field now keeps it.
+                                Action::make('clearPassword')->label(__('Clear'))->icon('ri-delete-bin-line')->color('danger')
+                                    ->visible(fn (?Service $record) => $record !== null && filled($record->getRawOriginal('password')))
+                                    ->requiresConfirmation()->modalDescription(__('The stored password is removed here; nothing changes on the server.'))
+                                    ->action(function (Service $record) {
+                                        abort_unless(Auth::guard('staff')->user()?->can('update', $record) === true, 403);
+                                        $record->forceFill(['password' => null])->save();
+                                        EditService::auditPassword($record, 'password_cleared');
+                                    }),
+                            ])
+                            ->afterStateHydrated(fn (TextInput $component) => $component->state(null))
+                            ->dehydrated(fn (?string $state) => filled($state)),
                         TextInput::make('dedicated_ip')->label('Dedicated IP')->ip()->maxLength(45),
                         Textarea::make('assigned_ips')->label('Assigned IPs')->placeholder('One per line')->rows(2),
                         // Given from the IP pools (header «IPs»): the address, its mask and gateway.

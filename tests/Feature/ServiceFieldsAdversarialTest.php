@@ -13,6 +13,7 @@ use App\Models\Service;
 use App\Models\Staff;
 use App\Models\User;
 use App\Support\CurrentClient;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -121,13 +122,43 @@ class ServiceFieldsAdversarialTest extends TestCase
     {
         $staff = $this->staff();
 
-        $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
-            ->assertFormSet(['password' => 'S3cret!pw'])
+        // Since the audit of 2026-11-18 the field starts empty (the password is never in the page until «Show») and an
+        // empty one keeps it: clearing is its own action.
+        $page = $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
+            ->assertFormSet(['password' => null])
             ->fillForm(['password' => ''])
             ->call('save')
             ->assertHasNoFormErrors();
+        $this->assertSame('S3cret!pw', $this->service->fresh()->password, 'an empty field keeps it');
 
+        $page->callAction(TestAction::make('clearPassword')->schemaComponent('password', 'form'));
         $this->assertNull($this->service->fresh()->password);
+    }
+
+    /** Audit 2026-11-18: the password never reaches the page until «Show», and each «Show» is audited with who. */
+    public function test_the_password_is_shown_only_on_asking_and_audited(): void
+    {
+        $staff = $this->staff();
+        $page = $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()]);
+        $this->assertStringNotContainsString('S3cret!pw', $page->html());
+        $this->assertStringNotContainsString('S3cret!pw', json_encode($page->instance()->data));
+
+        $page->assertActionExists(TestAction::make('revealStoredPassword')->schemaComponent('password', 'form'))->assertActionVisible(TestAction::make('revealStoredPassword')->schemaComponent('password', 'form'));
+        $page->mountAction(TestAction::make('revealStoredPassword')->schemaComponent('password', 'form'));
+        $page->assertActionMounted(TestAction::make('revealStoredPassword')->schemaComponent('password', 'form'))->assertMountedActionModalSee('S3cret!pw');
+        $audit = DB::table('audits')->where('event', 'password_revealed')->where('auditable_id', $this->service->id)->sole();
+        $this->assertStringContainsString((string) $staff->id, (string) $audit->new_values);
+
+        $this->livewireAs($staff)->test(EditService::class, ['record' => $this->service->getRouteKey()])
+            ->fillForm(['password' => 'N3w-pass'])->call('save')->assertHasNoFormErrors();
+        $this->assertSame('N3w-pass', $this->service->fresh()->password, 'one typed in is stored');
+    }
+
+    public function test_holds_staff_who_may_only_view_cannot_show_the_password(): void
+    {
+        $viewer = $this->staff(['admin.services.viewAny']);
+        $this->assertFalse($viewer->can('update', $this->service));
+        $this->livewireAs($viewer)->test(EditService::class, ['record' => $this->service->getRouteKey()])->assertNotFound();
     }
 
     /**
