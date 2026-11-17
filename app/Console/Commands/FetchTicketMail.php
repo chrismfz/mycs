@@ -70,6 +70,14 @@ class FetchTicketMail extends Command
                 $counts[$kind]++;
 
                 return true;
+            }, mayRead: function (string $message) use ($department): bool {
+                // Counted before the mail is read: one that kills the run (out of memory is no Throwable) never reaches the
+                // count above, and would be read first on every run, for ever. Past ATTEMPTS starts it comes as its
+                // headers only, and the router keeps it in the quarantine (audit 2026-11-17).
+                $key = 'ticket-mail-started:' . $department->id . ':' . $message;
+                Cache::add($key, 0, now()->addDays(2));
+
+                return Cache::increment($key) <= self::ATTEMPTS;
             });
 
             $run->update(['finished_at' => now(), 'connected' => $summary->connected, 'fetched' => $summary->fetched,

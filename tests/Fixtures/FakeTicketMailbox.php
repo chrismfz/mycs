@@ -27,7 +27,7 @@ final class FakeTicketMailbox implements Mailbox
         return new TestResult(true, 'Fake', count($this->unseen) + count($this->seen), count($this->unseen));
     }
 
-    public function poll(MailboxSettings $settings, callable $handle, int $limit = 50): PollSummary
+    public function poll(MailboxSettings $settings, callable $handle, int $limit = 50, ?callable $mayRead = null): PollSummary
     {
         $summary = new PollSummary;
         $summary->connected = true;
@@ -39,7 +39,10 @@ final class FakeTicketMailbox implements Mailbox
         foreach (array_slice($this->unseen, 0, $limit) as $raw) {
             $summary->fetched++;
             try {
-                $email = Parser::parse($raw);
+                // As ImapEngineMailbox: a mail the caller will not read whole comes as its headers only.
+                $email = $mayRead !== null && $mayRead(sha1($raw)) !== true
+                    ? Parser::headersOnly((string) strstr(str_replace("\r\n", "\n", $raw) . "\n\n", "\n\n", true), strlen($raw))
+                    : Parser::parse($raw);
             } catch (Throwable) {
                 $email = null;
             }

@@ -18,7 +18,12 @@ interface Mailbox
      * be parsed) and its raw RFC 822 (only the headers of one over the size cap). Marked \Seen only when $handle returns
      * true; otherwise it is read again next time. One message failing never stops the others.
      *
+     * $mayRead, when given, is asked before a message's body is fetched and parsed, with a key of the message in this
+     * mailbox: false and only its headers are read, as for one over the size cap. It is how the caller stops a message
+     * that kills the process each time (out of memory cannot be caught) from being read for ever, hiding all mail after it.
+     *
      * @param  callable(?InboundEmail, string): bool  $handle
+     * @param  (callable(string): bool)|null  $mayRead
      */
-    public function poll(MailboxSettings $settings, callable $handle, int $limit = 50): PollSummary;
+    public function poll(MailboxSettings $settings, callable $handle, int $limit = 50, ?callable $mayRead = null): PollSummary;
 }
