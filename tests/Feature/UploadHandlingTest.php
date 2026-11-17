@@ -67,6 +67,23 @@ class UploadHandlingTest extends TestCase
         $this->assertSame(0, TicketMessage::query()->where('ticket_id', $ticket->id)->count());
     }
 
+    /** Audit 2026-11-17: the name of a file staff attach is what the browser says; made safe as a customer's is. */
+    public function test_a_staff_files_name_is_made_safe_and_may_be_missing(): void
+    {
+        [$ticket] = $this->ticket();
+        $this->actingAs($this->owner, 'staff');
+        $file = \Illuminate\Http\UploadedFile::fake()->createWithContent("in\u{202E}voice.png", $this->png());
+
+        Livewire::test(EditTicket::class, ['record' => $ticket->getRouteKey()])
+            ->fillForm(['message' => 'see attached', 'attachments' => [$file]])
+            ->call('note')
+            ->assertHasNoErrors();
+
+        $kept = TicketMessageAttachment::query()->sole();
+        $this->assertSame('invoice.png', $kept->filename);
+        @unlink((string) $kept->localPath);
+    }
+
     public function test_a_stored_path_outside_the_tickets_folder_is_never_served(): void
     {
         [$ticket, $user] = $this->ticket();
