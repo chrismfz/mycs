@@ -312,7 +312,7 @@ class CardlinkTest extends TestCase
             ->set('selectedMethod', 'gateway-' . $this->gateway->id)
             ->call('processPayment');
 
-        $this->assertMatchesRegularExpression('/<form id="cardlink-form"[^>]*\sx-data[\s>][^>]*x-init="\$el\.submit\(\)"/', $page->html());
+        $this->assertMatchesRegularExpression('/<form id="cardlink-form"[^>]*\sx-data[\s>=][^>]*x-init="\$el\.submit\(\)"/', $page->html());
         foreach ((array) ($page->effects['scripts'] ?? []) as $script) {
             $this->assertStringNotContainsString('cardlink-form', (string) $script);
         }
