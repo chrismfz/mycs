@@ -284,12 +284,9 @@ return [
             'audit' => [
                 'viewAny' => 'View Audit Log',
             ],
+            // Their text is a full admin's only (security audit 2026-11-18, NotificationTemplatePolicy): no permission edits it.
             'notification_templates' => [
                 'viewAny' => 'View Notification Templates',
-                'create' => 'Create Notification Templates',
-                'update' => 'Update Notification Templates',
-                'delete' => 'Delete Notification Templates',
-                'deleteAny' => 'Bulk Delete Notification Templates',
             ],
             'failed_jobs' => [
                 'viewAny' => 'View Failed Jobs',

@@ -91,8 +91,8 @@ final class RolePermissions
         107 => ['billing_agreements.viewAny'], // Update/Delete Stored Credit Card
         108 => ['coupons.create', 'coupons.update'], // Create/Edit Promotions
         109 => ['coupons.delete', 'coupons.deleteAny'], // Delete Promotions
-        113 => ['notification_templates.create', 'notification_templates.update'], // Create/Edit Email Templates
-        114 => ['notification_templates.delete', 'notification_templates.deleteAny'], // Delete Email Templates
+        113 => [], // Create/Edit Email Templates: a full admin's only here (security audit 2026-11-18)
+        114 => [], // Delete Email Templates: the same
         116 => ['products.create', 'categories.create', 'config_options.create'], // Create New Products/Services
         117 => ['products.update', 'categories.update', 'config_options.update'], // Edit Products/Services
         118 => ['products.delete', 'products.deleteAny', 'categories.delete', 'categories.deleteAny', 'config_options.delete', 'config_options.deleteAny'], // Delete Products/Services

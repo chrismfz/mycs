@@ -91,8 +91,16 @@ final class EmailKinds
             return null;
         }
 
-        return array_keys(array_filter(self::KINDS, fn (string $kind) => isset($kinds[$kind])));
+        return array_keys(array_filter(self::KINDS + self::SHOWN_AS, fn (string $kind) => isset($kinds[$kind])));
     }
+
+    /**
+     * «My emails» only: templates outside KINDS (their mail goes by other rules: a guest's ticket, a mass mail), each
+     * shown to a member as this kind. A login's own mails (reset, verification, new login, invitation) are never a
+     * member's to read: not listed.
+     */
+    private const SHOWN_AS = ['announcement' => 'general', 'announcement_news' => 'general', 'guest_ticket_message' => 'support',
+        'ticket_received' => 'support', 'ticket_link' => 'support', 'ticket_cc_message' => 'support'];
 
     /** The account's owner gets this template's mail: its primary contact takes the kind, or it is one of ALWAYS. */
     public static function sends(Client $client, string $templateKey): bool
