@@ -2038,5 +2038,9 @@
     "Show (audited)": "Εμφάνιση (καταγράφεται)",
     "Password": "Κωδικός",
     "Clear": "Διαγραφή",
-    "The stored password is removed here; nothing changes on the server.": "Ο αποθηκευμένος κωδικός σβήνεται εδώ· στον server δεν αλλάζει τίποτα."
+    "The stored password is removed here; nothing changes on the server.": "Ο αποθηκευμένος κωδικός σβήνεται εδώ· στον server δεν αλλάζει τίποτα.",
+    "Send reminder": "Αποστολή υπενθύμισης",
+    "Each unpaid invoice chosen gets its payment reminder, or the overdue notice once past its due date. Paid, cancelled and draft invoices are skipped.": "Κάθε απλήρωτο τιμολόγιο από όσα επέλεξες παίρνει την υπενθύμιση πληρωμής, ή την ειδοποίηση καθυστέρησης αν έχει περάσει η λήξη του. Τα πληρωμένα, τα ακυρωμένα και τα πρόχειρα παραλείπονται.",
+    "Reminders queued: :count": "Υπενθυμίσεις σε αποστολή: :count",
+    "Skipped, not unpaid: :count": "Παραλείφθηκαν, δεν είναι απλήρωτα: :count"
 }
