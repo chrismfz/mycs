@@ -4,7 +4,10 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\McpAuth;
 use App\Models\ApiKey;
+use App\Models\Currency;
 use App\Models\Domain;
+use App\Models\DomainTld;
+use App\Models\DomainTldPrice;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Models\Ticket;
@@ -93,6 +96,25 @@ class McpReadToolsTest extends TestCase
         foreach (['EPP-SECRET-123', 'REQ-SECRET', 'RESP-SECRET'] as $secret) {
             $this->assertStringNotContainsString($secret, $text);
         }
+    }
+
+    public function test_a_domain_following_its_catalog_shows_the_catalog_renewal_price(): void
+    {
+        Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'suffix' => 'EUR', 'format' => '1.000,00']);
+        $tld = DomainTld::query()->create(['tld' => 'eu', 'grace_days' => 0, 'redemption_days' => 0, 'is_active' => true]);
+        DomainTldPrice::query()->create(['domain_tld_id' => $tld->id, 'operation' => 'renew', 'years' => 1, 'currency_code' => 'EUR', 'price' => '11.50']);
+        $follows = ['domain_tld_id' => $tld->id, 'tld' => 'eu', 'currency_code' => 'EUR', 'years' => 1];
+        Domain::factory()->create($follows + ['sld' => 'catalog', 'fqdn' => 'catalog.eu', 'recurring_amount' => null]);
+        Domain::factory()->create($follows + ['sld' => 'own', 'fqdn' => 'own.eu', 'recurring_amount' => '9.00']);
+        $key = $this->key($this->staff(['*']));
+
+        $catalog = $this->tool($key, 'domain', ['domain' => 'catalog.eu']);
+        $this->assertStringContainsString('"renewal_price": "11.50 EUR"', $catalog);
+        $this->assertStringContainsString('"renewal_price_from": "catalog"', $catalog);
+
+        $own = $this->tool($key, 'domain', ['domain' => 'own.eu']);
+        $this->assertStringContainsString('"renewal_price": "9.00 EUR"', $own);
+        $this->assertStringContainsString('"renewal_price_from": "own"', $own);
     }
 
     public function test_the_gateway_log_masks_the_events_secrets(): void
