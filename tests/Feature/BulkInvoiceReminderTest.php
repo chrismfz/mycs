@@ -53,6 +53,8 @@ class BulkInvoiceReminderTest extends TestCase
             'status' => 'active', 'currency_code' => 'USD', 'price' => 10, 'quantity' => 1, 'expires_at' => $due]);
         $invoice = Invoice::factory()->create(['client_id' => $this->user->client()->id, 'status' => 'unpaid', 'currency_code' => 'USD', 'due_at' => $due]);
         $invoice->items()->create(['reference_type' => Service::class, 'reference_id' => $svc->id, 'description' => 'Renewal', 'quantity' => 1, 'price' => 10]);
+        DB::table('invoices')->where('id', $invoice->id)->update(['created_at' => '2026-10-10']);
+        DB::table('invoice_reminders')->where(['invoice_id' => $invoice->id, 'kind' => PaymentReminders::MAILED])->delete(); // mailed that day, not today
         if ($status !== 'unpaid') {
             $this->statusFixture($invoice->id, $status);
         }
@@ -198,6 +200,15 @@ class BulkInvoiceReminderTest extends TestCase
         $this->assertSame(['invoice_payment_reminder'], $this->sent());
     }
 
+    public function test_an_invoice_mailed_today_is_not_reminded_the_same_day(): void
+    {
+        $invoice = $this->invoice('2026-10-25');
+        PaymentReminders::mailedToday($invoice);
+        MailFacade::fake();
+        $this->bulk([$invoice]);
+        $this->assertSame([], $this->sent());
+    }
+
     public function test_more_than_the_cap_is_refused(): void
     {
         $invoices = [];
@@ -207,5 +218,39 @@ class BulkInvoiceReminderTest extends TestCase
         MailFacade::fake();
         $this->bulk($invoices);
         $this->assertSame([], $this->sent());
+    }
+
+    public function test_rev2_cron_notice_this_morning_then_bulk_does_not_mail_it_again(): void
+    {
+        $invoice = $this->invoice('2026-10-19'); // 1 day late: the cron's day-1 notice today
+        MailFacade::fake();
+        (new PaymentReminders)->send();
+        $this->assertSame(['invoice_overdue'], $this->sent(), 'the cron mailed day 1');
+        MailFacade::fake();
+        $this->bulk([$invoice]);
+        $this->assertSame([], $this->sent());
+    }
+
+    public function test_rev2_cron_due_soon_this_morning_then_bulk_does_not_mail_it_again(): void
+    {
+        Carbon::setTestNow('2026-10-19 09:00:00');
+        $invoice = $this->invoice('2026-10-25');
+        Carbon::setTestNow('2026-10-20 09:00:00');
+        MailFacade::fake();
+        (new PaymentReminders)->send();
+        $this->assertSame(['invoice_payment_reminder'], $this->sent());
+        MailFacade::fake();
+        $this->bulk([$invoice]);
+        $this->assertSame([], $this->sent());
+    }
+
+    /** Revised: long past the last day, a plain overdue notice, not «last notice» on every press. */
+    public function test_rev2_long_past_last_day_is_not_the_last_notice(): void
+    {
+        $invoice = $this->invoice('2026-09-20'); // 30 days late
+        MailFacade::fake();
+        $this->bulk([$invoice]);
+        $this->assertSame(['invoice_overdue'], $this->sent());
+        $this->assertStringNotContainsString('last notice', MailFacade::queued(Mail::class)->last()->renderedHtml);
     }
 }

@@ -187,12 +187,17 @@ class PaymentReminders
         if (($kind === 'overdue' && !$invoice->client->remindedWhenOverdue()) || DomainReminders::covers($invoice, $kind)) {
             return false;
         }
+        // Mailed today already, by the cron, its «new invoice» mail or staff (re-review of #913): not the same mail twice.
+        if (DB::table('invoice_reminders')->where('invoice_id', $invoice->id)->where('sent_at', '>=', $today)->exists()) {
+            return false;
+        }
         $row = ['invoice_id' => $invoice->id, 'kind' => self::BY_STAFF, 'days' => 0, 'due_on' => $today->toDateString()];
         if (DB::table('invoice_reminders')->insertOrIgnore($row + ['sent_at' => now()]) === 0) {
             return false;
         }
         $days = self::overdueDays();
-        $last = $kind === 'overdue' && $days !== [] && $late >= max($days);
+        // The last notice only within the cron's catch-up days; later, a plain overdue notice (no «last» every press).
+        $last = $kind === 'overdue' && $days !== [] && $late >= max($days) && $late - max($days) < self::CATCH_UP_DAYS;
         try {
             if ($kind === 'due') {
                 NotificationHelper::invoiceNotification($invoice->client, $invoice, self::chargedOnItsOwn($invoice) ? 'card_payment_due' : 'invoice_payment_reminder');

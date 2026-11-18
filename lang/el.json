@@ -2041,8 +2041,8 @@
     "The stored password is removed here; nothing changes on the server.": "Ο αποθηκευμένος κωδικός σβήνεται εδώ· στον server δεν αλλάζει τίποτα.",
     "Send reminder": "Αποστολή υπενθύμισης",
     "Reminders queued: :count": "Υπενθυμίσεις σε αποστολή: :count",
-    "Each invoice chosen that is owed gets the reminder the cron would send it today: the payment reminder, or the overdue notice once past its due date. Skipped: not owed, a payment on its way, a closed account, overdue notices off, or reminded today already.": "Κάθε επιλεγμένο τιμολόγιο που οφείλεται παίρνει την υπενθύμιση που θα του έστελνε σήμερα το cron: την υπενθύμιση πληρωμής, ή την ειδοποίηση καθυστέρησης αν έχει περάσει η λήξη του. Παραλείπονται όσα δεν οφείλονται, έχουν πληρωμή σε εξέλιξη, ανήκουν σε κλειστό λογαριασμό, έχουν κλειστές τις ειδοποιήσεις καθυστέρησης ή πήραν ήδη υπενθύμιση σήμερα.",
     "Skipped: :count": "Παραλείφθηκαν: :count",
     "Choose at most :max invoices": "Διάλεξε το πολύ :max τιμολόγια",
-    "Mail is off in Settings: nothing sent": "Τα emails είναι απενεργοποιημένα στις Ρυθμίσεις: δεν στάλθηκε τίποτα"
+    "Mail is off in Settings: nothing sent": "Τα emails είναι απενεργοποιημένα στις Ρυθμίσεις: δεν στάλθηκε τίποτα",
+    "Each invoice chosen that is owed gets its reminder as the cron sends it: the payment reminder, or the overdue notice once past its due date. Skipped: not owed, a payment on its way, a closed account, overdue notices off, domains with their own notices, or mailed today already.": "Κάθε επιλεγμένο τιμολόγιο που οφείλεται παίρνει την υπενθύμισή του όπως τη στέλνει το cron: την υπενθύμιση πληρωμής, ή την ειδοποίηση καθυστέρησης αν έχει περάσει η λήξη του. Παραλείπονται όσα δεν οφείλονται, έχουν πληρωμή σε εξέλιξη, ανήκουν σε κλειστό λογαριασμό, έχουν κλειστές τις ειδοποιήσεις καθυστέρησης, είναι domains με δικές τους ειδοποιήσεις ή πήραν ήδη email σήμερα."
 }

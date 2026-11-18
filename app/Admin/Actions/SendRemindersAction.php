@@ -11,8 +11,8 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * WHMCS's «Send Reminder» on the invoice lists (owner 2026-11-18): each chosen invoice gets the reminder the cron would
- * send it today, by the cron's rules (PaymentReminders::sendNow). The rest are skipped and counted.
+ * WHMCS's «Send Reminder» on the invoice lists (owner 2026-11-18): each chosen invoice gets its reminder by the cron's
+ * rules (PaymentReminders::sendNow). The rest are skipped and counted.
  */
 class SendRemindersAction
 {
@@ -26,7 +26,7 @@ class SendRemindersAction
             ->icon('heroicon-o-bell-alert')
             ->authorize(fn () => Gate::allows('has-permission', 'admin.invoices.update'))
             ->requiresConfirmation()
-            ->modalDescription(__('Each invoice chosen that is owed gets the reminder the cron would send it today: the payment reminder, or the overdue notice once past its due date. Skipped: not owed, a payment on its way, a closed account, overdue notices off, or reminded today already.'))
+            ->modalDescription(__('Each invoice chosen that is owed gets its reminder as the cron sends it: the payment reminder, or the overdue notice once past its due date. Skipped: not owed, a payment on its way, a closed account, overdue notices off, domains with their own notices, or mailed today already.'))
             ->deselectRecordsAfterCompletion()
             ->action(function (Collection $records): void {
                 if ($records->count() > self::MAX) {
