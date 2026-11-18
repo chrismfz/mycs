@@ -161,6 +161,65 @@ class PaymentReminders
         }
     }
 
+    /** A reminder staff sent with «Send reminder» (on `due_on`, the day sent): once a day per invoice. */
+    public const BY_STAFF = 'staff';
+
+    /**
+     * Staff's «Send reminder» on the invoice lists (owner 2026-11-18): the reminder the cron would send for it today, by
+     * its rules (an open invoice with something left to pay, a mailable account, «Disable overdue notices», the domains'
+     * own notices, the template of one charged on its own), whatever the day. Once a day per invoice (a second press, a
+     * retry). Counted as the cron's: the due-soon reminder only within its days, so one sent weeks early does not stop it;
+     * the overdue days reached, the last one with its suspension date as the cron's last notice.
+     */
+    public function sendNow(Invoice $invoice): bool
+    {
+        if (config('settings.mail_disable')) {
+            return false;
+        }
+        $invoice = $this->open()->whereKey($invoice->id)->first();
+        if ($invoice === null || $invoice->remaining <= 0 || $invoice->client === null) {
+            return false;
+        }
+        $today = Carbon::today();
+        $due = $invoice->due_at->copy()->startOfDay();
+        $late = $due->lt($today) ? (int) $due->diffInDays($today) : 0;
+        $kind = $late > 0 ? 'overdue' : 'due';
+        if (($kind === 'overdue' && !$invoice->client->remindedWhenOverdue()) || DomainReminders::covers($invoice, $kind)) {
+            return false;
+        }
+        $row = ['invoice_id' => $invoice->id, 'kind' => self::BY_STAFF, 'days' => 0, 'due_on' => $today->toDateString()];
+        if (DB::table('invoice_reminders')->insertOrIgnore($row + ['sent_at' => now()]) === 0) {
+            return false;
+        }
+        $days = self::overdueDays();
+        $last = $kind === 'overdue' && $days !== [] && $late >= max($days);
+        try {
+            if ($kind === 'due') {
+                NotificationHelper::invoiceNotification($invoice->client, $invoice, self::chargedOnItsOwn($invoice) ? 'card_payment_due' : 'invoice_payment_reminder');
+            } else {
+                NotificationHelper::invoiceNotification($invoice->client, $invoice, 'invoice_overdue', ['overdue' => [
+                    'days' => $late, 'last' => $last, 'suspend_on' => $last ? self::suspendOn($invoice) : null,
+                ]]);
+            }
+        } catch (Throwable $e) {
+            DB::table('invoice_reminders')->where($row)->delete();
+            report($e);
+
+            return false;
+        }
+        $before = (int) config('settings.cronjob_payment_reminder', 6);
+        if ($kind === 'due' && $due->gt($today) && $before > 0 && $due->lte($today->copy()->addDays($before))) {
+            self::recordSent($invoice, 'due', 0);
+        }
+        foreach ($kind === 'overdue' ? $days : [] as $day) {
+            if ($day <= $late) {
+                self::recordSent($invoice, 'overdue', $day);
+            }
+        }
+
+        return true;
+    }
+
     /** @param  list<int>  $skipped  earlier overdue days a missed run passed: marked sent, not sent */
     private function remind(Invoice $invoice, string $kind, int $days, ?callable $failed, bool $last = false, array $skipped = [], int $late = 0): int
     {
