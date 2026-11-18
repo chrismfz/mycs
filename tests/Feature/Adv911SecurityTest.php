@@ -19,10 +19,10 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Services\Import\WhmcsEmailHistoryImport;
 use App\Support\CurrentClient;
-use App\Support\Tickets\GuestLinks;
 use Database\Seeders\EmailTemplateSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -181,7 +181,7 @@ class Adv911SecurityTest extends TestCase
     public function test_holds_a_new_template_cannot_take_a_private_key(): void
     {
         $this->assertTrue(NotificationTemplate::query()->where('key', 'password_reset')->exists());
-        $this->expectException(\Illuminate\Database\QueryException::class);
+        $this->expectException(QueryException::class);
         NotificationTemplate::query()->create(['key' => 'password_reset', 'name' => 'x', 'subject' => 'S', 'body' => 'B',
             'enabled' => true, 'mail_enabled' => 'force', 'in_app_enabled' => 'never']);
     }
