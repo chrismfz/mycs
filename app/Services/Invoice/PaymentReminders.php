@@ -13,7 +13,6 @@ use App\Services\Billing\RenewalBilling;
 use App\Services\Domains\DomainReminders;
 use App\Services\Payment\AutoCharge;
 use App\Support\DunningWindow;
-use App\Support\EmailKinds;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
@@ -194,10 +193,8 @@ class PaymentReminders
         }
         $days = self::overdueDays();
         $key = $kind === 'due' ? (self::chargedOnItsOwn($invoice) ? 'card_payment_due' : 'invoice_payment_reminder') : 'invoice_overdue';
-        // Not mailed to an account that does not take it (its invoice emails off): skipped, not counted as sent (rev3 L1).
-        if (!EmailKinds::sends($invoice->client, $key)) {
-            return false;
-        }
+        // Sent as the cron sends it, preferences and all (review 4 of #913): an account whose primary takes no invoice
+        // emails still has its contacts that do, and the owner's in-app notice.
         $row = ['invoice_id' => $invoice->id, 'kind' => self::BY_STAFF, 'days' => 0, 'due_on' => $today->toDateString()];
         if (DB::table('invoice_reminders')->insertOrIgnore($row + ['sent_at' => now()]) === 0) {
             return false;

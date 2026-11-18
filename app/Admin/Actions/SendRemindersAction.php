@@ -26,7 +26,7 @@ class SendRemindersAction
             ->icon('heroicon-o-bell-alert')
             ->authorize(fn () => Gate::allows('has-permission', 'admin.invoices.update'))
             ->requiresConfirmation()
-            ->modalDescription(__('Each invoice chosen that is owed gets its reminder as the cron sends it: the payment reminder, or the overdue notice once past its due date. Skipped: not owed, a payment on its way, a closed account, an account or group with overdue notices off, an account that does not take invoice emails, domains with their own notices, or mailed today already.'))
+            ->modalDescription(__('Each invoice chosen that is owed gets its reminder as the cron sends it, to whoever takes it: the payment reminder, or the overdue notice once past its due date. Skipped: not owed, a payment on its way, a closed account, an account or group with overdue notices off, domains with their own notices, or mailed today already.'))
             ->deselectRecordsAfterCompletion()
             ->action(function (Collection $records): void {
                 if ($records->count() > self::MAX) {

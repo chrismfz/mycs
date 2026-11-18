@@ -285,15 +285,33 @@ class BulkInvoiceReminderTest extends TestCase
         $this->assertSame(['invoice_overdue'], $this->sent());
     }
 
-    /** rev3 L1: an account that does not take invoice emails is skipped, not counted as queued. */
-    public function test_a_reminder_the_account_does_not_take_is_not_counted_as_queued(): void
+    /** rev3 L1, revised by review 4: as the cron, preferences decide who gets it; the primary taking none mails nobody by mail. */
+    public function test_an_account_that_takes_no_invoice_emails_gets_none_as_from_the_cron(): void
     {
         $invoice = $this->invoice('2026-10-25');
         DB::table('contacts')->where('primary_of_client_id', $this->user->client()->id)->update(['email_preferences' => json_encode([])]);
         MailFacade::fake();
-        $this->livewireAs($this->staff())->test(ListInvoices::class)
-            ->callTableBulkAction('sendReminder', [$invoice])
-            ->assertNotified('Reminders queued: 0');
+        $this->assertTrue((new PaymentReminders)->sendNow($invoice));
         $this->assertSame([], $this->sent());
+    }
+
+    /** REV4-1: a billing contact who takes invoice mail gets staff's reminder, as the cron's. */
+    public function test_rev4_contact_who_takes_invoice_mail_gets_staffs_reminder_as_the_crons(): void
+    {
+        $client = $this->user->client();
+        DB::table('contacts')->where('primary_of_client_id', $client->id)->update(['email_preferences' => json_encode(['general'])]);
+        $client->contacts()->create(['type' => 'individual', 'first_name' => 'Billing', 'last_name' => 'Person', 'email' => 'billing@example.test',
+            'email_preferences' => ['invoice']]);
+        $cronInvoice = $this->invoice('2026-10-25');
+        MailFacade::fake();
+        (new PaymentReminders)->send();
+        $cronTo = MailFacade::queued(Mail::class)->flatMap(fn (Mail $mail) => collect($mail->to)->pluck('address'))->all();
+        $this->assertContains('billing@example.test', $cronTo, 'precondition: the cron mails the billing contact');
+
+        $staffInvoice = $this->invoice('2026-10-24');
+        MailFacade::fake();
+        $this->assertTrue((new PaymentReminders)->sendNow($staffInvoice));
+        $staffTo = MailFacade::queued(Mail::class)->flatMap(fn (Mail $mail) => collect($mail->to)->pluck('address'))->all();
+        $this->assertContains('billing@example.test', $staffTo);
     }
 }
