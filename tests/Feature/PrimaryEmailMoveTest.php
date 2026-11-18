@@ -77,4 +77,20 @@ class PrimaryEmailMoveTest extends TestCase
 
         $this->assertSame(0, EmailLog::query()->where('to', 'billing@example.test')->count());
     }
+
+    /** Final review of #911: login and account moved to two addresses at once; the old one hears of both. */
+    public function test_both_moved_to_different_addresses_the_old_one_hears_of_both(): void
+    {
+        $owner = User::query()->where('email', 'owner@example.test')->sole();
+        $this->client->primaryContact->forceFill(['email' => 'owner@example.test'])->save();
+        app(CurrentClient::class)->forget();
+        $this->actingAs($owner)->withSession($this->loginUser($owner, [CurrentClient::SESSION_KEY => $this->client->id]));
+
+        Livewire::test(Account::class)->set('email', 'new-login@example.test')->set('email_password', 'password')
+            ->set('contact.email', 'new-billing@example.test')->call('submit')->assertHasNoErrors();
+
+        $subjects = EmailLog::query()->where('to', 'owner@example.test')->pluck('subject')->all();
+        $this->assertContains(__('account.notifications.email_changed_subject'), $subjects);
+        $this->assertContains(__('account.notifications.contact_email_changed_subject'), $subjects);
+    }
 }

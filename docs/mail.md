@@ -56,6 +56,19 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
 τα **sent** του λογαριασμού, τα νεότερα πρώτα, και ανοίγει το καθένα όπως το κρατά το log: κωδικοί και links σύνδεσης
 μασκαρισμένα, σε `iframe sandbox` (κανένα script, τα links σε νέα καρτέλα). Όχι τα failed/pending (δεν έφτασαν),
 όχι τα `system` του staff, όχι ό,τι ξαναέστειλε το staff σε διεύθυνση staff.
+**Ένα μέλος βλέπει μόνο τα είδη των περιοχών του** (security audit 2026-11-18, #911): με μόνο `emails` τα γενικά, τα
+τιμολόγια με `invoices`, τα tickets με `tickets` κ.λπ. (`EmailKinds::keysAllowed`, default deny). Ό,τι δεν είναι σε
+είδος (το ιστορικό του WHMCS που εισήχθη, ένα template που θα προστεθεί) μόνο σε όποιον βλέπει όλα τα είδη (το
+`affiliates` δεν μετρά)· τα δικά ενός login (reset, επιβεβαίωση, νέα σύνδεση, πρόσκληση) σε κανένα μέλος.
+
+## Ποιος αλλάζει τι γράφουν τα email (security audit 2026-11-18, #911)
+Το κείμενο ενός email βλέπει τα δεδομένα του: link reset ή πρόσκλησης, τον κωδικό μιας νέας υπηρεσίας, το link ενός
+guest στο ticket του. Μια εικόνα ή ένα link μέσα του τα στέλνει σε άλλον host. Γι' αυτό είναι **μόνο του full admin**
+(`*`): το κείμενο κάθε template (`NotificationTemplatePolicy`· τα δικαιώματα create/update/delete των templates
+καταργήθηκαν), το email snippet ενός προϊόντος (`{{ product_info }}`, με τα ίδια δεδομένα, π.χ. το source password του
+CentovaCast), και οι ρυθμίσεις SMTP, αποστολέα, header, footer και CSS των email (από εκεί περνούν όλα). Το staff με
+«view» βλέπει τη λίστα των templates· με «settings» τις ρυθμίσεις αυτές απενεργοποιημένες. Μαζί με το κείμενο πάνε στον
+full admin και το on/off ενός template, τα CC/BCC, το preview και το «Send test».
 
 ## Προτιμήσεις email ανά είδος (2026-10-30)
 Τα `email_preferences` της **κύριας επαφής** (general, invoice, support, product, domain, affiliate· το
@@ -78,7 +91,8 @@ The send itself keeps the row. Queue events do not, except the queue's last fail
   κύριας επαφής, όπως το `tblclients.email` (`Client::mailAddress`), όχι στο login του owner· στο login μόνο όταν η κύρια
   επαφή δεν έχει έγκυρο email. Το login κρατά τα δικά του (reset, επιβεβαίωση, νέα σύνδεση) και το in-app. Στο `tblemails`
   του myip, σε 41 από τους 42 λογαριασμούς με διαφορετικό login που πήραν email τον τελευταίο χρόνο, το To ήταν το
-  email του λογαριασμού. Ένα μέλος που δεν έχει τα δικαιώματα όλων των ειδών δεν το αλλάζει. **Στο login μένουν**
+  email του λογαριασμού. Ένα μέλος που δεν έχει τα δικαιώματα όλων των ειδών δεν το αλλάζει, ούτε όποιος δεν έχει
+  `manageproducts` (εκεί πάνε τα welcome με τους κωδικούς· audit 2026-11-18), και η παλιά διεύθυνση ειδοποιείται. **Στο login μένουν**
   (υπεύθυνος 2026-10-30, ADV-550-R3-3/5): οι απαντήσεις σε ticket (ο inbound router δέχεται απαντήσεις μόνο από logins
   με «tickets»), και τα «Νέα», που φέρουν το υπογεγραμμένο «stop these emails» του owner. Το welcome με τον κωδικό πάει
   στο email του λογαριασμού, όπως στο WHMCS.

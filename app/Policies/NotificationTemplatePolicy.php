@@ -7,7 +7,7 @@ use App\Models\Staff;
 use App\Models\User;
 
 /**
- * Staff read the templates with «view»; their text is a full admin's only (security audit 2026-11-18). A mail's text
+ * Staff with «view» see the list of templates; their text is a full admin's only (security audit 2026-11-18). A mail's text
  * sees its data: a reset or invitation link, a new server's password, a guest's ticket link, an unsubscribe link. An
  * image or a link added to it sends them to another host, so a list of «private» templates was always one short (the
  * reviews found the guest ticket mails, then the product snippet): the case is cut, not listed.

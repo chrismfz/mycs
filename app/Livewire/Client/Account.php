@@ -149,12 +149,14 @@ class Account extends ComponentWithProperties
                 'site' => config('app.name'), 'old' => $oldEmail, 'new' => $user->email,
             ])), [], $oldEmail);
         }
-        // The account's mails now go elsewhere: its old address is told, unless the login's own notice just went there
-        // (audit 2026-11-18; review of #911: the login's address is usually the account's).
+        // The account's mails now go elsewhere: its old address is told, unless the login's own notice just went there and
+        // already names the same new address (audit 2026-11-18; reviews of #911).
         $oldPrimary = trim((string) $primaryEmail);
-        if ($primaryMoves && $oldPrimary !== '' && !($emailChanged && Str::lower($oldPrimary) === Str::lower($oldEmail))) {
+        $newPrimary = (string) $client?->primaryContact?->fresh()?->email;
+        $toldAlready = $emailChanged && Str::lower($oldPrimary) === Str::lower($oldEmail) && Str::lower($newPrimary) === Str::lower((string) $user->email);
+        if ($primaryMoves && $oldPrimary !== '' && !$toldAlready) {
             NotificationHelper::sendSystemEmailNotification(__('account.notifications.contact_email_changed_subject'), e(__('account.notifications.contact_email_changed_body', [
-                'site' => config('app.name'), 'old' => $oldPrimary, 'new' => (string) $client->primaryContact?->fresh()?->email,
+                'site' => config('app.name'), 'old' => $oldPrimary, 'new' => $newPrimary,
             ])), [], $oldPrimary);
         }
 

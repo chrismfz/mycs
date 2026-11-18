@@ -87,7 +87,9 @@ final class EmailKinds
     public static function keysAllowed(callable $allows): ?array
     {
         $kinds = array_filter(self::PERMISSIONS, fn (string $permission) => $allows($permission));
-        if (count($kinds) === count(self::PERMISSIONS)) {
+        // «affiliates» does not count: no template is of that kind, and it is rarely granted (final review of #911: a
+        // member with every other area, or staff in «Login as client», lost the imported history).
+        if (array_diff_key(self::PERMISSIONS, $kinds, ['affiliate' => true]) === []) {
             return null;
         }
 
