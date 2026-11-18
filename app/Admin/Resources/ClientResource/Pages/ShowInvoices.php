@@ -2,6 +2,7 @@
 
 namespace App\Admin\Resources\ClientResource\Pages;
 
+use App\Admin\Actions\SendRemindersAction;
 use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\ClientResource\Concerns\NamesTheClient;
 use App\Admin\Resources\InvoiceResource;
@@ -59,6 +60,7 @@ class ShowInvoices extends ManageRelatedRecords
             ])
             ->recordActions([
                 ViewAction::make()->url(fn ($record) => InvoiceResource::getUrl('edit', ['record' => $record])),
-            ]);
+            ])
+            ->toolbarActions([SendRemindersAction::make()]);
     }
 }

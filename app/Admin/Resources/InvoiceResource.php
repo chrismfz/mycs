@@ -4,6 +4,7 @@ namespace App\Admin\Resources;
 
 use App\Admin\Actions\MergeInvoicesAction;
 use App\Admin\Actions\PayInvoicesAction;
+use App\Admin\Actions\SendRemindersAction;
 use App\Admin\Actions\SendToEkdosi;
 use App\Admin\Actions\SplitInvoiceAction;
 use App\Admin\Clusters\InvoiceCluster;
@@ -569,6 +570,7 @@ class InvoiceResource extends Resource
             ->toolbarActions([
                 MergeInvoicesAction::make(),
                 PayInvoicesAction::make(),
+                SendRemindersAction::make(),
                 SendToEkdosi::bulk(),
             ]);
     }
