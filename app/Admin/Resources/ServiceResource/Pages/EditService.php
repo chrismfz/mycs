@@ -89,7 +89,7 @@ class EditService extends EditRecord
     }
 
     /** @return array<string, mixed> */
-    private static function baseline(Service $record): array
+    private static function baseline(Model $record): array
     {
         return Arr::except($record->getAttributes(), ['password']);
     }
