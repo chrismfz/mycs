@@ -88,6 +88,10 @@ MYCS_ADMIN_PASSWORD='…' php artisan mycs:install --no-interaction \
   `jobs` υπάρχει), **sessions σε αρχεία** (`SESSION_DRIVER=file`: η προεπιλογή του κώδικα είναι `redis`) και **cache
   στη Redis του λογαριασμού**, σε unix socket 0700 (παρακάτω, «Σε server cPanel/CloudLinux»). Η Redis ανά χρήστη του
   LiteSpeed είναι cache (`allkeys-lru`, χωρίς αποθήκευση, άδεια μετά από κάθε restart): ποτέ για ουρά.
+  Εκεί ζουν και τα `Cache::lock` (χρήματα, cron, IP pool) και λίγα «για πάντα» κλειδιά που ξαναγεμίζουν μόνα τους
+  (τα υπόλοιπα των gateways κάθε ώρα στο :13, ο κέρσορας του συγχρονισμού των domains, η κατάσταση της σύγκρισης του
+  gateway). Με λίγες εκατοντάδες κλειδιά, πολύ κάτω από το όριο, το LRU δεν φτάνει ποτέ σε αυτά· αν γεμίσει κάποτε, ένα
+  lock μπορεί να σβηστεί όσο κρατιέται: τότε μεγαλύτερο όριο στο WHM, ή cache σε `file`.
 - **Κάθε instance έχει το δικό του κομμάτι του Redis** (sweep 8, S8-OPS-1). Το `.env.example` δίνει `CACHE_STORE=redis` και
   `QUEUE_CONNECTION=redis` με `APP_NAME=MyCS`: δύο checkouts στον ίδιο host (παραγωγή και δοκιμαστικό, nixpal και myip)
   που αλλάζουν μόνο `DB_*`, `APP_URL`, `MAIL_*` μοιράζονται την ίδια ουρά (`queues:default`), την ίδια cache ρυθμίσεων,

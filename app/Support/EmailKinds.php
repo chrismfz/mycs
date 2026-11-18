@@ -77,15 +77,21 @@ final class EmailKinds
     }
 
     /**
-     * The templates of a kind whose permission $allows refuses (general: «emails»): «My emails» never shows a member the
-     * invoices, tickets or welcome mails the rest of the site hides from them (security audit 2026-11-18).
+     * The templates whose mails «My emails» shows a member (security audit 2026-11-18): null, all of them, for one who may
+     * see every kind (the owner); else only those listed here of a kind they may see. Default deny: a mail not listed
+     * (a ticket's copy to its CC, the WHMCS history imported, a template added later) may be any kind (review of #911).
      *
      * @param  callable(string): bool  $allows
-     * @return list<string>
+     * @return list<string>|null
      */
-    public static function keysNotAllowed(callable $allows): array
+    public static function keysAllowed(callable $allows): ?array
     {
-        return array_keys(array_filter(self::KINDS, fn (string $kind) => !$allows(self::PERMISSIONS[$kind])));
+        $kinds = array_filter(self::PERMISSIONS, fn (string $permission) => $allows($permission));
+        if (count($kinds) === count(self::PERMISSIONS)) {
+            return null;
+        }
+
+        return array_keys(array_filter(self::KINDS, fn (string $kind) => isset($kinds[$kind])));
     }
 
     /** The account's owner gets this template's mail: its primary contact takes the kind, or it is one of ALWAYS. */

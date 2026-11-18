@@ -10,8 +10,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Audit 2026-11-18: the text of a mail that carries a login link or a password (password reset, invitation, welcome) is
- * a full admin's only. With «edit templates» alone an image in it would send the reset link or the server's password out.
+ * Audit 2026-11-18: a mail's text sees its data (a reset or invitation link, a new server's password, a guest's ticket
+ * link): with «edit templates» an image in it would send them out. Templates are a full admin's text; others with the
+ * permission read them.
  */
 class PrivateTemplateEditTest extends TestCase
 {
@@ -23,22 +24,23 @@ class PrivateTemplateEditTest extends TestCase
             'enabled' => true, 'mail_enabled' => 'force', 'in_app_enabled' => 'never']);
     }
 
-    public function test_only_a_full_admin_edits_or_deletes_a_private_template(): void
+    public function test_only_a_full_admin_edits_creates_or_deletes_a_template(): void
     {
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        $editor = Staff::factory()->withPermissions(['admin.notification_templates.viewAny', 'admin.notification_templates.update',
-            'admin.notification_templates.delete'])->create();
+        $editor = Staff::factory()->withPermissions(['admin.notification_templates.viewAny', 'admin.notification_templates.create',
+            'admin.notification_templates.update', 'admin.notification_templates.delete', 'admin.notification_templates.deleteAny'])->create();
         $admin = Staff::factory()->admin()->create();
-        $invoice = $this->template('new_invoice_created');
 
-        foreach (['password_reset', 'client_invite', 'email_verification', 'new_server_created'] as $key) {
-            $private = $this->template($key);
-            $this->assertFalse($editor->can('update', $private), $key);
-            $this->assertFalse($editor->can('delete', $private), $key);
-            $this->assertTrue($admin->can('update', $private), $key);
-            $this->actingAs($editor)->get(NotificationTemplateResource::getUrl('edit', ['record' => $private]))->assertNotFound(); // Filament: a page the policy refuses is not found
+        foreach (['password_reset', 'client_invite', 'new_server_created', 'ticket_link', 'new_invoice_created'] as $key) {
+            $template = $this->template($key);
+            $this->assertTrue($editor->can('view', $template), $key);
+            $this->assertFalse($editor->can('update', $template), $key);
+            $this->assertFalse($editor->can('delete', $template), $key);
+            $this->assertTrue($admin->can('update', $template), $key);
+            // Filament: a page the policy refuses is not found.
+            $this->actingAs($editor)->get(NotificationTemplateResource::getUrl('edit', ['record' => $template]))->assertNotFound();
         }
-        $this->assertTrue($editor->can('update', $invoice));
-        $this->actingAs($editor)->get(NotificationTemplateResource::getUrl('edit', ['record' => $invoice]))->assertOk();
+        $this->assertFalse($editor->can('create', NotificationTemplate::class));
+        $this->assertFalse($editor->can('deleteAny', NotificationTemplate::class));
     }
 }

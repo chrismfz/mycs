@@ -255,6 +255,7 @@ return [
     'email_preferences_help' => 'The account\'s mails go to this email of the kinds ticked here. Suspensions, terminations, overdue and expiry notices always go.',
     'contact_email_preferences_help' => 'This contact gets its own copy of the account\'s mails of the kinds ticked here. Never a password or a ticket\'s reply: those go to the account\'s email only.',
     'contact_email_kinds_not_allowed' => 'This contact takes mails you may not see: only the account\'s owner can change its email.',
+    'contact_email_needs_manageproducts' => 'The account\'s email gets the services\' welcome emails, with their passwords: only someone who may manage the services can change it.',
     'email_preference' => [
         'general' => 'General',
         'invoice' => 'Invoices',

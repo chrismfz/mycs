@@ -75,13 +75,23 @@ class EditService extends EditRecord
 
     protected static string $resource = ServiceResource::class;
 
-    /** The record as the form was filled from it: a save writes only what staff changed since. */
+    /**
+     * The record as the form was filled from it: a save writes only what staff changed since. Never the password, not
+     * even its ciphertext (it is in the page's snapshot, review of #911): the field starts empty and only one typed in
+     * is written.
+     */
     #[Locked]
     public array $filledAttributes = [];
 
     protected function afterFill(): void
     {
-        $this->filledAttributes = $this->getRecord()->getAttributes();
+        $this->filledAttributes = self::baseline($this->getRecord());
+    }
+
+    /** @return array<string, mixed> */
+    private static function baseline(Service $record): array
+    {
+        return Arr::except($record->getAttributes(), ['password']);
     }
 
     /** «28 licenses, 27 IPs new to the list (1 never bound), joining 20/11/2026 – 13/12/2026; then 48.60 a month.» */
@@ -254,14 +264,11 @@ class EditService extends EditRecord
         $record->auditCustomNew = [];
     }
 
-    /** The form shows the password stored now, and a save diffs against it (not the old one). */
+    /** The password stored now: the field empty again (never in the page), the baseline without it. */
     private function passwordStored(): void
     {
-        $attributes = $this->getRecord()->refresh()->getAttributes();
+        $this->getRecord()->refresh();
         $this->refreshFormData(['password']);
-        if (array_key_exists('password', $attributes)) {
-            $this->filledAttributes['password'] = $attributes['password'];
-        }
     }
 
     private function resendWelcome(Service $record): void
@@ -386,7 +393,7 @@ class EditService extends EditRecord
                         }
                         $record->refresh();
                         $this->refreshFormData(['plan_id', 'price', 'expires_at']);
-                        $this->filledAttributes = $record->getAttributes();
+                        $this->filledAttributes = self::baseline($record);
                         Notification::make()->title('Billing cycle changed')
                             ->body($invoice ? "Invoice #{$invoice->id} bills the new period." : 'It applies when the next period is billed.')
                             ->success()->send();

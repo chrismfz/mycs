@@ -46,8 +46,8 @@ class Emails extends Component
     public function render()
     {
         // A member's own areas only: «emails» alone is the general mails, not the invoices or tickets (audit 2026-11-18).
-        $mails = self::forAccount(CurrentClient::id())
-            ->whereNotIn('template_key', EmailKinds::keysNotAllowed(fn (string $permission) => CurrentClient::allows($permission)));
+        $keys = EmailKinds::keysAllowed(fn (string $permission) => CurrentClient::allows($permission));
+        $mails = self::forAccount(CurrentClient::id())->when($keys !== null, fn (Builder $query) => $query->whereIn('template_key', $keys));
         $email = $this->open === null ? null : (clone $mails)->whereKey($this->open)->first();
 
         return view('client.account.emails', [

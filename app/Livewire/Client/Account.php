@@ -110,8 +110,13 @@ class Account extends ComponentWithProperties
             && mb_strtolower(trim((string) ($this->contact['email'] ?? ''))) !== mb_strtolower(trim((string) $primaryEmail));
         // Nor one that may not manage the services: the welcome mails, with their passwords, go to that address (audit
         // 2026-11-18; the site shows a service's password only with «manageproducts»).
-        if ($primaryMoves && ($this->kindsNotAllowed() !== [] || !CurrentClient::allows('manageproducts'))) {
+        if ($primaryMoves && $this->kindsNotAllowed() !== []) {
             $this->addError('contact.email', __('account.contact_email_kinds_not_allowed'));
+
+            return;
+        }
+        if ($primaryMoves && !CurrentClient::allows('manageproducts')) {
+            $this->addError('contact.email', __('account.contact_email_needs_manageproducts'));
 
             return;
         }
@@ -144,9 +149,10 @@ class Account extends ComponentWithProperties
                 'site' => config('app.name'), 'old' => $oldEmail, 'new' => $user->email,
             ])), [], $oldEmail);
         }
-        // The account's mails now go elsewhere: its old address is told, as the login's is (audit 2026-11-18).
+        // The account's mails now go elsewhere: its old address is told, unless the login's own notice just went there
+        // (audit 2026-11-18; review of #911: the login's address is usually the account's).
         $oldPrimary = trim((string) $primaryEmail);
-        if ($primaryMoves && $oldPrimary !== '' && Str::lower($oldPrimary) !== Str::lower($oldEmail)) {
+        if ($primaryMoves && $oldPrimary !== '' && !($emailChanged && Str::lower($oldPrimary) === Str::lower($oldEmail))) {
             NotificationHelper::sendSystemEmailNotification(__('account.notifications.contact_email_changed_subject'), e(__('account.notifications.contact_email_changed_body', [
                 'site' => config('app.name'), 'old' => $oldPrimary, 'new' => (string) $client->primaryContact?->fresh()?->email,
             ])), [], $oldPrimary);
