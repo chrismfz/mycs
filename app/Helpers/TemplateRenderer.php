@@ -374,6 +374,8 @@ class TemplateRenderer
         $snippet = $service instanceof Service ? $service->product?->email_template : null;
         if ($snippet) {
             try {
+                // With the mail's data, its secrets too (a module's own, e.g. CentovaCast's source password): so the
+                // snippet is a full admin's text (ProductResource, security audit 2026-11-18).
                 $data['product_info'] = new Html(self::renderMarkdown($snippet, $data));
             } catch (TemplateError $e) {
                 report($e); // the email still goes out, without the broken snippet

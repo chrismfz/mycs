@@ -2033,5 +2033,10 @@
     "churn :percent a month": "churn :percent τον μήνα",
     "Terminations": "Τερματισμοί",
     "What each product gained and lost a month, in the same period. A change of package moves its value from one product to the other.": "Τι κέρδισε και τι έχασε κάθε προϊόν τον μήνα, στο ίδιο διάστημα. Μια αλλαγή πακέτου μεταφέρει την αξία της από το ένα προϊόν στο άλλο.",
-    "a year before: :amount a month": "πριν από ένα έτος: :amount τον μήνα"
+    "a year before: :amount a month": "πριν από ένα έτος: :amount τον μήνα",
+    "Stored: empty keeps it": "Αποθηκευμένος: κενό τον κρατά",
+    "Show (audited)": "Εμφάνιση (καταγράφεται)",
+    "Password": "Κωδικός",
+    "Clear": "Διαγραφή",
+    "The stored password is removed here; nothing changes on the server.": "Ο αποθηκευμένος κωδικός σβήνεται εδώ· στον server δεν αλλάζει τίποτα."
 }

@@ -41,6 +41,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Livewire\Component;
@@ -120,6 +121,9 @@ class ProductResource extends Resource
                                 Textarea::make('email_template')
                                     ->hint('Shown as {{ product_info }} in the "service activated" email. Same template syntax, e.g. {{ service.product.name }}, {{ service.license.license_key }} (a nixpal license: its key and status only).')
                                     ->rule(TemplateRenderer::rule())
+                                    // A full admin's text, as the mail templates (security audit 2026-11-18): it is rendered
+                                    // with the welcome mail's data, the service's password and the module's secrets included.
+                                    ->disabled(fn () => Auth::guard('staff')->user()?->hasPermission('*') !== true)
                                     ->nullable(),
                                 Checkbox::make('hidden')->hidden(static::$addons)
                                     ->label('Hide product')

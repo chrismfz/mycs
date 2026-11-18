@@ -6,53 +6,41 @@ use App\Models\NotificationTemplate;
 use App\Models\Staff;
 use App\Models\User;
 
+/**
+ * Staff with «view» see the list of templates; their text is a full admin's only (security audit 2026-11-18). A mail's text
+ * sees its data: a reset or invitation link, a new server's password, a guest's ticket link, an unsubscribe link. An
+ * image or a link added to it sends them to another host, so a list of «private» templates was always one short (the
+ * reviews found the guest ticket mails, then the product snippet): the case is cut, not listed.
+ */
 class NotificationTemplatePolicy
 {
-    /**
-     * Determine whether the user can view any models.
-     */
     public function viewAny(User|Staff $user): bool
     {
         return $user->hasPermission('admin.notification_templates.viewAny');
     }
 
-    /**
-     * Determine whether the user can view the model.
-     */
     public function view(User|Staff $user, NotificationTemplate $notificationTemplate): bool
     {
         return $user->hasPermission('admin.notification_templates.viewAny');
     }
 
-    /**
-     * Determine whether the user can create models.
-     */
     public function create(User|Staff $user): bool
     {
-        return $user->hasPermission('admin.notification_templates.create');
+        return $user->hasPermission('*');
     }
 
-    /**
-     * Determine whether the user can update the model.
-     */
     public function update(User|Staff $user, NotificationTemplate $notificationTemplate): bool
     {
-        return $user->hasPermission('admin.notification_templates.update');
+        return $user->hasPermission('*');
     }
 
-    /**
-     * Determine whether the user can delete the model.
-     */
     public function delete(User|Staff $user, NotificationTemplate $notificationTemplate): bool
     {
-        return $user->hasPermission('admin.notification_templates.delete');
+        return $user->hasPermission('*');
     }
 
-    /**
-     * Determine whether the user can bulk delete the model.
-     */
     public function deleteAny(User|Staff $user): bool
     {
-        return $user->hasPermission('admin.notification_templates.deleteAny');
+        return $user->hasPermission('*');
     }
 }

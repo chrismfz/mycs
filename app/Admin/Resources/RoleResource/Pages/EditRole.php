@@ -19,7 +19,9 @@ class EditRole extends EditRecord
     public array $unlistedPermissions = [];
 
     /** Permissions of what is gone from MyCS: dropped from a role when it is saved (review of #358). */
-    private const REMOVED = ['admin.oauth_clients.'];
+    private const REMOVED = ['admin.oauth_clients.',
+        // A template's text is a full admin's since #911: these grant nothing, and a role keeps none of them.
+        'admin.notification_templates.create', 'admin.notification_templates.update', 'admin.notification_templates.delete'];
 
     protected function getHeaderActions(): array
     {

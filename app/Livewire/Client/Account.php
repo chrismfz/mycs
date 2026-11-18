@@ -106,9 +106,17 @@ class Account extends ComponentWithProperties
         // The primary's address gets the account's mails (ADV-550-R2-4): a login that may not see every kind (or the
         // ones that always go) never moves it to another address.
         $primaryEmail = $client?->primaryContact?->email;
-        if ($client !== null && $this->kindsNotAllowed() !== []
-            && mb_strtolower(trim((string) ($this->contact['email'] ?? ''))) !== mb_strtolower(trim((string) $primaryEmail))) {
+        $primaryMoves = $client !== null
+            && mb_strtolower(trim((string) ($this->contact['email'] ?? ''))) !== mb_strtolower(trim((string) $primaryEmail));
+        // Nor one that may not manage the services: the welcome mails, with their passwords, go to that address (audit
+        // 2026-11-18; the site shows a service's password only with «manageproducts»).
+        if ($primaryMoves && $this->kindsNotAllowed() !== []) {
             $this->addError('contact.email', __('account.contact_email_kinds_not_allowed'));
+
+            return;
+        }
+        if ($primaryMoves && !CurrentClient::allows('manageproducts')) {
+            $this->addError('contact.email', __('account.contact_email_needs_manageproducts'));
 
             return;
         }
@@ -140,6 +148,16 @@ class Account extends ComponentWithProperties
             NotificationHelper::sendSystemEmailNotification(__('account.notifications.email_changed_subject'), e(__('account.notifications.email_changed_body', [
                 'site' => config('app.name'), 'old' => $oldEmail, 'new' => $user->email,
             ])), [], $oldEmail);
+        }
+        // The account's mails now go elsewhere: its old address is told, unless the login's own notice just went there and
+        // already names the same new address (audit 2026-11-18; reviews of #911).
+        $oldPrimary = trim((string) $primaryEmail);
+        $newPrimary = (string) $client?->primaryContact?->fresh()?->email;
+        $toldAlready = $emailChanged && Str::lower($oldPrimary) === Str::lower($oldEmail) && Str::lower($newPrimary) === Str::lower((string) $user->email);
+        if ($primaryMoves && $oldPrimary !== '' && !$toldAlready) {
+            NotificationHelper::sendSystemEmailNotification(__('account.notifications.contact_email_changed_subject'), e(__('account.notifications.contact_email_changed_body', [
+                'site' => config('app.name'), 'old' => $oldPrimary, 'new' => $newPrimary,
+            ])), [], $oldPrimary);
         }
 
         // A new EU VAT number is charged VAT until VIES finds it valid (PR G): the customer is told.

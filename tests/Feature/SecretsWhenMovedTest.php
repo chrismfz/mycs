@@ -47,7 +47,8 @@ class SecretsWhenMovedTest extends TestCase
 
     public function test_a_new_smtp_host_needs_its_password_again(): void
     {
-        $staff = $this->staff(['admin.settings.view', 'admin.settings.update']);
+        // A full admin's since the review of #911 (staff with «settings» alone see the SMTP settings, disabled).
+        $staff = $this->staff(['*']);
 
         $this->livewireAs($staff)->test(Settings::class)->set('data.mail_host', 'smtp.attacker.test')->call('save')
             ->assertHasErrors(['data.mail_password']);

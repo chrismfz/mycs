@@ -417,6 +417,7 @@ class Settings
                 ],
                 [
                     'name' => 'mail_host',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Mail Host',
                     'type' => 'text',
                     'required' => fn (Get $get) => !$get('mail_disable'),
@@ -425,6 +426,7 @@ class Settings
                 ],
                 [
                     'name' => 'mail_port',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Mail Port',
                     'type' => 'text',
                     'required' => fn (Get $get) => !$get('mail_disable'),
@@ -432,6 +434,7 @@ class Settings
                 ],
                 [
                     'name' => 'mail_username',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Mail Username',
                     'type' => 'text',
                     'required' => fn (Get $get) => !$get('mail_disable'),
@@ -439,6 +442,7 @@ class Settings
                 ],
                 [
                     'name' => 'mail_password',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Mail Password',
                     'type' => 'password',
                     'required' => fn (Get $get) => !$get('mail_disable'),
@@ -447,6 +451,7 @@ class Settings
                 ],
                 [
                     'name' => 'mail_encryption',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Mail Encryption',
                     'type' => 'select',
                     'options' => [
@@ -460,6 +465,7 @@ class Settings
                 ],
                 [
                     'name' => 'mail_from_address',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Mail From Address',
                     'type' => 'email',
                     'required' => fn (Get $get) => !$get('mail_disable'),
@@ -467,6 +473,7 @@ class Settings
                 ],
                 [
                     'name' => 'mail_from_name',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Mail From Name',
                     'type' => 'text',
                     'required' => fn (Get $get) => !$get('mail_disable'),
@@ -476,6 +483,7 @@ class Settings
                 // Theming
                 [
                     'name' => 'mail_header',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Header',
                     'type' => 'markdown',
                     'required' => fn (Get $get) => !$get('mail_disable'),
@@ -486,6 +494,7 @@ class Settings
                 ],
                 [
                     'name' => 'mail_footer',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Footer',
                     'type' => 'markdown',
                     'required' => fn (Get $get) => !$get('mail_disable'),
@@ -496,6 +505,7 @@ class Settings
                 ],
                 [
                     'name' => 'mail_css',
+                    'permission' => '*', // every reset link and welcome password passes there: a full admin's (audit 2026-11-18)
                     'label' => 'Mail CSS',
                     'type' => 'markdown',
                     'required' => fn (Get $get) => !$get('mail_disable'),

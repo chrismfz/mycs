@@ -57,6 +57,8 @@ return [
         'not_while_impersonating' => 'Staff signed in as the customer cannot change the login\'s email or two-factor authentication.',
         'email_changed_subject' => 'The email of your login was changed',
         'email_changed_body' => 'The email you sign in with at :site was changed from :old to :new. If you did not do this, contact us at once.',
+        'contact_email_changed_subject' => 'The email of your account was changed',
+        'contact_email_changed_body' => 'The mails of your account at :site (invoices, services, domains) now go to :new instead of :old. If you did not do this, contact us at once.',
         'push_enabled_title' => 'Push notifications enabled',
         'push_enabled_body' => 'You will now receive notifications from :app here.',
         'password_changed' => 'Password has been changed.',
@@ -253,6 +255,7 @@ return [
     'email_preferences_help' => 'The account\'s mails go to this email of the kinds ticked here. Suspensions, terminations, overdue and expiry notices always go.',
     'contact_email_preferences_help' => 'This contact gets its own copy of the account\'s mails of the kinds ticked here. Never a password or a ticket\'s reply: those go to the account\'s email only.',
     'contact_email_kinds_not_allowed' => 'This contact takes mails you may not see: only the account\'s owner can change its email.',
+    'contact_email_needs_manageproducts' => 'The account\'s email gets the services\' welcome emails, with their passwords: only someone who may manage the services can change it.',
     'email_preference' => [
         'general' => 'General',
         'invoice' => 'Invoices',

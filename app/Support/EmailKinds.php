@@ -76,6 +76,34 @@ final class EmailKinds
         return self::KINDS[$templateKey] ?? 'general';
     }
 
+    /**
+     * The templates whose mails «My emails» shows a member (security audit 2026-11-18): null, all of them, for one who may
+     * see every kind (the owner); else only those listed here of a kind they may see. Default deny: a mail not listed
+     * (a ticket's copy to its CC, the WHMCS history imported, a template added later) may be any kind (review of #911).
+     *
+     * @param  callable(string): bool  $allows
+     * @return list<string>|null
+     */
+    public static function keysAllowed(callable $allows): ?array
+    {
+        $kinds = array_filter(self::PERMISSIONS, fn (string $permission) => $allows($permission));
+        // «affiliates» does not count: no template is of that kind, and it is rarely granted (final review of #911: a
+        // member with every other area, or staff in «Login as client», lost the imported history).
+        if (array_diff_key(self::PERMISSIONS, $kinds, ['affiliate' => true]) === []) {
+            return null;
+        }
+
+        return array_keys(array_filter(self::KINDS + self::SHOWN_AS, fn (string $kind) => isset($kinds[$kind])));
+    }
+
+    /**
+     * «My emails» only: templates outside KINDS (their mail goes by other rules: a guest's ticket, a mass mail), each
+     * shown to a member as this kind. A login's own mails (reset, verification, new login, invitation) are never a
+     * member's to read: not listed.
+     */
+    private const SHOWN_AS = ['announcement' => 'general', 'announcement_news' => 'general', 'guest_ticket_message' => 'support',
+        'ticket_received' => 'support', 'ticket_link' => 'support', 'ticket_cc_message' => 'support'];
+
     /** The account's owner gets this template's mail: its primary contact takes the kind, or it is one of ALWAYS. */
     public static function sends(Client $client, string $templateKey): bool
     {
