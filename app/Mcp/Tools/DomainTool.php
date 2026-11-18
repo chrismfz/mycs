@@ -47,7 +47,11 @@ class DomainTool extends McpTool
             'registrar' => $domain->registrarConnection ? '#' . $domain->registrar_connection_id . ' ' . $domain->registrarConnection->registrar . ' (' . $domain->registrarConnection->label . ')' : null,
             'registered' => $date($domain->registered_at), 'expires' => $date($domain->expires_at),
             'grace_ends' => $date($domain->grace_ends_on), 'redemption_ends' => $date($domain->redemption_ends_on),
-            'years' => $domain->years, 'recurring_amount' => $domain->recurring_amount . ' ' . $domain->currency_code, 'auto_renew' => (bool) $domain->auto_renew,
+            'years' => $domain->years,
+            // What it renews at, as the admin shows it: an empty amount follows its TLD's catalog (WG-12), not «none».
+            'renewal_price' => ($price = $domain->renewalPrice()) === null ? null : $price . ' ' . $domain->currency_code,
+            'renewal_price_from' => $domain->recurring_amount !== null ? 'own' : ($price === null ? null : 'catalog'),
+            'auto_renew' => (bool) $domain->auto_renew,
             'payment' => Charges::item($domain),
             'transferred' => $date($domain->transferred_at), 'transfer_lock' => (bool) $domain->transfer_lock, 'id_protection' => (bool) $domain->id_protection,
             'dns_management' => (bool) $domain->dns_management, 'email_forwarding' => (bool) $domain->email_forwarding, 'dnssec' => (bool) $domain->dnssec_enabled,
