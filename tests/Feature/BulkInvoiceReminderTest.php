@@ -15,6 +15,7 @@ use App\Models\Staff;
 use App\Models\User;
 use App\Services\Invoice\PaymentReminders;
 use Filament\Facades\Filament;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -252,5 +253,47 @@ class BulkInvoiceReminderTest extends TestCase
         $this->bulk([$invoice]);
         $this->assertSame(['invoice_overdue'], $this->sent());
         $this->assertStringNotContainsString('last notice', MailFacade::queued(Mail::class)->last()->renderedHtml);
+    }
+
+    /** rev3 M1: the cron reaching the invoice while staff mail it sends nothing again. */
+    public function test_cron_reaching_the_invoice_while_staff_mail_it_does_not_mail_it_twice(): void
+    {
+        $invoice = $this->invoice('2026-10-19'); // 1 day late, overdue days '1,3'
+        MailFacade::fake();
+        $fired = false;
+        DB::listen(function (QueryExecuted $query) use (&$fired) {
+            if (!$fired && str_contains($query->sql, 'insert') && str_contains($query->sql, 'invoice_reminders')
+                && in_array(PaymentReminders::BY_STAFF, $query->bindings, true)) {
+                $fired = true;
+                (new PaymentReminders)->send(); // the cron reaches this invoice now
+            }
+        });
+        $this->assertFalse((new PaymentReminders)->sendNow($invoice), 'the cron mailed it: staff send nothing');
+        $this->assertTrue($fired);
+        $this->assertFalse(DB::table('invoice_reminders')->where(['invoice_id' => $invoice->id, 'kind' => PaymentReminders::BY_STAFF])->exists(), 'staff\'s claim given back');
+        $this->assertSame(['invoice_overdue'], $this->sent(), 'one day-1 notice, not the cron\'s and staff\'s');
+    }
+
+    /** rev3 M1, the other way: the cron took today's notice first; staff send nothing and keep nothing of theirs. */
+    public function test_the_cron_taking_it_first_leaves_staff_nothing_to_send(): void
+    {
+        $invoice = $this->invoice('2026-10-19');
+        DB::table('invoice_reminders')->insert(['invoice_id' => $invoice->id, 'kind' => 'overdue', 'days' => 1, 'due_on' => '2026-10-19', 'sent_at' => now()->subDay()]);
+        // An earlier day's row does not block: here day 1 is taken the day before, a press today is a fresh reminder.
+        MailFacade::fake();
+        $this->assertTrue((new PaymentReminders)->sendNow($invoice));
+        $this->assertSame(['invoice_overdue'], $this->sent());
+    }
+
+    /** rev3 L1: an account that does not take invoice emails is skipped, not counted as queued. */
+    public function test_a_reminder_the_account_does_not_take_is_not_counted_as_queued(): void
+    {
+        $invoice = $this->invoice('2026-10-25');
+        DB::table('contacts')->where('primary_of_client_id', $this->user->client()->id)->update(['email_preferences' => json_encode([])]);
+        MailFacade::fake();
+        $this->livewireAs($this->staff())->test(ListInvoices::class)
+            ->callTableBulkAction('sendReminder', [$invoice])
+            ->assertNotified('Reminders queued: 0');
+        $this->assertSame([], $this->sent());
     }
 }

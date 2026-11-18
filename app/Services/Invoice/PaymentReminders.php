@@ -13,6 +13,7 @@ use App\Services\Billing\RenewalBilling;
 use App\Services\Domains\DomainReminders;
 use App\Services\Payment\AutoCharge;
 use App\Support\DunningWindow;
+use App\Support\EmailKinds;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Carbon;
@@ -191,35 +192,55 @@ class PaymentReminders
         if (DB::table('invoice_reminders')->where('invoice_id', $invoice->id)->where('sent_at', '>=', $today)->exists()) {
             return false;
         }
+        $days = self::overdueDays();
+        $key = $kind === 'due' ? (self::chargedOnItsOwn($invoice) ? 'card_payment_due' : 'invoice_payment_reminder') : 'invoice_overdue';
+        // Not mailed to an account that does not take it (its invoice emails off): skipped, not counted as sent (rev3 L1).
+        if (!EmailKinds::sends($invoice->client, $key)) {
+            return false;
+        }
         $row = ['invoice_id' => $invoice->id, 'kind' => self::BY_STAFF, 'days' => 0, 'due_on' => $today->toDateString()];
         if (DB::table('invoice_reminders')->insertOrIgnore($row + ['sent_at' => now()]) === 0) {
             return false;
         }
-        $days = self::overdueDays();
-        // The last notice only within the cron's catch-up days; later, a plain overdue notice (no «last» every press).
-        $last = $kind === 'overdue' && $days !== [] && $late >= max($days) && $late - max($days) < self::CATCH_UP_DAYS;
-        try {
-            if ($kind === 'due') {
-                NotificationHelper::invoiceNotification($invoice->client, $invoice, self::chargedOnItsOwn($invoice) ? 'card_payment_due' : 'invoice_payment_reminder');
-            } else {
-                NotificationHelper::invoiceNotification($invoice->client, $invoice, 'invoice_overdue', ['overdue' => [
-                    'days' => $late, 'last' => $last, 'suspend_on' => $last ? self::suspendOn($invoice) : null,
-                ]]);
-            }
-        } catch (Throwable $e) {
-            DB::table('invoice_reminders')->where($row)->delete();
-            report($e);
-
-            return false;
-        }
+        // The cron's own rows, taken before the mail as remind() takes them (rev3 M1): a cron run reaching it meanwhile
+        // finds them and sends nothing. The due-soon one only within its days (one sent weeks early does not stop it); the
+        // overdue days reached. The latest taken today by the cron first: it is mailing it, staff send nothing.
         $before = (int) config('settings.cronjob_payment_reminder', 6);
+        $cron = [];
         if ($kind === 'due' && $due->gt($today) && $before > 0 && $due->lte($today->copy()->addDays($before))) {
-            self::recordSent($invoice, 'due', 0);
+            $cron[] = ['kind' => 'due', 'days' => 0];
         }
         foreach ($kind === 'overdue' ? $days : [] as $day) {
             if ($day <= $late) {
-                self::recordSent($invoice, 'overdue', $day);
+                $cron[] = ['kind' => 'overdue', 'days' => $day];
             }
+        }
+        $taken = [$row];
+        foreach ($cron as $i => $claim) {
+            $claim += ['invoice_id' => $invoice->id, 'due_on' => $invoice->due_at->toDateString()];
+            if (DB::table('invoice_reminders')->insertOrIgnore($claim + ['sent_at' => now()]) === 1) {
+                $taken[] = $claim;
+            } elseif ($i === array_key_last($cron) && DB::table('invoice_reminders')->where($claim)->where('sent_at', '>=', $today)->exists()) {
+                foreach ($taken as $mine) {
+                    DB::table('invoice_reminders')->where($mine)->delete();
+                }
+
+                return false;
+            }
+        }
+        // The last notice only within the cron's catch-up days; later, a plain overdue notice (no «last» every press).
+        $last = $kind === 'overdue' && $days !== [] && $late >= max($days) && $late - max($days) < self::CATCH_UP_DAYS;
+        try {
+            NotificationHelper::invoiceNotification($invoice->client, $invoice, $key, $kind === 'due' ? [] : ['overdue' => [
+                'days' => $late, 'last' => $last, 'suspend_on' => $last ? self::suspendOn($invoice) : null,
+            ]]);
+        } catch (Throwable $e) {
+            foreach ($taken as $mine) {
+                DB::table('invoice_reminders')->where($mine)->delete();
+            }
+            report($e);
+
+            return false;
         }
 
         return true;
