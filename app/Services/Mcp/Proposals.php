@@ -333,6 +333,15 @@ final class Proposals
             . ($copies ? ', with its Cc/Bcc.' : '.'), 0, 500)];
     }
 
+    /**
+     * A ticket as staff search for it: its reference with its id («2026-11-12-506671 (#907)», owner 2026-11-19: the id
+     * alone finds nothing in the search), or its id when it has no reference.
+     */
+    public static function ticketName(Ticket $ticket): string
+    {
+        return filled($ticket->reference) ? "{$ticket->reference} (#{$ticket->id})" : "#{$ticket->id}";
+    }
+
     /** @param array<string, mixed> $payload */
     private static function checkTicketReply(array $payload): array
     {
@@ -346,7 +355,7 @@ final class Proposals
             throw new InvalidArgumentException('The draft is empty, or longer than ' . self::DRAFT_MAX . ' characters.');
         }
 
-        return [['ticket_id' => $ticket->id, 'message' => $message], mb_substr('Draft reply on ticket #' . $ticket->id . ' «'
+        return [['ticket_id' => $ticket->id, 'message' => $message], mb_substr('Draft reply on ticket ' . self::ticketName($ticket) . ' «'
             . mb_strimwidth((string) $ticket->subject, 0, 80, '…') . '»: ' . mb_strimwidth($message, 0, 300, '…') . ' (used from the ticket page, never sent by approving)', 0, 500)];
     }
 

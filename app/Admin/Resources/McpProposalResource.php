@@ -5,6 +5,7 @@ namespace App\Admin\Resources;
 use App\Admin\Resources\McpProposalResource\Pages\ListMcpProposals;
 use App\Models\McpProposal;
 use App\Models\Staff;
+use App\Models\Ticket;
 use App\Services\Mcp\Proposals;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
@@ -123,6 +124,13 @@ class McpProposalResource extends Resource
         $html .= '<p class="text-gray-500 dark:text-gray-400">' . e(($record->proposer->name ?? '—') . ', ' . $record->created_at?->format('d/m/Y H:i')) . '</p>';
         $html .= '<p class="whitespace-pre-wrap break-words">' . e((string) $record->summary) . '</p>';
         if ($record->type === Proposals::TICKET_REPLY) {
+            // The ticket by its reference too (owner 2026-11-19), linked: older summaries name only its id.
+            $ticket = Ticket::query()->find((int) ($record->payload['ticket_id'] ?? 0));
+            if ($ticket !== null) {
+                $html .= '<p>' . e(__('Ticket')) . ': <a class="text-primary-600 hover:underline dark:text-primary-400" href="'
+                    . e(TicketResource::getUrl('edit', ['record' => $ticket->id])) . '">' . e(Proposals::ticketName($ticket)) . '</a> «'
+                    . e((string) $ticket->subject) . '»</p>';
+            }
             $html .= '<p class="font-semibold">' . e(__('Drafted reply (MCP)')) . '</p>'
                 . '<pre class="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-3 font-sans dark:bg-white/5">'
                 . e((string) ($record->payload['message'] ?? '')) . '</pre>';
