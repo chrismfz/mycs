@@ -129,7 +129,8 @@ class McpProposalResource extends Resource
             if ($ticket !== null) {
                 $html .= '<p>' . e(__('Ticket')) . ': <a class="text-primary-600 hover:underline dark:text-primary-400" href="'
                     . e(TicketResource::getUrl('edit', ['record' => $ticket->id])) . '">' . e(Proposals::ticketName($ticket)) . '</a> «'
-                    . e((string) $ticket->subject) . '»</p>';
+                    // Without format characters and cut, as the summary has it (review of #916: a mailed subject may reorder the line).
+                    . e(mb_strimwidth((string) preg_replace('/\p{Cf}/u', '', (string) $ticket->subject), 0, 80, '…')) . '»</p>';
             }
             $html .= '<p class="font-semibold">' . e(__('Drafted reply (MCP)')) . '</p>'
                 . '<pre class="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-3 font-sans dark:bg-white/5">'
