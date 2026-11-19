@@ -4,9 +4,12 @@ namespace App\Console\Commands;
 
 use App\Helpers\NotificationHelper;
 use App\Services\Money\MoneyCheck;
+use App\Services\Money\MoneyCheckMail;
 use App\Services\Money\PaymentsLog;
+use App\Support\LogText;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 /**
  * The daily consistency check of the money (docs/money-trail.md §5, MT-3). Read-only. What it finds goes to the
@@ -71,11 +74,17 @@ class MoneyCheckCommand extends Command
             return; // staff were told these, less than a week ago
         }
 
-        $lines = e(implode("\n", array_map(fn (array $finding) => "{$finding['rule']}: {$finding['subject']}: {$finding['detail']}", $findings)));
-        NotificationHelper::sendSystemEmailNotification('Money check: ' . count($findings) . ' finding(s)', <<<HTML
-            The daily money check found what does not add up (nothing was changed; docs/money-trail.md §5):<br>
-            <pre>{$lines}</pre>
-            HTML);
+        // By rule, what each means, and who each finding is about, linked (MoneyCheckMail): the findings' text as the log's.
+        // A renderer that fails sends the plain lines (review of #914): staff hear of it whatever happens.
+        try {
+            $body = (new MoneyCheckMail)->html($findings);
+        } catch (Throwable $e) {
+            report($e);
+            $body = (string) LogText::of(MoneyCheckMail::plain($findings));
+        }
+        // Scrubbed by the renderer, the findings' text only (ADV-914-3): a «Basic Hosting» product or customer is no
+        // credential. The plain lines are scrubbed whole, as ever.
+        NotificationHelper::sendSystemEmailNotification('Money check: ' . count($findings) . ' finding(s)', $body, scrub: false);
         Cache::forever(self::MAILED_KEY, ['fingerprint' => $fingerprint, 'at' => now()->timestamp]);
     }
 }
