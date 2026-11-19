@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Helpers\NotificationHelper;
 use App\Services\Money\MoneyCheck;
+use App\Services\Money\MoneyCheckMail;
 use App\Services\Money\PaymentsLog;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -71,11 +72,8 @@ class MoneyCheckCommand extends Command
             return; // staff were told these, less than a week ago
         }
 
-        $lines = e(implode("\n", array_map(fn (array $finding) => "{$finding['rule']}: {$finding['subject']}: {$finding['detail']}", $findings)));
-        NotificationHelper::sendSystemEmailNotification('Money check: ' . count($findings) . ' finding(s)', <<<HTML
-            The daily money check found what does not add up (nothing was changed; docs/money-trail.md §5):<br>
-            <pre>{$lines}</pre>
-            HTML);
+        // By rule, what each means, and who each finding is about, linked (MoneyCheckMail): the findings' text as the log's.
+        NotificationHelper::sendSystemEmailNotification('Money check: ' . count($findings) . ' finding(s)', (new MoneyCheckMail)->html($findings));
         Cache::forever(self::MAILED_KEY, ['fingerprint' => $fingerprint, 'at' => now()->timestamp]);
     }
 }
