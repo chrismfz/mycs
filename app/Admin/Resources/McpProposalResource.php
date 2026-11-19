@@ -14,6 +14,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\HtmlString;
 use InvalidArgumentException;
 
 /** What MCP agents proposed (docs/mcp.md): approve (it runs, once) or reject, within a day. */
@@ -80,6 +81,11 @@ class McpProposalResource extends Resource
                 ]),
             ])
             ->recordActions([
+                // The whole of it, without leaving the list (owner 2026-11-19: the summary is cut): read only.
+                Action::make('view')->label('View')->icon('ri-eye-line')->color('gray')
+                    ->modalHeading(fn (McpProposal $record) => 'Proposal #' . $record->id . ' (' . $record->status . ')')
+                    ->modalContent(fn (McpProposal $record) => self::details($record))
+                    ->modalSubmitAction(false)->modalCancelActionLabel('Close'),
                 // A drafted reply is used from its ticket, never sent by approving it.
                 Action::make('openTicket')->label('Open the ticket')->icon('ri-chat-1-line')
                     ->visible(fn (McpProposal $record) => $record->type === Proposals::TICKET_REPLY && $record->isOpen())
@@ -105,6 +111,27 @@ class McpProposalResource extends Resource
                     ->authorize(fn (McpProposal $record) => self::staff()?->can('decide', $record) ?? false)
                     ->action(fn (McpProposal $record) => Proposals::reject($record, self::staff())),
             ]);
+    }
+
+    /**
+     * What a proposal says, whole: its summary, a drafted reply's text as written (escaped, links as plain text: it may
+     * carry what a customer wrote, as on the ticket page), and what came of it.
+     */
+    public static function details(McpProposal $record): HtmlString
+    {
+        $html = '<div class="space-y-3 text-sm">';
+        $html .= '<p class="text-gray-500 dark:text-gray-400">' . e(($record->proposer->name ?? '—') . ', ' . $record->created_at?->format('d/m/Y H:i')) . '</p>';
+        $html .= '<p class="whitespace-pre-wrap break-words">' . e((string) $record->summary) . '</p>';
+        if ($record->type === Proposals::TICKET_REPLY) {
+            $html .= '<p class="font-semibold">' . e(__('Drafted reply (MCP)')) . '</p>'
+                . '<pre class="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-3 font-sans dark:bg-white/5">'
+                . e((string) ($record->payload['message'] ?? '')) . '</pre>';
+        }
+        if (filled($record->result)) {
+            $html .= '<p class="text-gray-500 dark:text-gray-400 whitespace-pre-wrap break-words">' . e((string) $record->result) . '</p>';
+        }
+
+        return new HtmlString($html . '</div>');
     }
 
     public static function getPages(): array
