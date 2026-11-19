@@ -199,9 +199,14 @@ class Adv914MoneyCheckMailTest extends TestCase
         $service = Service::factory()->create(['client_id' => $client->id, 'plan_id' => $created->plan->id, 'product_id' => $created->product->id,
             'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 1, 'quantity' => 1]);
         $invoice = $this->invoiceOf($client);
-        DB::statement('PRAGMA defer_foreign_keys = ON'); // never checked: the test's transaction is rolled back
+        // Never checked: the test's transaction is rolled back (SQLite defers; MariaDB, as SweepImportTest, turns them off).
+        $sqlite = DB::getDriverName() === 'sqlite';
+        DB::statement($sqlite ? 'PRAGMA defer_foreign_keys = ON' : 'SET foreign_key_checks = 0');
         DB::table('services')->where('id', $service->id)->update(['client_id' => 999999, 'product_id' => 999999]);
         DB::table('invoices')->where('id', $invoice->id)->update(['currency_code' => 'XXX', 'client_id' => 999999]);
+        if (!$sqlite) {
+            DB::statement('SET foreign_key_checks = 1');
+        }
 
         $html = (new MoneyCheckMail)->html([
             ['rule' => 'service_unbilled', 'subject' => "service #{$service->id}", 'detail' => "runs on invoice #{$invoice->id}"],
