@@ -79,6 +79,8 @@ class StaffRoom extends Component
         // Message ids run across every thread: a late call from the thread just left must not mark this one (review of #377).
         if ($staff !== null && $thread !== null && $thread->id === $threadId) {
             StaffChat::markRead($staff, $thread, min($upTo, (int) $thread->messages()->max('id')));
+            // The sidebar's «new messages» link clears now, not at the notifier's next poll (review of #917).
+            $this->dispatch('staff-chat-read')->to(StaffChatNotifier::class);
         }
     }
 

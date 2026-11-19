@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\Pages\LiveChat;
 use App\Livewire\Admin\StaffChatNotifier;
+use App\Livewire\Admin\StaffRoom;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Support\StaffChat;
@@ -125,5 +126,40 @@ class StaffChatNotifyTest extends TestCase
 
         $this->get(LiveChat::getUrl())->assertOk()
             ->assertSee(__('Turn on notifications'))->assertSee(__('Test notification'))->assertSee(__('Sound: on'));
+    }
+
+    /** Owner 2026-11-19: a single tone is easy to miss, so unread messages show in the sidebar of every admin page. */
+    public function test_the_sidebar_shows_unread_staff_messages_from_the_alerts_count(): void
+    {
+        $me = $this->member();
+        $haris = $this->member(attributes: ['first_name' => 'Haris', 'last_name' => 'A']);
+        StaffChat::post($haris, StaffChat::direct($haris, $me), 'the vault code is 1234');
+        $this->actAs($me);
+
+        $html = $this->get('/sysadmin')->assertOk()->assertSee('mycs-chat-news', false)->getContent();
+        // Who wrote reaches the page through the alert's attributes; what they wrote never does (F21).
+        $this->assertStringContainsString('data-title="' . e(__('Message from :name', ['name' => 'Haris A'])) . '"', (string) $html);
+        $this->assertStringNotContainsString('vault code', (string) $html);
+        $notifier = (string) file_get_contents(resource_path('views/livewire/admin/staff-chat-notifier.blade.php'));
+        $sidebar = (string) file_get_contents(resource_path('views/filament/admin/sidebar-work.blade.php'));
+        $this->assertStringContainsString("new CustomEvent('mycs-chat-news'", $notifier);
+        $this->assertStringContainsString('x-on:mycs-chat-news.window=', $sidebar);
+        // The title goes in as text, never as markup.
+        $this->assertStringContainsString('x-text="news.title"', $sidebar);
+        $this->assertStringNotContainsString('x-html', $sidebar);
+    }
+
+    /** Review of #917: reading the thread clears the sidebar link at once, not at the notifier's next poll. */
+    public function test_reading_a_thread_redraws_the_alert(): void
+    {
+        $me = $this->member();
+        $haris = $this->member();
+        $thread = StaffChat::direct($haris, $me);
+        StaffChat::post($haris, $thread, 'hello');
+        $this->actAs($me);
+
+        Livewire::test(StaffRoom::class)->call('open', $haris->id)->call('markSeen', $thread->id, PHP_INT_MAX)
+            ->assertDispatchedTo(StaffChatNotifier::class, 'staff-chat-read');
+        Livewire::test(StaffChatNotifier::class)->dispatch('staff-chat-read')->assertSeeHtml('data-total="0"');
     }
 }

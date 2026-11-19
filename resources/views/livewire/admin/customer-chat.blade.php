@@ -21,7 +21,7 @@
     @include('livewire.admin.partials.visitor-label', ['chat' => $chat])
     @endif
 
-    <div class="flex max-h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
+    <div class="flex max-h-[60vh] min-h-64 flex-col lg:h-[60vh] gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
         x-data x-init="$el.scrollTop = $el.scrollHeight">
         @foreach ($messages as $message)
         @php
@@ -69,7 +69,7 @@
         <div class="flex items-end gap-2">
             <textarea wire:model="body" rows="2" maxlength="{{ \App\Support\ChatText::MAX }}"
                 x-on:keydown.enter="if (!$event.shiftKey && !$event.isComposing) { $event.preventDefault(); $wire.send() }"
-                class="block w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-900" placeholder="{{ __('Write a message…') }}"></textarea>
+                class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-none dark:border-white/20 dark:bg-gray-900" placeholder="{{ __('Write a message…') }}"></textarea>
             <x-filament::button type="submit">{{ __('Send') }}</x-filament::button>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -114,7 +114,7 @@
         <button type="button" x-show="!open" x-on:click="open = true" class="self-start text-xs text-warning-700 hover:underline dark:text-warning-400">{{ __('Add an internal note') }}</button>
         <div x-show="open" x-cloak class="flex items-end gap-2">
             <textarea wire:model="note" rows="2" maxlength="{{ \App\Support\ChatText::MAX }}"
-                class="block w-full rounded-lg border-dashed border-warning-400 bg-warning-50 text-sm dark:border-warning-500/50 dark:bg-warning-500/10" placeholder="{{ __('Internal note, the customer does not see it…') }}"></textarea>
+                class="block w-full rounded-lg border border-dashed border-warning-400 px-3 py-2 bg-warning-50 text-sm dark:border-warning-500/50 dark:bg-warning-500/10" placeholder="{{ __('Internal note, the customer does not see it…') }}"></textarea>
             <x-filament::button type="submit" color="warning">{{ __('Add note') }}</x-filament::button>
         </div>
         @error('note') <p class="text-sm text-warning-600">{{ $message }}</p> @enderror

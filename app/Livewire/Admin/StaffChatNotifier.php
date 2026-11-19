@@ -9,6 +9,7 @@ use App\Support\LiveChats;
 use App\Support\StaffChat;
 use App\Support\StaffPresence;
 use Illuminate\View\View;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 /**
@@ -19,6 +20,10 @@ use Livewire\Component;
  */
 class StaffChatNotifier extends Component
 {
+    /** A thread just read redraws the alert, so its count and the sidebar link clear at once (review of #917). */
+    #[On('staff-chat-read')]
+    public function refreshNews(): void {}
+
     public function render(): View
     {
         $staff = auth('staff')->user();
