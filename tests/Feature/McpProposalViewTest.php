@@ -22,14 +22,17 @@ class McpProposalViewTest extends TestCase
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         $staff = Staff::factory()->create(['role_id' => Role::create(['name' => 'R' . uniqid(), 'permissions' => ['*']])->id]);
         $this->actingAs($staff, 'staff');
-        $ticket = Ticket::factory()->create(['subject' => 'Repository']);
+        $ticket = Ticket::factory()->create(['subject' => 'Repository', 'reference' => '2026-11-12-506671']);
         $message = 'Hello Paulo, ' . str_repeat('please run the command below. ', 20) . "\n<script>alert(1)</script>\nTHE-LAST-LINE";
         $proposal = Proposals::propose(Proposals::TICKET_REPLY, ['ticket_id' => $ticket->id, 'message' => $message], $staff);
         $this->assertStringNotContainsString('THE-LAST-LINE', $proposal->summary, 'the summary is cut: the reason for View');
+        // Owner 2026-11-19: the ticket as staff search for it, its reference with its id.
+        $this->assertStringStartsWith("Draft reply on ticket 2026-11-12-506671 (#{$ticket->id}) «Repository»", $proposal->summary);
 
         Livewire::test(ListMcpProposals::class)
             ->mountTableAction('view', $proposal)
             ->assertMountedActionModalSee('THE-LAST-LINE')
+            ->assertMountedActionModalSee("2026-11-12-506671 (#{$ticket->id})")
             ->assertMountedActionModalSeeHtml(e('<script>alert(1)</script>'))
             ->assertMountedActionModalDontSeeHtml('<script>alert(1)</script>');
 
