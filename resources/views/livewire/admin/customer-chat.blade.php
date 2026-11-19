@@ -21,7 +21,7 @@
     @include('livewire.admin.partials.visitor-label', ['chat' => $chat])
     @endif
 
-    <div class="flex h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
+    <div class="flex max-h-[60vh] min-h-64 flex-col lg:h-[60vh] gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
         x-data x-init="$el.scrollTop = $el.scrollHeight">
         @foreach ($messages as $message)
         @php

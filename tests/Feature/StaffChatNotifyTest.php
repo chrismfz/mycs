@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Admin\Pages\LiveChat;
 use App\Livewire\Admin\StaffChatNotifier;
+use App\Livewire\Admin\StaffRoom;
 use App\Models\Role;
 use App\Models\Staff;
 use App\Support\StaffChat;
@@ -146,5 +147,19 @@ class StaffChatNotifyTest extends TestCase
         // The title goes in as text, never as markup.
         $this->assertStringContainsString('x-text="news.title"', $sidebar);
         $this->assertStringNotContainsString('x-html', $sidebar);
+    }
+
+    /** Review of #917: reading the thread clears the sidebar link at once, not at the notifier's next poll. */
+    public function test_reading_a_thread_redraws_the_alert(): void
+    {
+        $me = $this->member();
+        $haris = $this->member();
+        $thread = StaffChat::direct($haris, $me);
+        StaffChat::post($haris, $thread, 'hello');
+        $this->actAs($me);
+
+        Livewire::test(StaffRoom::class)->call('open', $haris->id)->call('markSeen', $thread->id, PHP_INT_MAX)
+            ->assertDispatchedTo(StaffChatNotifier::class, 'staff-chat-read');
+        Livewire::test(StaffChatNotifier::class)->dispatch('staff-chat-read')->assertSeeHtml('data-total="0"');
     }
 }
