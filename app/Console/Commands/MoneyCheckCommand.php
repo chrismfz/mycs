@@ -8,6 +8,7 @@ use App\Services\Money\MoneyCheckMail;
 use App\Services\Money\PaymentsLog;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 /**
  * The daily consistency check of the money (docs/money-trail.md §5, MT-3). Read-only. What it finds goes to the
@@ -73,7 +74,16 @@ class MoneyCheckCommand extends Command
         }
 
         // By rule, what each means, and who each finding is about, linked (MoneyCheckMail): the findings' text as the log's.
-        NotificationHelper::sendSystemEmailNotification('Money check: ' . count($findings) . ' finding(s)', (new MoneyCheckMail)->html($findings));
+        // A renderer that fails sends the plain lines (review of #914): staff hear of it whatever happens.
+        try {
+            $body = (new MoneyCheckMail)->html($findings);
+        } catch (Throwable $e) {
+            report($e);
+            $body = MoneyCheckMail::plain($findings);
+        }
+        // Not scrubbed as a log line (ADV-914-3): a «Basic Hosting» product or customer is no credential, and the body is
+        // only the check's words and the records' names, escaped.
+        NotificationHelper::sendSystemEmailNotification('Money check: ' . count($findings) . ' finding(s)', $body, scrub: false);
         Cache::forever(self::MAILED_KEY, ['fingerprint' => $fingerprint, 'at' => now()->timestamp]);
     }
 }

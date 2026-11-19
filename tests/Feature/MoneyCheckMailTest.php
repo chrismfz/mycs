@@ -6,6 +6,7 @@ use App\Admin\Resources\ClientResource;
 use App\Admin\Resources\InvoiceResource;
 use App\Admin\Resources\ServiceResource;
 use App\Enums\InvoiceTransactionStatus;
+use App\Models\Client;
 use App\Models\Credit;
 use App\Models\Invoice;
 use App\Models\Price;
@@ -17,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -130,5 +132,18 @@ class MoneyCheckMailTest extends TestCase
             $this->assertNotSame('', $english, $rule);
             $this->assertNotSame($english, MoneyCheckMail::meaning($rule), "{$rule}: no Greek");
         }
+    }
+
+    /** Review of #914: a renderer that fails still mails the findings, as plain lines, and the log still gets them. */
+    public function test_a_failing_renderer_still_mails_the_plain_lines(): void
+    {
+        $client = $this->user->client();
+        $credit = Credit::query()->create(['client_id' => $client->id, 'currency_code' => 'USD', 'amount' => 0]);
+        DB::table('credits')->where('id', $credit->id)->update(['amount' => -2]);
+        Event::listen('eloquent.retrieved: ' . Client::class, fn () => throw new \RuntimeException('renderer down'));
+
+        $body = $this->body();
+
+        $this->assertStringContainsString("credit_negative: customer #{$client->id} USD: credit -2", $body);
     }
 }

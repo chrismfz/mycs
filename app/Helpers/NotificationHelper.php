@@ -339,6 +339,7 @@ class NotificationHelper
         string $body,
         array $attachments = [],
         ?string $email = null,
+        bool $scrub = true,
     ): void {
         if (config('settings.mail_disable')) {
             return;
@@ -346,7 +347,7 @@ class NotificationHelper
         // No address given: each of the staff chosen for system notices, else the System Email Address (owner 2026-11-13).
         if (!$email) {
             foreach (StaffRecipients::systemNotices() as $address) {
-                self::sendSystemEmailNotification($subject, $body, $attachments, $address);
+                self::sendSystemEmailNotification($subject, $body, $attachments, $address, $scrub);
             }
 
             return;
@@ -354,7 +355,7 @@ class NotificationHelper
         // To staff, and kept in the email log: an error in it shows no secret, unless «Full logs» (App\Support\LogText).
         $mail = new SystemMail([
             'subject' => (string) LogText::of($subject),
-            'body' => (string) LogText::of($body),
+            'body' => $scrub ? (string) LogText::of($body) : $body,
         ]);
         $emailLog = EmailLog::create([
             'subject' => $mail->envelope()->subject,
