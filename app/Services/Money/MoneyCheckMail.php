@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
+use App\Support\LogText;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -84,7 +85,10 @@ class MoneyCheckMail
         };
     }
 
-    /** @param  array{rule: string, subject: string, detail: string}  $finding @return list<array{0: string, 1: int}> */
+    /**
+     * @param  array{rule: string, subject: string, detail: string}  $finding
+     * @return list<array{0: string, 1: int}>
+     */
     private static function references(array $finding): array
     {
         $found = [];
@@ -121,7 +125,7 @@ class MoneyCheckMail
         $this->records['invoice'] = Invoice::query()->whereIn('id', $ids['invoice'] ?? [])
             ->with(['items', 'adjustmentNotes', 'currency', ...array_map(fn ($relation) => "client.{$relation}", $client)])->get()->keyBy('id')->all();
         $this->records['service'] = Service::query()->whereIn('id', $ids['service'] ?? [])
-            ->with(['product', 'license', ...array_map(fn ($relation) => "client.{$relation}", $client)])->get()->keyBy('id')->all();
+            ->with(['product.server', 'license', 'properties', 'parent.product.server', 'parent.license', 'parent.properties', ...array_map(fn ($relation) => "client.{$relation}", $client)])->get()->keyBy('id')->all();
         $this->records['customer'] = Client::query()->whereIn('id', $ids['customer'] ?? [])->with($client)->get()->keyBy('id')->all();
     }
 
@@ -133,6 +137,10 @@ class MoneyCheckMail
     /** The text, escaped, with each invoice, service and customer it names as a link (an invoice by its number). */
     private function linked(string $text): string
     {
+        // The check's own text is scrubbed as a log line, as it was (third review of #914: a gateway's error may carry a
+        // URL with a key); the records' names added here are not (ADV-914-3).
+        $text = (string) LogText::of($text);
+
         return (string) preg_replace_callback(self::REFERENCE, function (array $match): string {
             $record = $this->record($match[1], (int) $match[2]);
 

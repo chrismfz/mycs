@@ -6,6 +6,7 @@ use App\Helpers\NotificationHelper;
 use App\Services\Money\MoneyCheck;
 use App\Services\Money\MoneyCheckMail;
 use App\Services\Money\PaymentsLog;
+use App\Support\LogText;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -79,10 +80,10 @@ class MoneyCheckCommand extends Command
             $body = (new MoneyCheckMail)->html($findings);
         } catch (Throwable $e) {
             report($e);
-            $body = MoneyCheckMail::plain($findings);
+            $body = (string) LogText::of(MoneyCheckMail::plain($findings));
         }
-        // Not scrubbed as a log line (ADV-914-3): a «Basic Hosting» product or customer is no credential, and the body is
-        // only the check's words and the records' names, escaped.
+        // Scrubbed by the renderer, the findings' text only (ADV-914-3): a «Basic Hosting» product or customer is no
+        // credential. The plain lines are scrubbed whole, as ever.
         NotificationHelper::sendSystemEmailNotification('Money check: ' . count($findings) . ' finding(s)', $body, scrub: false);
         Cache::forever(self::MAILED_KEY, ['fingerprint' => $fingerprint, 'at' => now()->timestamp]);
     }

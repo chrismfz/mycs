@@ -146,4 +146,36 @@ class MoneyCheckMailTest extends TestCase
 
         $this->assertStringContainsString("credit_negative: customer #{$client->id} USD: credit -2", $body);
     }
+
+    /** Third review of #914: the check's own text is still scrubbed (a gateway error with a key), the names are not. */
+    public function test_the_findings_text_is_scrubbed_and_the_names_are_not(): void
+    {
+        $this->user->forceFill(['first_name' => 'Basic', 'last_name' => 'Solutionsltd'])->saveQuietly();
+        $client = $this->user->client()->refresh();
+
+        $html = (new MoneyCheckMail)->html([['rule' => 'gateway_unreconciled', 'subject' => "customer #{$client->id} USD",
+            'detail' => 'its list was not read: Authorization: Bearer sk_live_abcdefghijklmnop']]);
+
+        $this->assertStringNotContainsString('sk_live_abcdefghijklmnop', $html);
+        $this->assertStringContainsString(e($client->name), $html);
+    }
+
+    /** Third review of #914: services with nothing but properties (a VM, a license) are read at once too. */
+    public function test_many_services_do_not_query_per_service(): void
+    {
+        $created = $this->createProduct();
+        $findings = [];
+        for ($i = 0; $i < 30; $i++) {
+            $service = Service::factory()->create(['client_id' => $this->user->client()->id, 'plan_id' => $created->plan->id,
+                'product_id' => $created->product->id, 'status' => Service::STATUS_ACTIVE, 'currency_code' => 'USD', 'price' => 1, 'quantity' => 1]);
+            $findings[] = ['rule' => 'service_unbilled', 'subject' => "service #{$service->id}", 'detail' => 'recurring service with no due date'];
+        }
+
+        DB::enableQueryLog();
+        (new MoneyCheckMail)->html($findings);
+        $queries = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        $this->assertLessThan(30, $queries, "{$queries} queries for 30 services");
+    }
 }
