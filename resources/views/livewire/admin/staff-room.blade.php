@@ -13,7 +13,7 @@
     </h3>
     @error('with') <p class="text-sm text-warning-600">{{ $message }}</p> @enderror
     {{-- Follows new messages while the reader is at the bottom; marks them seen only while the tab is in front. --}}
-    <div class="flex max-h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
+    <div class="flex h-[60vh] min-h-64 flex-col gap-3 overflow-y-auto rounded-lg border border-gray-200 p-3 dark:border-white/10"
         wire:key="staff-thread-{{ $thread->id }}"
         data-thread-id="{{ (int) $thread->id }}"
         data-last-id="{{ (int) $messages->last()?->id }}"
@@ -52,7 +52,7 @@
         <div class="flex items-end gap-2">
             <textarea wire:model="body" rows="2" maxlength="{{ \App\Support\ChatText::MAX }}"
                 x-on:keydown.enter="if (!$event.shiftKey && !$event.isComposing) { $event.preventDefault(); $wire.send() }"
-                class="block w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-900"
+                class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-none dark:border-white/20 dark:bg-gray-900"
                 placeholder="{{ __('Write a message…') }}"></textarea>
             <x-filament::button type="submit">{{ __('Send') }}</x-filament::button>
         </div>

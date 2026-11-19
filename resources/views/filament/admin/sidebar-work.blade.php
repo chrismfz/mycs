@@ -92,6 +92,15 @@
         <span class="rounded-full bg-white/25 px-2 text-xs" x-text="waiting"></span>
     </a>
 
+    {{-- Unread messages of the staff chat (owner 2026-11-19): who wrote, never what (F21); a click opens the thread. --}}
+    <a x-data="{ news: window.mycsChatNews ?? { total: 0, title: '', url: '' } }"
+        x-on:mycs-chat-news.window="news = $event.detail" x-show="news.total > 0" x-cloak
+        x-bind:href="news.url" wire:navigate
+        class="mycs-chat-news mx-3 flex items-center justify-between gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm font-semibold text-white shadow hover:bg-primary-500">
+        <span class="truncate" x-text="news.title"></span>
+        <span class="rounded-full bg-white/25 px-2 text-xs" x-text="news.total > 99 ? '99+' : news.total"></span>
+    </a>
+
     {{-- Who of the staff is in (docs/livechat.md §7β). --}}
     @livewire('admin.staff-online', key('mycs-staff-online'))
 </div>

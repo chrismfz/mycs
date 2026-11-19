@@ -8,6 +8,7 @@
     A customer waiting rings three tones, and again every 15 seconds while a customer still waits in the member's
     departments (a chat whose operator left too) and the member is «Available» (owner 2026-10-27: one tone is lost in a
     noisy room; 15 seconds since 2026-11-07); the last reminder's time is shared by the tabs, so two tabs do not double it. The count goes to the «Customers waiting» link in the sidebar.
+    Unread staff messages go to a link of their own above it, with who wrote (never what, F21); a click opens the thread.
 --}}
 <div wire:poll.10s.keep-alive hidden
     data-staff="{{ $staffId }}" data-total="{{ $news['total'] }}" data-latest="{{ $news['latest'] }}"
@@ -91,6 +92,9 @@
             // The sidebar's «Customers waiting» link, on every page (it reads this when it is drawn, then listens).
             window.mycsChatWaiting = Number(this.$el.dataset.waiting ?? 0);
             window.dispatchEvent(new CustomEvent('mycs-chat-waiting', { detail: window.mycsChatWaiting }));
+            // The sidebar's «new messages» link for the staff chat (owner 2026-11-19: a single tone is easy to miss).
+            window.mycsChatNews = { total: Number(this.$el.dataset.total), title: this.$el.dataset.title ?? '', url: this.$el.dataset.url };
+            window.dispatchEvent(new CustomEvent('mycs-chat-news', { detail: window.mycsChatNews }));
         },
         check() {
             this.title();
